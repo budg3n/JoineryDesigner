@@ -29,6 +29,102 @@ function DueBadge({ t }) {
   return <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 text-teal-700">Due {lbl}</span>
 }
 
+
+// ── KITCHEN SPECS ──
+const KITCHEN_FIELDS = [
+  { key:'base_height',       label:'Base cabinet height',      unit:'mm', group:'base',      icon:'▬' },
+  { key:'base_depth',        label:'Base cabinet depth',       unit:'mm', group:'base',      icon:'▬' },
+  { key:'upper_height',      label:'Upper cabinet height',     unit:'mm', group:'upper',     icon:'▭' },
+  { key:'upper_depth',       label:'Upper cabinet depth',      unit:'mm', group:'upper',     icon:'▭' },
+  { key:'tall_height',       label:'Tall cabinet height',      unit:'mm', group:'tall',      icon:'▮' },
+  { key:'tall_depth',        label:'Tall cabinet depth',       unit:'mm', group:'tall',      icon:'▮' },
+  { key:'bench_thickness',   label:'Benchtop thickness',       unit:'mm', group:'benchtop',  icon:'━' },
+  { key:'bench_material',    label:'Benchtop material',        unit:'',   group:'benchtop',  icon:'━', text: true },
+  { key:'bench_overhang_side', label:'Overhang sides',         unit:'mm', group:'benchtop',  icon:'━' },
+  { key:'bench_overhang_front', label:'Overhang front',        unit:'mm', group:'benchtop',  icon:'━' },
+]
+
+const GROUP_LABELS = {
+  base:     { label:'Base cabinets',  color:'#5B8AF0', bg:'#EEF2FF' },
+  upper:    { label:'Upper cabinets', color:'#1D9E75', bg:'#ECFDF5' },
+  tall:     { label:'Tall cabinets',  color:'#EF9F27', bg:'#FEF3C7' },
+  benchtop: { label:'Benchtop',       color:'#7F77DD', bg:'#F5F3FF' },
+}
+
+function KitchenSpecs({ specs, onChange }) {
+  const parsed = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
+  const set = (key, val) => {
+    const updated = { ...parsed, [key]: val }
+    onChange(JSON.stringify(updated))
+  }
+
+  const groups = ['base','upper','tall','benchtop']
+
+  return (
+    <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+      {/* header */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:18 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em" }}>Kitchen specifications</div>
+        <div style={{ flex:1, height:1, background:'#F3F4F6' }} />
+        <span style={{ fontSize:11, padding:'2px 9px', borderRadius:20, background:'#EEF2FF', color:'#3730A3', fontWeight:600 }}>Kitchen</span>
+      </div>
+
+      {/* groups */}
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        {groups.map(group => {
+          const g = GROUP_LABELS[group]
+          const fields = KITCHEN_FIELDS.filter(f => f.group === group)
+          return (
+            <div key={group}>
+              {/* group label */}
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <div style={{ width:3, height:16, borderRadius:2, background:g.color, flexShrink:0 }} />
+                <span style={{ fontSize:12, fontWeight:700, color:g.color }}>{g.label}</span>
+              </div>
+              {/* spec tiles */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:8 }}>
+                {fields.map(f => {
+                  const val = parsed[f.key] || ''
+                  const hasVal = val !== '' && val !== null && val !== undefined
+                  return (
+                    <label key={f.key} style={{
+                      display:'block', borderRadius:10, border:`1.5px solid ${hasVal ? g.color+'55' : '#E8ECF0'}`,
+                      background: hasVal ? g.bg : '#FAFAFA',
+                      padding:'10px 12px', cursor:'text', transition:'all .15s',
+                    }}>
+                      <div style={{ fontSize:10, fontWeight:700, color: hasVal ? g.color : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, lineHeight:1.3 }}>
+                        {f.label}
+                      </div>
+                      <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
+                        <input
+                          type={f.text ? 'text' : 'number'}
+                          value={val}
+                          onChange={e => set(f.key, e.target.value)}
+                          placeholder={f.text ? 'e.g. Caesarstone' : '0'}
+                          min={f.text ? undefined : 0}
+                          style={{
+                            border:'none', outline:'none', background:'transparent', padding:0, margin:0,
+                            fontSize:20, fontWeight:800, color: hasVal ? '#2A3042' : '#C4C9D4',
+                            width:'100%', fontFamily:'inherit',
+                            WebkitUserSelect:'text', userSelect:'text',
+                          }}
+                        />
+                        {f.unit && (
+                          <span style={{ fontSize:12, color: hasVal ? g.color : '#C4C9D4', fontWeight:600, flexShrink:0 }}>{f.unit}</span>
+                        )}
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
@@ -111,6 +207,7 @@ export default function JobDetail() {
       name: job.name, client: job.client, type: job.type, status: job.status,
       notes: job.notes, mvnum: job.mvnum, start_date: job.start_date,
       due_date: job.due_date, budget_hours: job.budget_hours, delivery_address: job.delivery_address,
+      kitchen_specs: job.kitchen_specs || null,
     }).eq('id', id)
     setSaving(false)
     if (error) toast(error.message, 'error')
@@ -200,6 +297,23 @@ export default function JobDetail() {
     await supabase.from('jobs').update({ status:'Complete' }).eq('id', id)
     navigate('/')
     toast('Job archived')
+  }
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  async function deleteJob() {
+    // Delete attachments from storage first
+    if (atts.length) {
+      const paths = atts.map(a => a.storage_path).filter(Boolean)
+      if (paths.length) await supabase.storage.from(BUCKET).remove(paths)
+    }
+    // Delete DB records (job_materials + attachments cascade via FK, but be explicit)
+    await supabase.from('attachments').delete().eq('job_id', id)
+    await supabase.from('job_materials').delete().eq('job_id', id)
+    await supabase.from('job_assignments').delete().eq('job_id', id)
+    await supabase.from('jobs').delete().eq('id', id)
+    toast('Job deleted')
+    navigate('/')
   }
 
   if (loading) return <div className="flex justify-center py-16"><div className="spinner" /></div>
@@ -302,6 +416,11 @@ export default function JobDetail() {
         </div>
       </div>
 
+      {/* kitchen specs — only shown when job type is Kitchen */}
+      {job.type === 'Kitchen' && (
+        <KitchenSpecs specs={job.kitchen_specs} onChange={specs => setJob(j => ({ ...j, kitchen_specs: specs }))} />
+      )}
+
       {/* notes */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
         <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8, display:"block" }}>Notes</div>
@@ -393,12 +512,59 @@ export default function JobDetail() {
         ))}
       </div>
 
-      {/* actions */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        <button onClick={saveJob} disabled={saving} className="btn-primary disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button>
+      {/* primary actions */}
+      <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+        <button onClick={saveJob} disabled={saving} className="btn-primary disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
         <button onClick={() => navigate(`/job/${id}/sketch`)} className="btn-green">✏️ New sketch</button>
+        <button onClick={archiveJob} className="btn btn-red btn-sm">Archive job</button>
       </div>
-      <button onClick={archiveJob} className="btn btn-red btn-sm">Archive job</button>
+
+      {/* delete — admin only */}
+      {can('deleteJob') && (
+        <div style={{ marginTop:24, paddingTop:20, borderTop:'1px solid #F3F4F6' }}>
+          {!showDeleteConfirm ? (
+            <button onClick={() => setShowDeleteConfirm(true)}
+              style={{ display:'flex', alignItems:'center', gap:8, background:'none', border:'1px solid #FCA5A5', borderRadius:9, padding:'8px 16px', cursor:'pointer', color:'#991B1B', fontSize:13, fontWeight:600, transition:'all .15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#FEF2F2'; e.currentTarget.style.borderColor='#F87171' }}
+              onMouseLeave={e => { e.currentTarget.style.background='none'; e.currentTarget.style.borderColor='#FCA5A5' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+              Delete job permanently
+            </button>
+          ) : (
+            <div style={{ background:'#FEF2F2', border:'1px solid #FCA5A5', borderRadius:12, padding:'16px 18px' }}>
+              <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:14 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:'#FEE2E2', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#991B1B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#991B1B', marginBottom:4 }}>Delete "{job.name}"?</div>
+                  <div style={{ fontSize:13, color:'#DC2626', lineHeight:1.5 }}>
+                    This will permanently delete the job, all tasks, materials, attachments and uploaded files. <strong>This cannot be undone.</strong>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={deleteJob}
+                  style={{ flex:1, background:'#991B1B', color:'#fff', border:'none', borderRadius:9, padding:'9px 0', fontSize:13, fontWeight:700, cursor:'pointer', transition:'background .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background='#7F1D1D'}
+                  onMouseLeave={e => e.currentTarget.style.background='#991B1B'}>
+                  Yes, delete permanently
+                </button>
+                <button onClick={() => setShowDeleteConfirm(false)}
+                  style={{ padding:'9px 18px', background:'#fff', border:'1px solid #FCA5A5', borderRadius:9, fontSize:13, fontWeight:600, color:'#6B7280', cursor:'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
