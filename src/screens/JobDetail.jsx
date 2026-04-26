@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -8,6 +8,10 @@ import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
 const STATUSES = ['In progress','Review','Complete','On hold']
+
+// Module-level cache — persists across navigations within the session
+// so re-opening a job doesn't re-fetch the materials library
+let _materialsCache = null
 const TYPES    = ['Kitchen','Joinery','Laundry','Wardrobe','Other']
 
 function dFromNow(dateStr, timeStr) {
@@ -45,19 +49,40 @@ export default function JobDetail() {
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading] = useState(false)
 
+  // Track if all-materials has been fetched yet (lazy)
+  const allMatsFetched = React.useRef(false)
+
   const loadAll = useCallback(async () => {
-    const [{ data: j }, { data: a }, { data: jm }, { data: am }] = await Promise.all([
+    // Only fetch what we need to render the page immediately
+    // allMats (materials library) is fetched lazily when picker is opened
+    const [{ data: j }, { data: a }, { data: jm }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
-      supabase.from('materials').select('*').order('name'),
     ])
-    setJob(j); setAtts(a||[]); setJobMats(jm||[]); setAllMats(am||[])
+    setJob(j); setAtts(a||[]); setJobMats(jm||[])
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setLoading(false)
   }, [id])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Lazy-load the full materials library only when picker is opened.
+  // Uses a module-level cache so re-opening the same or different job
+  // doesn't hit the database again in the same session.
+  async function openMatPicker() {
+    setMatPickerOpen(v => !v)
+    if (!allMatsFetched.current) {
+      allMatsFetched.current = true
+      if (_materialsCache) {
+        setAllMats(_materialsCache)
+      } else {
+        const { data } = await supabase.from('materials').select('*').order('name')
+        _materialsCache = data || []
+        setAllMats(_materialsCache)
+      }
+    }
+  }
 
   async function saveJob() {
     setSaving(true)
@@ -279,7 +304,7 @@ export default function JobDetail() {
             )
           })}
         </div>
-        <button onClick={() => setMatPickerOpen(v => !v)} className="btn-blue btn-sm">+ Add from library</button>
+        <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
         {matPickerOpen && (
           <div className="mt-3 grid grid-cols-2 gap-2 max-h-52 overflow-y-auto border-t border-gray-100 dark:border-zinc-700 pt-3">
             {availMats.length === 0 ? <div className="col-span-2 text-sm text-gray-400 text-center py-3">All materials added</div> :

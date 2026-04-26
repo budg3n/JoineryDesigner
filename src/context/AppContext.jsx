@@ -43,6 +43,13 @@ export function AppProvider({ children }) {
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
     setProfile(data)
     setLoading(false)
+    // Keep Supabase warm — ping every 4 minutes to avoid cold starts
+    // (Supabase free tier sleeps after ~5 mins of inactivity)
+    if (!window._sbKeepAlive) {
+      window._sbKeepAlive = setInterval(() => {
+        supabase.from('profiles').select('id').limit(1).then(() => {})
+      }, 4 * 60 * 1000)
+    }
   }
 
   function can(action) {
