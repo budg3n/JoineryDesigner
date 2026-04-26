@@ -14,10 +14,10 @@ import Team from './screens/Team'
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-900">
-      <div className="flex flex-col items-center gap-3">
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#2A3042" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
         <div className="spinner" />
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p style={{ fontSize:13, color:"rgba(255,255,255,0.4)", margin:0 }}>Loading…</p>
       </div>
     </div>
   )

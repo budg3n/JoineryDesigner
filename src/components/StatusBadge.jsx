@@ -1,10 +1,14 @@
 const MAP = {
-  'In progress': 'badge-active',
-  'Review':      'badge-review',
-  'Complete':    'badge-done',
-  'On hold':     'badge-hold',
+  'In progress': { bg:'#EEF2FF', color:'#3730A3' },
+  'Review':      { bg:'#FEF3C7', color:'#92400E' },
+  'Complete':    { bg:'#ECFDF5', color:'#065F46' },
+  'On hold':     { bg:'#F3F4F6', color:'#6B7280' },
 }
-
 export default function StatusBadge({ status }) {
-  return <span className={MAP[status] || 'badge-hold'}>{status}</span>
+  const s = MAP[status] || MAP['On hold']
+  return (
+    <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:20, background:s.bg, color:s.color, whiteSpace:'nowrap' }}>
+      {status}
+    </span>
+  )
 }

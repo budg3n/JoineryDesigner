@@ -77,7 +77,7 @@ export default function Team() {
 
       {/* invite form */}
       {showInvite && (
-        <div className="card p-5 mb-4">
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
           <h2 className="text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-3">Invite new user</h2>
           {invErr && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{invErr}</div>}
           <div className="grid grid-cols-2 gap-3 mb-3">
@@ -106,7 +106,7 @@ export default function Team() {
       {loading ? (
         <div className="flex justify-center py-12"><div className="spinner" /></div>
       ) : (
-        <div className="card overflow-hidden">
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
           {members.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-400">No team members yet</div>
           ) : members.map((m, i) => (

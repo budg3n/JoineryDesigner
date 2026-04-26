@@ -32,7 +32,7 @@ function CustomerForm({ customer, onSave, onCancel }) {
   }
 
   return (
-    <div className="card p-5 mb-4">
+    <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
       <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">{customer?.id ? 'Edit customer' : 'Add customer'}</h2>
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[['first_name','First name','Sam'],['last_name','Last name','Mitchell'],['phone','Phone','027 555 0000'],['email','Email','sam@email.com']].map(([k,l,p]) => (
@@ -120,7 +120,7 @@ export default function Customers() {
       {loading ? (
         <div className="flex justify-center py-12"><div className="spinner" /></div>
       ) : (
-        <div className="card overflow-hidden">
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
           {filtered.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-400">
               {search ? 'No customers match your search' : 'No customers yet — add one above'}

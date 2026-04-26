@@ -221,7 +221,7 @@ export default function Calendar() {
 
         {/* GANTT */}
         {view === 'gantt' && (
-          <div className="card overflow-hidden">
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
             <div className="overflow-x-auto">
               <div style={{ minWidth: 600 }}>
                 {/* header */}
@@ -289,7 +289,7 @@ export default function Calendar() {
         {/* TIME CLOCK */}
         {view === 'clock' && (
           <div>
-            <div className="card p-4 mb-3">
+            <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Time clock</div>
               {!clockJobId ? (
                 <div>
@@ -339,7 +339,7 @@ export default function Calendar() {
                 </div>
               )}
             </div>
-            <div className="card overflow-hidden">
+            <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-700">
                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Session log</span>
                 <span className="text-xs text-gray-400">{TODAY.toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'})}</span>
@@ -359,7 +359,7 @@ export default function Calendar() {
 
         {/* TASKS */}
         {view === 'tasks' && (
-          <div className="card overflow-hidden">
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-700 flex-wrap gap-2">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">All tasks</span>
               <div className="flex gap-2">

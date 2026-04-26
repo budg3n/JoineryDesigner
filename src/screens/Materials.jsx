@@ -73,7 +73,7 @@ function MaterialForm({ material, onSave, onCancel }) {
   }
 
   return (
-    <div className="card p-5 mb-4">
+    <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
       <h2 className="text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-4">{material?.id ? 'Edit material' : 'Add material'}</h2>
       {/* swatch upload */}
       <div onClick={() => fileRef.current.click()}

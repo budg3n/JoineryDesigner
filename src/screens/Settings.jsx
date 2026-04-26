@@ -1,19 +1,23 @@
 import { useNavigate } from 'react-router-dom'
-import BackButton from '../components/BackButton'
 
-function Row({ icon, bg, label, sub, to }) {
+function Row({ icon, iconBg, iconColor, label, sub, to }) {
   const navigate = useNavigate()
   return (
     <div onClick={() => navigate(to)}
-      className="flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-700 border-b border-gray-100 dark:border-zinc-700 last:border-0">
-      <div className="flex items-center gap-3">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0 ${bg}`}>{icon}</div>
+      style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', cursor:'pointer', borderBottom:'1px solid #F3F4F6', transition:'background .1s' }}
+      onMouseEnter={e=>e.currentTarget.style.background='#FAFAFA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+      <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+        <div style={{ width:38, height:38, borderRadius:10, background:iconBg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {icon}
+          </svg>
+        </div>
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-white">{label}</div>
-          <div className="text-xs text-gray-500 dark:text-zinc-400">{sub}</div>
+          <div style={{ fontSize:14, fontWeight:600, color:'#2A3042' }}>{label}</div>
+          <div style={{ fontSize:12, color:'#9CA3AF', marginTop:1 }}>{sub}</div>
         </div>
       </div>
-      <span className="text-gray-300 dark:text-zinc-600 text-lg">›</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
     </div>
   )
 }
@@ -21,17 +25,10 @@ function Row({ icon, bg, label, sub, to }) {
 export default function Settings() {
   return (
     <div>
-      <BackButton to="/" label="Jobs" />
-      <div className="flex items-center gap-2.5 mb-5">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-700 dark:text-zinc-300">
-          <path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>
-        </svg>
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Settings</h1>
-      </div>
-      <div className="card overflow-hidden">
-        <Row icon="🪵" bg="bg-teal-50"   label="Materials library" sub="Manage panels, colours and suppliers" to="/settings/materials" />
-        <Row icon="👤" bg="bg-blue-50"   label="Customers"          sub="Manage customer database"             to="/settings/customers" />
-        <Row icon="👥" bg="bg-amber-50"  label="Team"               sub="Manage who has access"                to="/settings/team" />
+      <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+        <Row icon={<><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></>}       iconBg="#ECFDF5" iconColor="#1D9E75" label="Materials library" sub="Manage panels, colours and suppliers" to="/settings/materials" />
+        <Row icon={<><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></>}              iconBg="#EEF2FF" iconColor="#5B8AF0" label="Customers"          sub="Manage customer database"             to="/settings/customers" />
+        <Row icon={<><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4"/><path d="M16 11l2 2 4-4"/></>} iconBg="#FEF3C7" iconColor="#D97706" label="Team" sub="Manage who has access" to="/settings/team" />
       </div>
     </div>
   )

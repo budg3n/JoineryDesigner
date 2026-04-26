@@ -215,7 +215,7 @@ export default function JobDetail() {
       )}
 
       {/* tasks */}
-      <div className="card p-4 mb-3">
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
         <div className="flex items-center justify-between mb-3">
           <span className="section-title">Tasks</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${overTasks.length > 0 ? 'bg-red-50 text-red-700' : openTasks.length > 0 ? 'bg-blue-50 text-blue-700' : tasks.length > 0 ? 'bg-teal-50 text-teal-700' : 'bg-gray-100 text-gray-400'}`}>
@@ -262,8 +262,8 @@ export default function JobDetail() {
       </div>
 
       {/* job details */}
-      <div className="card p-4 mb-3">
-        <div className="section-title mb-3">Job details</div>
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Job details</div>
         <div className="grid grid-cols-2 gap-3">
           {[['Job name','name','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
             <div key={k}><label className="label">{l}</label>
@@ -282,15 +282,15 @@ export default function JobDetail() {
       </div>
 
       {/* notes */}
-      <div className="card p-4 mb-3">
-        <div className="section-title mb-2">Notes</div>
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8, display:"block" }}>Notes</div>
         <textarea className="input text-sm min-h-[80px] resize-y w-full" placeholder="Notes, observations, specs…"
           value={job.notes||''} onChange={e => setJob(j => ({ ...j, notes: e.target.value }))} />
       </div>
 
       {/* materials */}
-      <div className="card p-4 mb-3">
-        <div className="section-title mb-3">Materials</div>
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Materials</div>
         <div className="flex flex-wrap gap-2 mb-3">
           {jobMats.map(jm => {
             const m = jm.materials; if (!m) return null
@@ -326,8 +326,8 @@ export default function JobDetail() {
       </div>
 
       {/* drawings */}
-      <div className="card p-4 mb-3">
-        <div className="section-title mb-3">Drawings &amp; sketches</div>
+      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Drawings &amp; sketches</div>
         {lbIdx !== null && (
           <div className="bg-black/90 rounded-xl p-3 mb-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
