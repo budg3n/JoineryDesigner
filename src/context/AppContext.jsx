@@ -44,11 +44,66 @@ export function AppProvider({ children }) {
     setProfile(data)
     setLoading(false)
     // Keep Supabase warm — ping every 4 minutes to avoid cold starts
-    // (Supabase free tier sleeps after ~5 mins of inactivity)
     if (!window._sbKeepAlive) {
       window._sbKeepAlive = setInterval(() => {
         supabase.from('profiles').select('id').limit(1).then(() => {})
       }, 4 * 60 * 1000)
+    }
+    // One-time background migration: refresh mat_colors on any jobs
+    // where storage_path is missing from the stored JSON (old format)
+    if (!window._matColorsMigrated) {
+      window._matColorsMigrated = true
+      refreshMatColors()
+    }
+  }
+
+  async function refreshMatColors() {
+    try {
+      // Get all jobs that have job_materials with images
+      const { data: jobs } = await supabase.from('jobs').select('id,mat_colors')
+      if (!jobs?.length) return
+      const { data: jmRows } = await supabase
+        .from('job_materials')
+        .select('job_id,materials(name,color,storage_path,supplier,panel_type,thickness)')
+      if (!jmRows?.length) return
+
+      // Group by job
+      const byJob = {}
+      jmRows.forEach(row => {
+        if (!row.materials) return
+        if (!byJob[row.job_id]) byJob[row.job_id] = []
+        byJob[row.job_id].push(row.materials)
+      })
+
+      // For each job, check if stored mat_colors is missing storage_path
+      const updates = []
+      jobs.forEach(job => {
+        const mats = byJob[job.id]
+        if (!mats?.length) return
+        const stored = job.mat_colors ? JSON.parse(job.mat_colors) : []
+        const needsUpdate = mats.some(m =>
+          m.storage_path && !stored.find(s => s.name === m.name && s.storage_path)
+        )
+        if (needsUpdate) {
+          const freshColors = mats.map(m => ({
+            name:         m.name,
+            color:        m.color || '#888',
+            storage_path: m.storage_path || null,
+            supplier:     m.supplier || '',
+            panel_type:   m.panel_type || '',
+            thickness:    m.thickness || '',
+          }))
+          updates.push({ id: job.id, mat_colors: JSON.stringify(freshColors) })
+        }
+      })
+
+      // Apply updates in parallel
+      await Promise.all(updates.map(u =>
+        supabase.from('jobs').update({ mat_colors: u.mat_colors }).eq('id', u.id)
+      ))
+      if (updates.length > 0) console.log(`Refreshed mat_colors for ${updates.length} jobs`)
+    } catch (e) {
+      console.warn('mat_colors migration failed:', e)
     }
   }
 

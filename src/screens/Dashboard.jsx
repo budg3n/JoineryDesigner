@@ -43,11 +43,15 @@ function TaskPill({ job }) {
 
 function SwatchDot({ c }) {
   if (c.storage_path) return (
-    <div style={{ width:14, height:14, borderRadius:3, overflow:'hidden', border:'2px solid #fff', boxShadow:'0 0 0 1px #E8ECF0', flexShrink:0 }}>
-      <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover' }} loading="lazy" />
+    <div style={{ width:14, height:14, borderRadius:3, overflow:'hidden', border:'2px solid #fff', boxShadow:'0 0 0 1px #E8ECF0', flexShrink:0, background:c.color||'#D1D5DB' }}>
+      <img src={pubUrl(c.storage_path)} 
+        style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} 
+        loading="lazy"
+        onError={e => { e.target.style.display='none' }} />
     </div>
   )
-  return <div style={{ width:14, height:14, borderRadius:3, background:c.color||'#ccc', border:'2px solid #fff', boxShadow:'0 0 0 1px #E8ECF0', flexShrink:0 }} />
+  // No image — show colour swatch (or neutral if no color stored)
+  return <div style={{ width:14, height:14, borderRadius:3, background:c.color||'#D1D5DB', border:'2px solid #fff', boxShadow:'0 0 0 1px #E8ECF0', flexShrink:0 }} />
 }
 
 function MatHoverPanel({ colors, visible }) {
@@ -71,8 +75,8 @@ function MatHoverPanel({ colors, visible }) {
           }}>
             <div style={{ width:40, height:40, borderRadius:9, overflow:'hidden', flexShrink:0, border:'1px solid #E8ECF0' }}>
               {c.storage_path
-                ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover' }} loading="lazy" />
-                : <div style={{ width:'100%', height:'100%', background: c.color||'#ccc' }} />
+                ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" onError={e=>e.target.style.display='none'} />
+                : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
               }
             </div>
             <div style={{ minWidth:0 }}>

@@ -63,6 +63,27 @@ export default function JobDetail() {
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setLoading(false)
+
+    // Silently refresh mat_colors if stored version is missing storage_path data
+    // (happens for jobs created before this field was added)
+    if (j && jm?.length) {
+      const stored = j.mat_colors ? JSON.parse(j.mat_colors) : []
+      const needsRefresh = (jm||[]).some(row => 
+        row.materials?.storage_path && !stored.find(s => s.name === row.materials.name && s.storage_path)
+      )
+      if (needsRefresh) {
+        const freshColors = (jm||[]).filter(row => row.materials).map(row => ({
+          name:       row.materials.name,
+          color:      row.materials.color || '#888',
+          storage_path: row.materials.storage_path || null,
+          supplier:   row.materials.supplier || '',
+          panel_type: row.materials.panel_type || '',
+          thickness:  row.materials.thickness || '',
+        }))
+        await supabase.from('jobs').update({ mat_colors: JSON.stringify(freshColors) }).eq('id', j.id)
+        setJob(prev => prev ? { ...prev, mat_colors: JSON.stringify(freshColors) } : prev)
+      }
+    }
   }, [id])
 
   useEffect(() => { loadAll() }, [loadAll])
