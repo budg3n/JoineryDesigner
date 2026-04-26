@@ -159,7 +159,7 @@ export default function JobDetail() {
     const { data } = await supabase.from('job_materials').insert({ job_id: id, material_id: mid }).select('*,materials(*)').single()
     if (data) {
       setJobMats(prev => [...prev, data])
-      const colors = [...jobMats, data].filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888' }))
+      const colors = [...jobMats, data].filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888', storage_path: jm.materials.storage_path||null, supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'', thickness: jm.materials.thickness||'' }))
       await supabase.from('jobs').update({ mat_colors: JSON.stringify(colors) }).eq('id', id)
     }
     setMatPickerOpen(false)
@@ -170,7 +170,7 @@ export default function JobDetail() {
     await supabase.from('job_materials').delete().eq('id', jmid)
     const remaining = jobMats.filter(x => x.id !== jmid)
     setJobMats(remaining)
-    const colors = remaining.filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888' }))
+    const colors = remaining.filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888', storage_path: jm.materials.storage_path||null, supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'', thickness: jm.materials.thickness||'' }))
     await supabase.from('jobs').update({ mat_colors: JSON.stringify(colors) }).eq('id', id)
   }
 

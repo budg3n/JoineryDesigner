@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
-import Modal from '../components/Modal'
 import StatusBadge from '../components/StatusBadge'
 import NewJobModal from '../components/NewJobModal'
 
@@ -17,24 +16,6 @@ function taskStats(job) {
   return { open: open.length, over: over.length, total: tasks.length }
 }
 
-function SwatchStrip({ colors }) {
-  if (!colors?.length) return (
-    <span className="text-[10px] text-gray-400 border border-dashed border-gray-200 rounded px-1.5 py-0.5">No materials</span>
-  )
-  const vis = colors.slice(0, 4)
-  const extra = colors.length - 4
-  return (
-    <div className="flex gap-1 items-end">
-      {vis.map((c, i) => (
-        <div key={i} title={c.name}
-          className="w-6 h-6 rounded-[4px] border-2 border-white shadow-sm flex-shrink-0"
-          style={{ background: c.color }} />
-      ))}
-      {extra > 0 && <div className="w-6 h-6 rounded-[4px] bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">+{extra}</div>}
-    </div>
-  )
-}
-
 function TaskPill({ job }) {
   const s = taskStats(job)
   if (s.over > 0) return <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">⚠ {s.over} overdue · {s.open} left</span>
@@ -43,36 +24,122 @@ function TaskPill({ job }) {
   return <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">No tasks</span>
 }
 
+function SwatchDot({ c, size = 'sm' }) {
+  const dim = size === 'lg' ? 'w-10 h-10' : 'w-2.5 h-2.5'
+  const radius = size === 'lg' ? 'rounded-lg' : 'rounded-[3px]'
+  if (c.storage_path) {
+    return (
+      <div className={`${dim} ${radius} overflow-hidden flex-shrink-0 border border-white/60 shadow-sm`}>
+        <img src={pubUrl(c.storage_path)} alt={c.name} className="w-full h-full object-cover" loading="lazy" />
+      </div>
+    )
+  }
+  return (
+    <div className={`${dim} ${radius} flex-shrink-0 border border-white/40`}
+      style={{ background: c.color || '#d1d5db' }} />
+  )
+}
+
+function MaterialHoverPanel({ colors, visible }) {
+  if (!colors.length) return null
+  return (
+    <div className="absolute left-full top-0 ml-2 z-50 pointer-events-none"
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translateX(0)' : 'translateX(-8px)',
+        transition: 'opacity 0.18s ease, transform 0.18s ease',
+      }}>
+      <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-xl border border-gray-100 dark:border-zinc-700 p-3 min-w-[190px] max-w-[230px]">
+        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2.5">Materials</div>
+        <div className="flex flex-col gap-2.5">
+          {colors.map((c, i) => (
+            <div key={i} className="flex items-center gap-2.5"
+              style={{
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'translateX(0)' : 'translateX(-6px)',
+                transition: `opacity 0.14s ease ${i * 0.045}s, transform 0.14s ease ${i * 0.045}s`,
+              }}>
+              <SwatchDot c={c} size="lg" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-gray-800 dark:text-zinc-200 truncate leading-tight">{c.name}</div>
+                {c.supplier && <div className="text-[10px] text-gray-400 truncate">{c.supplier}</div>}
+                {c.panel_type && (
+                  <div className="text-[10px] text-gray-400 truncate">
+                    {c.panel_type}{c.thickness ? ` · ${c.thickness}mm` : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="absolute top-4 -left-[5px] w-2.5 h-2.5 bg-white dark:bg-zinc-800 border-l border-b border-gray-100 dark:border-zinc-700 rotate-45" />
+      </div>
+    </div>
+  )
+}
+
 function JobCard({ job, index, onClick }) {
   const [hovered, setHovered] = useState(false)
+  const timerRef = useRef(null)
   const colors = job.mat_colors ? JSON.parse(job.mat_colors) : []
-  const color = PALETTE[index % PALETTE.length]
+  const accentColor = PALETTE[index % PALETTE.length]
+
+  function handleEnter() { clearTimeout(timerRef.current); setHovered(true) }
+  function handleLeave() { timerRef.current = setTimeout(() => setHovered(false), 120) }
+
+  const logged = parseFloat(job.time_logged) || 0
+  const budget = parseFloat(job.budget_hours) || 0
+  const progPct = budget > 0 ? Math.min(100, Math.round((logged / budget) * 100)) : 0
+  const isOverBudget = budget > 0 && logged > budget
 
   return (
-    <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      {/* swatch strip */}
-      <div className={`absolute bottom-full left-0 right-0 px-3 pb-1.5 flex gap-1.5 items-end transition-all duration-150 pointer-events-none z-10 ${hovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
-        <SwatchStrip colors={colors} />
-      </div>
+    <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
+      <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl transition-opacity duration-200 z-10"
+        style={{ background: accentColor, opacity: hovered ? 1 : 0 }} />
+
       <div onClick={onClick}
-        className="card p-3.5 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 transition-colors active:scale-[0.98]">
+        className="card p-3.5 cursor-pointer transition-all duration-150 active:scale-[0.98] overflow-hidden"
+        style={{ borderColor: hovered ? accentColor + '44' : undefined }}>
+
         <div className="flex items-start justify-between mb-1.5">
           <span className="text-[10px] text-gray-400 font-mono">{job.id}</span>
           <StatusBadge status={job.status} />
         </div>
-        <div className="font-semibold text-sm text-gray-900 dark:text-white mb-1 leading-snug">{job.name}</div>
-        <div className="text-xs text-gray-500 dark:text-zinc-400 mb-3">{job.client || '—'}</div>
-        <div className="flex flex-col gap-1.5">
+
+        <div className="font-semibold text-sm text-gray-900 dark:text-white mb-0.5 leading-snug">{job.name}</div>
+        <div className="text-xs text-gray-500 dark:text-zinc-400 mb-1">{job.client || '—'}</div>
+
+        {job.due_date && (
+          <div className="text-[10px] text-gray-400 mb-2">
+            Due {new Date(job.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'short' })}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-1 mb-2">
           <TaskPill job={job} />
           {colors.length > 0 && (
-            <div className="flex gap-1">
-              {colors.slice(0, 3).map((c, i) => (
-                <div key={i} className="w-2 h-2 rounded-[2px]" style={{ background: c.color }} />
-              ))}
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {colors.slice(0, 4).map((c, i) => <SwatchDot key={i} c={c} size="sm" />)}
+              {colors.length > 4 && <span className="text-[10px] text-gray-400 ml-1">+{colors.length - 4}</span>}
             </div>
           )}
         </div>
+
+        {budget > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[10px] text-gray-400">{logged}h / {budget}h</span>
+              <span className={`text-[10px] font-medium ${isOverBudget ? 'text-red-500' : 'text-gray-400'}`}>{progPct}%</span>
+            </div>
+            <div className="h-0.5 bg-gray-100 dark:bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-full rounded-full"
+                style={{ width: `${progPct}%`, background: isOverBudget ? '#E24B4A' : accentColor }} />
+            </div>
+          </div>
+        )}
       </div>
+
+      {colors.length > 0 && <MaterialHoverPanel colors={colors} visible={hovered} />}
     </div>
   )
 }
