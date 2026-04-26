@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Joinery Jobs</title>
+<style>
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', monospace;
+    --color-text-primary: #1a1a1a;
+    --color-text-secondary: #666;
+    --color-text-tertiary: #999;
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f5f5f5;
+    --color-border-primary: #aaa;
+    --color-border-secondary: #ccc;
+    --color-border-tertiary: #e5e5e5;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-text-primary: #f0f0f0;
+      --color-text-secondary: #aaa;
+      --color-text-tertiary: #777;
+      --color-background-primary: #1c1c1e;
+      --color-background-secondary: #2c2c2e;
+      --color-border-primary: #555;
+      --color-border-secondary: #444;
+      --color-border-tertiary: #333;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--color-background-secondary); color: var(--color-text-primary); font-family: var(--font-sans); -webkit-user-select: none; user-select: none; }
+  input, textarea, select { background: var(--color-background-primary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-secondary); border-radius: 6px; padding: 6px 8px; font-family: var(--font-sans); outline: none; -webkit-user-select: text; user-select: text; }
+  input:focus, textarea:focus, select:focus { border-color: var(--color-border-primary); }
+
+  #app { max-width: 480px; margin: 0 auto; padding: 0 16px 80px; min-height: 100vh; background: var(--color-background-secondary); }
+
+  .view { padding: 1rem 0; display: none; }
+  .view.active { display: block; }
+  .back-btn { font-size: 13px; color: var(--color-text-secondary); background: none; border: none; cursor: pointer; padding: 0 0 .75rem; display: flex; align-items: center; gap: 4px; }
+  .back-btn:hover { color: var(--color-text-primary); }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px; }
+  .topbar h1 { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: 12px; padding: 4px 11px; border-radius: 20px; border: 0.5px solid var(--color-border-secondary); cursor: pointer; background: transparent; color: var(--color-text-secondary); }
+  .pill.active { background: var(--color-background-primary); color: var(--color-text-primary); border-color: var(--color-border-primary); }
+  .stats { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-bottom: 1rem; }
+  .stat { background: var(--color-background-primary); border-radius: var(--border-radius-md); padding: .75rem 1rem; border: 0.5px solid var(--color-border-tertiary); }
+  .stat-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 3px; }
+  .stat-val { font-size: 22px; font-weight: 600; color: var(--color-text-primary); }
+  .jobs-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }
+  .job-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: .9rem 1rem; transition: border-color .15s; }
+  .job-card:active { border-color: var(--color-border-primary); }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .job-id { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+  .bp { background: #E6F1FB; color: #185FA5; } .br { background: #FAEEDA; color: #854F0B; } .bc { background: #EAF3DE; color: #3B6D11; } .bh { background: #F1EFE8; color: #5F5E5A; }
+  .job-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 3px; }
+  .job-client { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 8px; }
+  .card-actions { display: flex; gap: 6px; }
+  .card-btn { flex: 1; font-size: 11px; padding: 5px 4px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); background: transparent; cursor: pointer; color: var(--color-text-secondary); text-align: center; transition: all .12s; }
+  .card-btn:active { background: var(--color-background-secondary); }
+  .card-btn.sketch-btn { border-color: #9FE1CB; color: #0F6E56; background: #E1F5EE; }
+  .add-card { display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--color-text-tertiary); border: 0.5px dashed var(--color-border-secondary); border-radius: var(--border-radius-lg); padding: 1rem; cursor: pointer; background: transparent; min-height: 100px; transition: all .15s; }
+
+  .section { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: .9rem 1rem; margin-bottom: 10px; }
+  .sec-title { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .field label { font-size: 12px; color: var(--color-text-secondary); display: block; margin-bottom: 3px; }
+  .field input, .field select { width: 100%; font-size: 13px; }
+  .notes-area { width: 100%; font-size: 13px; min-height: 90px; resize: vertical; font-family: var(--font-sans); line-height: 1.6; -webkit-user-select: text; user-select: text; }
+  .att-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 8px; }
+  .att-thumb { position: relative; border-radius: var(--border-radius-md); overflow: hidden; border: 0.5px solid var(--color-border-tertiary); cursor: pointer; aspect-ratio: 1; }
+  .att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .att-thumb .att-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.45); color: #fff; font-size: 10px; padding: 3px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .att-thumb .att-del { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; border: none; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .att-file { display: flex; align-items: center; gap: 6px; background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 6px 8px; }
+  .upload-zone { border: 0.5px dashed var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 1rem; text-align: center; font-size: 13px; color: var(--color-text-tertiary); position: relative; cursor: pointer; transition: all .12s; }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+  .job-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px; }
+  .job-title { font-size: 17px; font-weight: 600; color: var(--color-text-primary); }
+  .job-sub { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+  .status-sel { font-size: 12px; padding: 4px 10px; border-radius: 20px; border: 0.5px solid var(--color-border-secondary); cursor: pointer; }
+  .act-row { display: flex; gap: 8px; margin-top: .75rem; flex-wrap: wrap; align-items: center; }
+  .btn-save { font-size: 13px; padding: 7px 16px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); cursor: pointer; color: var(--color-text-primary); font-weight: 500; }
+  .btn-sketch-lg { font-size: 13px; padding: 7px 16px; border-radius: var(--border-radius-md); border: 1.5px solid #1D9E75; background: #E1F5EE; cursor: pointer; color: #085041; font-weight: 500; }
+  .saved-msg { font-size: 12px; color: #1D9E75; opacity: 0; transition: opacity .3s; }
+
+  .lightbox { display: none; background: rgba(0,0,0,0.88); border-radius: var(--border-radius-lg); padding: 1rem; margin-bottom: 10px; flex-direction: column; align-items: center; gap: 12px; }
+  .lightbox.open { display: flex; }
+  .lb-img { max-width: 100%; border-radius: var(--border-radius-md); display: block; }
+  .lb-bar { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; flex-wrap: wrap; }
+  .lb-name { font-size: 12px; color: rgba(255,255,255,0.7); font-family: var(--font-mono); flex: 1; }
+  .lb-btns { display: flex; gap: 6px; }
+  .lb-btn { font-size: 12px; padding: 5px 10px; border-radius: var(--border-radius-md); border: 0.5px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.1); cursor: pointer; color: #fff; }
+  .lb-btn.edit { background: rgba(55,138,221,0.4); border-color: #378ADD; }
+  .lb-nav { display: flex; gap: 8px; align-items: center; }
+  .lb-nav button { font-size: 18px; background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; padding: 0 6px; }
+  .lb-counter { font-size: 12px; color: rgba(255,255,255,0.5); }
+
+  /* sketch */
+  .sk-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: .75rem; flex-wrap: wrap; gap: 8px; }
+  .sk-topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .sk-topbar select { font-size: 12px; padding: 4px 7px; border-radius: var(--border-radius-md); }
+  .sk-topbar span { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
+  .dim-toggle { font-size: 12px; padding: 4px 10px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); cursor: pointer; color: var(--color-text-secondary); }
+  .dim-panel { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 9px 10px; margin-bottom: 8px; display: none; }
+  .dim-panel.open { display: block; }
+  .dim-title { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 7px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .dim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 6px; }
+  .dim-field { display: flex; flex-direction: column; gap: 3px; }
+  .dim-field label { font-size: 11px; color: var(--color-text-secondary); }
+  .dim-field input { font-size: 12px; padding: 5px 7px; width: 100%; }
+  .dim-row { display: flex; gap: 6px; align-items: center; }
+  .draw-btn { font-size: 12px; padding: 6px 11px; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-primary); cursor: pointer; color: var(--color-text-primary); white-space: nowrap; }
+
+  .cal-banner { border-radius: var(--border-radius-md); padding: 8px 12px; margin-bottom: 8px; display: none; flex-direction: column; gap: 6px; }
+  .cal-banner.phase1 { display: flex; background: #FFF8E6; border: 0.5px solid #F0C060; }
+  .cal-banner.phase2 { display: flex; background: #E6F1FB; border: 0.5px solid #9FC8F0; }
+  .cal-banner-title { font-size: 12px; font-weight: 600; color: #4A3800; }
+  .cal-banner.phase2 .cal-banner-title { color: #0C447C; }
+  .cal-banner-sub { font-size: 11px; color: #7A6020; }
+  .cal-banner.phase2 .cal-banner-sub { color: #2A5A8C; }
+  .cal-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .cal-input { font-size: 13px; padding: 5px 8px; width: 100px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); }
+  .cal-unit { font-size: 12px; color: var(--color-text-secondary); }
+  .cal-btn { font-size: 12px; padding: 5px 12px; border-radius: var(--border-radius-md); border: 0.5px solid; cursor: pointer; white-space: nowrap; }
+  .cal-btn-confirm { border-color: #1D9E75; background: #E1F5EE; color: #085041; }
+  .cal-btn-cancel { border-color: var(--color-border-secondary); background: transparent; color: var(--color-text-secondary); }
+  .scale-badge { font-size: 11px; border-radius: 12px; padding: 2px 9px; font-family: var(--font-mono); }
+  .scale-badge.cal { background: #E1F5EE; color: #085041; border: 0.5px solid #9FE1CB; }
+  .scale-badge.uncal { background: var(--color-background-secondary); color: var(--color-text-tertiary); border: 0.5px solid var(--color-border-secondary); }
+
+  .canvas-outer { position: relative; margin-bottom: 8px; }
+  .canvas-wrap { border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); overflow: hidden; touch-action: none; background: #fff; }
+  canvas { display: block; width: 100%; cursor: crosshair; }
+  .edit-banner { background: #E6F1FB; border: 0.5px solid #9FC8F0; border-radius: var(--border-radius-md); padding: 7px 12px; margin-bottom: 8px; display: none; align-items: center; justify-content: space-between; gap: 8px; }
+  .edit-banner.show { display: flex; }
+  .edit-banner span { font-size: 12px; color: #0C447C; }
+  .edit-banner button { font-size: 12px; padding: 4px 10px; border-radius: var(--border-radius-md); border: 0.5px solid #378ADD; background: #fff; cursor: pointer; color: #185FA5; }
+  .sk-statusbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .sk-active-tool { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary); }
+  .sk-tool-dot { width: 10px; height: 10px; border-radius: 50%; background: #1a1a1a; border: 1.5px solid var(--color-border-secondary); flex-shrink: 0; }
+  .sk-footer-btns { display: flex; gap: 6px; align-items: center; }
+  .flash { font-size: 11px; color: #1D9E75; opacity: 0; transition: opacity .3s; }
+
+  .fab-wrap { position: absolute; bottom: 12px; right: 12px; z-index: 20; }
+  .fab-main { width: 50px; height: 50px; border-radius: 50%; background: #1a1a1a; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 12px rgba(0,0,0,0.3); transition: background .15s; }
+  .fab-main svg { width: 22px; height: 22px; stroke: #fff; fill: none; stroke-width: 1.6; }
+  .fab-items { position: absolute; bottom: 58px; right: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; opacity: 0; transform: translateY(10px); transition: opacity .2s, transform .2s; }
+  .fab-items.open { pointer-events: all; opacity: 1; transform: translateY(0); }
+  .fab-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .fab-item-label { font-size: 12px; background: rgba(20,20,20,0.85); color: #fff; padding: 4px 10px; border-radius: 12px; white-space: nowrap; }
+  .fab-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 5px rgba(0,0,0,0.15); transition: background .12s; }
+  .fab-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  .fab-item.active .fab-btn { background: #378ADD; border-color: #378ADD; color: #fff; }
+  .fab-item.active2 .fab-btn { background: #EF9F27; border-color: #EF9F27; color: #fff; }
+
+  .sk-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .colors { display: flex; gap: 5px; flex-wrap: wrap; }
+  .cdot { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; }
+  .cdot.active { border-color: var(--color-text-primary); }
+  .sz-row { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 100px; }
+  .sz-row input[type=range] { flex: 1; background: none; border: none; padding: 0; }
+  .sz-row span { font-size: 12px; color: var(--color-text-secondary); min-width: 18px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- DASHBOARD -->
+<div id="view-dash" class="view active">
+  <div class="topbar"><h1>Jobs</h1>
+    <div class="filters">
+      <button class="pill active" onclick="setFilter('all',this)">All</button>
+      <button class="pill" onclick="setFilter('In progress',this)">Active</button>
+      <button class="pill" onclick="setFilter('Review',this)">Review</button>
+      <button class="pill" onclick="setFilter('Complete',this)">Done</button>
+      <button class="pill" onclick="setFilter('On hold',this)">Hold</button>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Total jobs</div><div class="stat-val" id="s-total">0</div></div>
+    <div class="stat"><div class="stat-label">In progress</div><div class="stat-val" id="s-prog">0</div></div>
+    <div class="stat"><div class="stat-label">For review</div><div class="stat-val" id="s-rev">0</div></div>
+    <div class="stat"><div class="stat-label">Complete</div><div class="stat-val" id="s-comp">0</div></div>
+  </div>
+  <div class="jobs-grid" id="jobs-grid"></div>
+</div>
+
+<!-- DETAIL -->
+<div id="view-detail" class="view">
+  <button class="back-btn" onclick="showView('dash')">← Dashboard</button>
+  <div class="job-header">
+    <div><div class="job-title" id="d-title"></div><div class="job-sub" id="d-sub"></div></div>
+    <select class="status-sel" id="d-status" onchange="updateStatusStyle()"></select>
+  </div>
+  <div id="lightbox" class="lightbox">
+    <div class="lb-bar">
+      <span class="lb-name" id="lb-name"></span>
+      <div class="lb-btns">
+        <button class="lb-btn edit" onclick="editCurrentSketch()">✏️ Edit</button>
+        <button class="lb-btn" onclick="closeLightbox()">Close</button>
+        <button class="lb-btn" onclick="deleteFromLightbox()">Delete</button>
+      </div>
+    </div>
+    <img class="lb-img" id="lb-img" src="" alt="Sketch">
+    <div class="lb-nav"><button onclick="lbNav(-1)">&#8592;</button><span class="lb-counter" id="lb-counter"></span><button onclick="lbNav(1)">&#8594;</button></div>
+  </div>
+  <div class="section">
+    <div class="sec-title">Job details</div>
+    <div class="fields">
+      <div class="field"><label>Job name</label><input id="d-name" type="text" oninput="document.getElementById('d-title').textContent=this.value"></div>
+      <div class="field"><label>Client</label><input id="d-client" type="text"></div>
+      <div class="field"><label>Job type</label><select id="d-type"><option>Kitchen</option><option>Joinery</option><option>Laundry</option><option>Wardrobe</option><option>Other</option></select></div>
+      <div class="field"><label>Microvellum #</label><input id="d-mvnum" placeholder="MV-2026-..."></div>
+      <div class="field"><label>Start date</label><input id="d-start" type="date"></div>
+      <div class="field"><label>Due date</label><input id="d-due" type="date"></div>
+    </div>
+  </div>
+  <div class="section"><div class="sec-title">Notes</div><textarea class="notes-area" id="d-notes" placeholder="Notes, site observations, hardware specs, client preferences..."></textarea></div>
+  <div class="section">
+    <div class="sec-title">Drawings &amp; sketches</div>
+    <div class="upload-zone"><input type="file" accept="image/*,.pdf,.dwg,.dxf" multiple onchange="handleFiles(this.files)">Drop files or tap to upload</div>
+    <div class="att-grid" id="d-attachments"></div>
+  </div>
+  <div class="act-row">
+    <button class="btn-save" onclick="saveDetail()">Save changes</button>
+    <button class="btn-sketch-lg" onclick="openSketch(currentJobId,null)">New sketch</button>
+    <span class="saved-msg" id="detail-saved">Saved ✓</span>
+  </div>
+</div>
+
+<!-- SKETCH -->
+<div id="view-sketch" class="view">
+  <button class="back-btn" onclick="backToDetail()">← Job details</button>
+  <div class="sk-header">
+    <div><div class="job-title" id="sk-title"></div><div class="job-sub" id="sk-sub"></div></div>
+    <span id="sk-badge" class="badge bp"></span>
+  </div>
+  <div class="edit-banner" id="edit-banner">
+    <span>✏️ Editing existing sketch</span>
+    <button onclick="saveAsNewCopy()">Save as new copy</button>
+  </div>
+  <div class="cal-banner" id="cal-phase1">
+    <div class="cal-banner-title">📏 Reference dimension — Step 1 of 2</div>
+    <div class="cal-banner-sub">Draw a line over a known measurement on the canvas. Hold and drag — it will snap to the nearest axis.</div>
+    <div class="cal-row"><button class="cal-btn cal-btn-cancel" onclick="cancelCalibration()">Cancel</button></div>
+  </div>
+  <div class="cal-banner" id="cal-phase2">
+    <div class="cal-banner-title">📏 Reference dimension — Step 2 of 2</div>
+    <div class="cal-banner-sub">Enter the real-world length of the line you just drew:</div>
+    <div class="cal-row">
+      <input class="cal-input" type="number" id="cal-mm-input" placeholder="e.g. 3600" min="1">
+      <span class="cal-unit">mm</span>
+      <button class="cal-btn cal-btn-confirm" onclick="confirmCalibration()">Set scale ✓</button>
+      <button class="cal-btn cal-btn-cancel" onclick="cancelCalibration()">Cancel</button>
+    </div>
+  </div>
+  <div class="sk-topbar">
+    <select id="sk-scale" onchange="updateSkScale()">
+      <option value="10">1:10</option><option value="20" selected>1:20</option><option value="50">1:50</option><option value="100">1:100</option>
+    </select>
+    <span id="sk-scale-info">1px = 20mm</span>
+    <span class="scale-badge uncal" id="scale-badge">uncalibrated</span>
+    <button class="dim-toggle" onclick="toggleDimPanel()">📐 Dim</button>
+    <button class="dim-toggle" onclick="skUndo()">↩ Undo</button>
+    <button class="dim-toggle" onclick="skClear()">🗑 Clear</button>
+  </div>
+  <div class="dim-panel" id="dim-panel">
+    <div class="dim-title">Draw at exact dimensions</div>
+    <div class="dim-grid">
+      <div class="dim-field"><label>Width (mm)</label><input type="number" id="dw" value="600" min="1" oninput="updateDimPrev()"></div>
+      <div class="dim-field"><label>Height / length (mm)</label><input type="number" id="dh" value="400" min="1" oninput="updateDimPrev()"></div>
+    </div>
+    <div class="dim-row">
+      <select id="dshape" style="font-size:12px;flex:1"><option value="rect">Rectangle</option><option value="line">Line (width)</option><option value="circle">Circle (dia)</option></select>
+      <button class="draw-btn" onclick="drawDimShape()">Draw</button>
+    </div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:5px;" id="dim-prev"></div>
+  </div>
+  <div class="sk-controls">
+    <div class="colors" id="sk-colors"></div>
+    <div class="sz-row">
+      <input type="range" min="1" max="40" value="2" step="1" id="sk-size" oninput="updateSkSize(this.value)">
+      <span id="sk-size-out">2</span>
+    </div>
+  </div>
+  <div class="canvas-outer">
+    <div class="canvas-wrap" id="sk-wrap"><canvas id="sk-canvas" height="460"></canvas></div>
+    <div class="fab-wrap">
+      <div class="fab-items" id="fab-items"></div>
+      <button class="fab-main" id="fab-main-btn" onclick="toggleFab()">
+        <svg viewBox="0 0 24 24"><path d="M3 21l3-3L17 7a1.4 1.4 0 00-2-2L4 18 3 21z"/><line x1="15" y1="6" x2="18" y2="9"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="sk-statusbar">
+    <div class="sk-active-tool"><div class="sk-tool-dot" id="sk-tool-dot"></div><span id="sk-tool-label">Pen · 2px</span></div>
+    <div class="sk-footer-btns"><span class="flash" id="sk-flash">Saved ✓</span><button class="btn-save" onclick="saveSketch()">Save sketch</button></div>
+  </div>
+</div>
+
+</div><!-- #app -->
+
+<script>
+const SKEY = 'joinery-jobs-v2';
+const COLORS = ['#1a1a1a','#ffffff','#E24B4A','#378ADD','#1D9E75','#EF9F27','#7F77DD','#888780','#D4537E'];
+const CLBLS  = ['black','white','red','blue','green','amber','purple','gray','pink'];
+const TOOLS  = [
+  {id:'pen',      label:'Pen',              svg:'<path d="M3 21l3-3L17 7a1.4 1.4 0 00-2-2L4 18 3 21z"/><line x1="15" y1="6" x2="18" y2="9"/>'},
+  {id:'pencil',   label:'Pencil',           svg:'<path d="M5 17l2-5L16 3a1 1 0 011 1L8 13 5 17z"/><line x1="14" y1="4" x2="18" y2="8"/>'},
+  {id:'highlight',label:'Marker',           svg:'<rect x="5" y="4" width="8" height="14" rx="2"/><line x1="9" y1="18" x2="9" y2="21"/><line x1="5" y1="10" x2="13" y2="10"/>'},
+  {id:'line',     label:'Line',             svg:'<line x1="3" y1="21" x2="21" y2="3"/>'},
+  {id:'rect',     label:'Rectangle',        svg:'<rect x="3" y="5" width="18" height="14" rx="1"/>'},
+  {id:'circle',   label:'Circle',           svg:'<circle cx="12" cy="12" r="8"/>'},
+  {id:'text',     label:'Text',             svg:'<line x1="4" y1="6" x2="20" y2="6"/><line x1="12" y1="6" x2="12" y2="20"/>'},
+  {id:'straight', label:'Straight lock',    svg:'<line x1="3" y1="12" x2="21" y2="12"/><polyline points="3 7 12 3 21 7"/>'},
+  {id:'calibrate',label:'Set reference dim',svg:'<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="8" x2="3" y2="16"/><line x1="21" y1="8" x2="21" y2="16"/><path d="M9 7l3-3 3 3"/>'},
+  {id:'eraser',   label:'Eraser',           svg:'<path d="M4 18l4-4L16 6a1 1 0 011 1L9 15l-2 3H4z"/><line x1="4" y1="18" x2="20" y2="18"/>'},
+];
+
+let jobs=[], activeFilter='all', currentJobId=null, lbIndex=0, editingAttIndex=null;
+let skTool='pen', skColor='#1a1a1a', skSize=2, skLocked=false, skGrid=true, skScale=20;
+let skDrawing=false, slx=0,sly=0,ssx=0,ssy=0, skHistory=[], skSnap=null, fabOpen=false;
+let skCanvas, skCtx, skWrap;
+let calPhase=0, calLine={x1:0,y1:0,x2:0,y2:0}, calSnap=null, pxPerMm=null;
+
+function bc(s){return s==='In progress'?'bp':s==='Review'?'br':s==='Complete'?'bc':'bh';}
+
+function showView(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  closeLightbox();
+  if(fabOpen)toggleFab();
+  if(v==='sketch')setTimeout(initSkCanvas,60);
+  window.scrollTo(0,0);
+}
+function backToDetail(){
+  const j=jobs.find(x=>x.id===currentJobId);
+  if(j)renderAttachments(j);
+  showView('detail');
+}
+
+// ── Storage (localStorage fallback for GitHub Pages) ──
+function storageGet(key){ try{ const v=localStorage.getItem(key); return v?JSON.parse(v):null; }catch(e){return null;} }
+function storageSet(key,val){ try{ localStorage.setItem(key,JSON.stringify(val)); }catch(e){} }
+
+function loadJobs(){
+  const saved=storageGet(SKEY);
+  jobs=saved||getSample();
+  renderDash();
+}
+function saveJobs(){ storageSet(SKEY,jobs); }
+
+function getSample(){return[
+  {id:'J-001',name:'Hampden Kitchen',client:'S. Mitchell',type:'Kitchen',status:'In progress',notes:'Cabinet carcass done. Awaiting benchtop template. Check drawer runner clearance on island.',mvnum:'',start:'2026-04-10',due:'',attachments:[]},
+  {id:'J-002',name:'Riccarton Wardrobe',client:'T. Nguyen',type:'Joinery',status:'Review',notes:'Hanging rail positions confirmed. Need sign-off on panel colour.',mvnum:'',start:'2026-04-15',due:'',attachments:[]},
+  {id:'J-003',name:'Fendalton Laundry',client:'B. Walsh',type:'Joinery',status:'Complete',notes:'Delivered and installed. Client happy. Invoice sent.',mvnum:'',start:'2026-03-28',due:'',attachments:[]},
+  {id:'J-004',name:'Merivale Study',client:'A. Clark',type:'Joinery',status:'On hold',notes:'Waiting on builder to finish walls before measure.',mvnum:'',start:'2026-04-20',due:'',attachments:[]},
+  {id:'J-005',name:'Papanui Kitchen',client:'D. Patel',type:'Kitchen',status:'In progress',notes:'',mvnum:'',start:'2026-04-22',due:'',attachments:[]},
+];}
+
+function setFilter(f,el){ activeFilter=f; document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); el.classList.add('active'); renderDash(); }
+
+function renderDash(){
+  document.getElementById('s-total').textContent=jobs.length;
+  document.getElementById('s-prog').textContent=jobs.filter(j=>j.status==='In progress').length;
+  document.getElementById('s-rev').textContent=jobs.filter(j=>j.status==='Review').length;
+  document.getElementById('s-comp').textContent=jobs.filter(j=>j.status==='Complete').length;
+  const filtered=activeFilter==='all'?jobs:jobs.filter(j=>j.status===activeFilter);
+  let h='';
+  filtered.forEach(j=>{
+    const ac=(j.attachments||[]).length;
+    h+=`<div class="job-card"><div class="card-top"><span class="job-id">${j.id}</span><span class="badge ${bc(j.status)}">${j.status}</span></div><div class="job-name">${j.name}</div><div class="job-client">${j.client} · ${j.type}</div><div class="card-actions"><button class="card-btn" onclick="openDetail('${j.id}')">Notes${ac?' ('+ac+')':''}</button><button class="card-btn sketch-btn" onclick="openSketch('${j.id}',null)">Sketch</button></div></div>`;
+  });
+  h+=`<button class="add-card" onclick="addJob()">+ New job</button>`;
+  document.getElementById('jobs-grid').innerHTML=h;
+}
+
+function openDetail(id){
+  currentJobId=id; const j=jobs.find(x=>x.id===id); if(!j)return;
+  document.getElementById('d-title').textContent=j.name;
+  document.getElementById('d-sub').textContent=j.id+' · '+j.type+' · '+j.client;
+  document.getElementById('d-name').value=j.name||'';
+  document.getElementById('d-client').value=j.client||'';
+  document.getElementById('d-type').value=j.type||'Kitchen';
+  document.getElementById('d-mvnum').value=j.mvnum||'';
+  document.getElementById('d-start').value=j.start||'';
+  document.getElementById('d-due').value=j.due||'';
+  document.getElementById('d-notes').value=j.notes||'';
+  const sel=document.getElementById('d-status');
+  sel.innerHTML=['In progress','Review','Complete','On hold'].map(s=>`<option${s===j.status?' selected':''}>${s}</option>`).join('');
+  updateStatusStyle(); renderAttachments(j); showView('detail');
+}
+function updateStatusStyle(){
+  const s=document.getElementById('d-status').value, el=document.getElementById('d-status');
+  const m={'In progress':'background:#E6F1FB;color:#185FA5;','Review':'background:#FAEEDA;color:#854F0B;','Complete':'background:#EAF3DE;color:#3B6D11;','On hold':'background:#F1EFE8;color:#5F5E5A;'};
+  el.style.cssText=m[s]||'';
+}
+function renderAttachments(j){
+  const el=document.getElementById('d-attachments');
+  if(!j||!j.attachments||!j.attachments.length){el.innerHTML='';return;}
+  const imgA=j.attachments.filter(a=>a.type&&a.type.startsWith('image/'));
+  const filA=j.attachments.filter(a=>!a.type||!a.type.startsWith('image/'));
+  let h='';
+  imgA.forEach(a=>{const ri=j.attachments.indexOf(a);h+=`<div class="att-thumb" onclick="openLightbox(${ri})"><img src="${a.data}" alt="${a.name}"><div class="att-label">${a.name}</div><button class="att-del" onclick="event.stopPropagation();removeAtt(${ri})">×</button></div>`;});
+  filA.forEach(a=>{const ri=j.attachments.indexOf(a);h+=`<div class="att-file" style="grid-column:span 3"><span>📄 ${a.name}</span><button style="background:none;border:none;cursor:pointer;color:var(--color-text-tertiary);font-size:14px;margin-left:auto;" onclick="removeAtt(${ri})">×</button></div>`;});
+  el.innerHTML=h;
+}
+function openLightbox(idx){
+  const j=jobs.find(x=>x.id===currentJobId); if(!j)return;
+  const imgA=j.attachments.filter(a=>a.type&&a.type.startsWith('image/')); if(!imgA.length)return;
+  lbIndex=imgA.indexOf(j.attachments[idx]); if(lbIndex<0)lbIndex=0;
+  showLbAt(lbIndex,imgA);
+  document.getElementById('lightbox').classList.add('open');
+  document.getElementById('lightbox').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function showLbAt(i,imgA){
+  if(!imgA){const j=jobs.find(x=>x.id===currentJobId);imgA=j.attachments.filter(a=>a.type&&a.type.startsWith('image/'));}
+  if(!imgA.length)return;
+  i=((i%imgA.length)+imgA.length)%imgA.length; lbIndex=i;
+  document.getElementById('lb-img').src=imgA[i].data;
+  document.getElementById('lb-name').textContent=imgA[i].name;
+  document.getElementById('lb-counter').textContent=(i+1)+' / '+imgA.length;
+}
+function lbNav(dir){const j=jobs.find(x=>x.id===currentJobId);if(!j)return;showLbAt(lbIndex+dir,j.attachments.filter(a=>a.type&&a.type.startsWith('image/')));}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
+function editCurrentSketch(){
+  const j=jobs.find(x=>x.id===currentJobId);if(!j)return;
+  const imgA=j.attachments.filter(a=>a.type&&a.type.startsWith('image/'));
+  const att=imgA[lbIndex]; const realIdx=j.attachments.indexOf(att);
+  closeLightbox(); openSketch(currentJobId,realIdx);
+}
+function deleteFromLightbox(){
+  const j=jobs.find(x=>x.id===currentJobId);if(!j)return;
+  const imgA=j.attachments.filter(a=>a.type&&a.type.startsWith('image/'));
+  const att=imgA[lbIndex]; const ri=j.attachments.indexOf(att);
+  j.attachments.splice(ri,1); saveJobs(); renderDash();
+  const rem=j.attachments.filter(a=>a.type&&a.type.startsWith('image/'));
+  if(!rem.length){closeLightbox();renderAttachments(j);return;}
+  renderAttachments(j); showLbAt(Math.min(lbIndex,rem.length-1),rem);
+}
+function removeAtt(i){const j=jobs.find(x=>x.id===currentJobId);if(!j)return;j.attachments.splice(i,1);saveJobs();renderDash();renderAttachments(j);}
+function handleFiles(files){
+  const j=jobs.find(x=>x.id===currentJobId);if(!j)return;j.attachments=j.attachments||[];
+  Array.from(files).forEach(file=>{const r=new FileReader();r.onload=e=>{j.attachments.push({name:file.name,type:file.type,data:e.target.result});renderAttachments(j);};r.readAsDataURL(file);});
+}
+function saveDetail(){
+  const j=jobs.find(x=>x.id===currentJobId);if(!j)return;
+  j.name=document.getElementById('d-name').value; j.client=document.getElementById('d-client').value;
+  j.type=document.getElementById('d-type').value; j.status=document.getElementById('d-status').value;
+  j.mvnum=document.getElementById('d-mvnum').value; j.start=document.getElementById('d-start').value;
+  j.due=document.getElementById('d-due').value; j.notes=document.getElementById('d-notes').value;
+  saveJobs(); renderDash();
+  const el=document.getElementById('detail-saved'); el.style.opacity='1'; setTimeout(()=>el.style.opacity='0',2000);
+}
+function addJob(){
+  const id='J-'+String(jobs.length+1).padStart(3,'0');
+  const name=prompt('Job name:'); if(!name)return;
+  const client=prompt('Client name:');
+  jobs.push({id,name,client:client||'',type:'Kitchen',status:'In progress',notes:'',mvnum:'',start:new Date().toISOString().slice(0,10),due:'',attachments:[]});
+  saveJobs(); renderDash();
+}
+function openSketch(id,editAttIdx){
+  currentJobId=id; editingAttIndex=editAttIdx;
+  const j=jobs.find(x=>x.id===id);if(!j)return;
+  document.getElementById('sk-title').textContent=j.name;
+  document.getElementById('sk-sub').textContent=j.id+' · '+j.client;
+  const b=document.getElementById('sk-badge'); b.textContent=j.status; b.className='badge '+bc(j.status);
+  document.getElementById('edit-banner').classList.toggle('show',editAttIdx!==null);
+  pxPerMm=null; calPhase=0; updateScaleBadge();
+  showView('sketch');
+}
+
+// ── Calibration ──
+function startCalibration(){
+  calPhase=1;
+  calSnap=skCtx.getImageData(0,0,skCanvas.width,skCanvas.height);
+  document.getElementById('cal-phase1').className='cal-banner phase1';
+  document.getElementById('cal-phase2').className='cal-banner';
+  if(fabOpen)toggleFab();
+}
+function cancelCalibration(){
+  if(calPhase===2&&calSnap)skCtx.putImageData(calSnap,0,0);
+  calPhase=0;
+  document.getElementById('cal-phase1').className='cal-banner';
+  document.getElementById('cal-phase2').className='cal-banner';
+  selectFabTool('pen',true);
+}
+function confirmCalibration(){
+  const mm=parseFloat(document.getElementById('cal-mm-input').value);
+  if(!mm||mm<=0){alert('Please enter a valid measurement in mm.');return;}
+  const dx=calLine.x2-calLine.x1, dy=calLine.y2-calLine.y1;
+  const pxLen=Math.sqrt(dx*dx+dy*dy);
+  pxPerMm=pxLen/mm;
+  document.getElementById('sk-scale-info').textContent='1px ≈ '+(1/pxPerMm).toFixed(2)+'mm';
+  calPhase=0;
+  document.getElementById('cal-phase1').className='cal-banner';
+  document.getElementById('cal-phase2').className='cal-banner';
+  updateScaleBadge();
+  drawCalLine(true,mm);
+  selectFabTool('pen',true);
+}
+function drawCalLine(permanent,mm){
+  skCtx.save();
+  skCtx.strokeStyle='#EF9F27'; skCtx.lineWidth=2; skCtx.setLineDash([6,4]); skCtx.lineCap='round';
+  skCtx.beginPath(); skCtx.moveTo(calLine.x1,calLine.y1); skCtx.lineTo(calLine.x2,calLine.y2); skCtx.stroke();
+  skCtx.setLineDash([]);
+  const angle=Math.atan2(calLine.y2-calLine.y1,calLine.x2-calLine.x1);
+  const perp=angle+Math.PI/2;
+  [[calLine.x1,calLine.y1],[calLine.x2,calLine.y2]].forEach(([x,y])=>{
+    skCtx.beginPath();
+    skCtx.moveTo(x+Math.cos(perp)*7,y+Math.sin(perp)*7);
+    skCtx.lineTo(x-Math.cos(perp)*7,y-Math.sin(perp)*7);
+    skCtx.stroke();
+  });
+  if(permanent&&mm){
+    const mx=(calLine.x1+calLine.x2)/2, my=(calLine.y1+calLine.y2)/2;
+    const label=mm>=1000?(mm/1000).toFixed(2)+'m':mm+'mm';
+    skCtx.font='bold 12px sans-serif';
+    const tw=skCtx.measureText(label).width;
+    skCtx.fillStyle='rgba(255,255,255,0.9)'; skCtx.fillRect(mx-tw/2-4,my-15,tw+8,19);
+    skCtx.fillStyle='#C07000'; skCtx.fillText(label,mx-tw/2,my);
+  }
+  skCtx.restore();
+}
+function updateScaleBadge(){
+  const el=document.getElementById('scale-badge');
+  if(pxPerMm){ el.textContent='cal · 1px='+(1/pxPerMm).toFixed(2)+'mm'; el.className='scale-badge cal'; }
+  else { el.textContent='uncalibrated'; el.className='scale-badge uncal'; }
+}
+
+// ── FAB ──
+function buildFab(){
+  const cont=document.getElementById('fab-items'); cont.innerHTML='';
+  TOOLS.forEach(t=>{
+    const div=document.createElement('div');
+    div.className='fab-item'+(t.id===skTool?' active':'');
+    div.id='fab-item-'+t.id;
+    div.innerHTML=`<span class="fab-item-label">${t.label}</span><div class="fab-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${t.svg}</svg></div>`;
+    div.onclick=()=>selectFabTool(t.id,false);
+    cont.appendChild(div);
+  });
+}
+function toggleFab(){
+  fabOpen=!fabOpen;
+  document.getElementById('fab-items').classList.toggle('open',fabOpen);
+  document.getElementById('fab-main-btn').style.background=fabOpen?'#378ADD':'#1a1a1a';
+}
+function selectFabTool(id,silent){
+  if(id==='straight'){skLocked=!skLocked;const el=document.getElementById('fab-item-straight');if(el)el.classList.toggle('active',skLocked);skUpdateLabel();if(!silent)toggleFab();return;}
+  if(id==='calibrate'){startCalibration();if(!silent)toggleFab();return;}
+  skTool=id; calPhase=0;
+  document.querySelectorAll('.fab-item').forEach(x=>x.classList.remove('active'));
+  const el=document.getElementById('fab-item-'+id); if(el)el.classList.add('active');
+  if(id==='eraser'){document.getElementById('sk-size').value=18;updateSkSize(18);}
+  else if(id==='highlight'){document.getElementById('sk-size').value=20;updateSkSize(20);}
+  skUpdateLabel(); if(!silent)toggleFab();
+}
+
+// ── Canvas ──
+function initSkCanvas(){
+  skCanvas=document.getElementById('sk-canvas'); skCtx=skCanvas.getContext('2d'); skWrap=document.getElementById('sk-wrap');
+  const w=skWrap.clientWidth||340; skCanvas.width=w; skCanvas.height=500; skHistory=[];
+  if(editingAttIndex!==null){
+    const j=jobs.find(x=>x.id===currentJobId); const att=j&&j.attachments[editingAttIndex];
+    if(att&&att.data){const img=new Image();img.onload=()=>{skCtx.fillStyle='#fff';skCtx.fillRect(0,0,skCanvas.width,skCanvas.height);skCtx.drawImage(img,0,0,skCanvas.width,skCanvas.height);};img.src=att.data;}
+    else skDrawGrid();
+  } else skDrawGrid();
+  skCanvas.oncontextmenu=e=>{e.preventDefault();toggleFab();};
+  skCanvas.addEventListener('mousedown',skStart); skCanvas.addEventListener('mousemove',skMove); skCanvas.addEventListener('mouseup',skEnd); skCanvas.addEventListener('mouseleave',skEnd);
+  skCanvas.addEventListener('touchstart',skStart,{passive:false}); skCanvas.addEventListener('touchmove',skMove,{passive:false}); skCanvas.addEventListener('touchend',skEnd,{passive:false});
+}
+function buildSkColors(){
+  const row=document.getElementById('sk-colors'); if(row.children.length)return;
+  COLORS.forEach((c,i)=>{
+    const d=document.createElement('div'); d.className='cdot'+(i===0?' active':''); d.style.background=c;
+    if(c==='#ffffff')d.style.border='2px solid #ccc'; d.title=CLBLS[i];
+    d.onclick=()=>{skColor=c;document.querySelectorAll('.cdot').forEach(x=>x.classList.remove('active'));d.classList.add('active');skUpdateLabel();document.getElementById('sk-tool-dot').style.background=c;};
+    row.appendChild(d);
+  });
+}
+function toggleDimPanel(){document.getElementById('dim-panel').classList.toggle('open');}
+function updateSkScale(){skScale=parseInt(document.getElementById('sk-scale').value);document.getElementById('sk-scale-info').textContent='1px = '+skScale+'mm';updateDimPrev();}
+function updateDimPrev(){
+  const w=parseFloat(document.getElementById('dw').value)||0, h=parseFloat(document.getElementById('dh').value)||0;
+  const eff=pxPerMm||(1/skScale);
+  document.getElementById('dim-prev').textContent=w+'mm × '+h+'mm → '+Math.round(w*eff)+'px × '+Math.round(h*eff)+'px';
+}
+function drawDimShape(){
+  const w=parseFloat(document.getElementById('dw').value)||0, h=parseFloat(document.getElementById('dh').value)||0;
+  const eff=pxPerMm||(1/skScale), pw=w*eff, ph=h*eff;
+  const cx=skCanvas.width/2, cy=skCanvas.height/2;
+  skPushHistory(); skCtx.save(); skCtx.strokeStyle=skColor; skCtx.lineWidth=skSize; skCtx.lineCap='round';
+  const shape=document.getElementById('dshape').value;
+  if(shape==='rect'){skCtx.strokeRect(cx-pw/2,cy-ph/2,pw,ph);skDimLabel(cx,cy-ph/2-6,w+'mm');skDimLabel(cx+pw/2+4,cy,h+'mm',true);}
+  else if(shape==='line'){skCtx.beginPath();skCtx.moveTo(cx-pw/2,cy);skCtx.lineTo(cx+pw/2,cy);skCtx.stroke();skDimLabel(cx,cy-8,w+'mm');}
+  else if(shape==='circle'){const r=pw/2;skCtx.beginPath();skCtx.arc(cx,cy,r,0,Math.PI*2);skCtx.stroke();skDimLabel(cx,cy-r-6,'Ø'+w+'mm');}
+  skCtx.restore();
+}
+function skDimLabel(x,y,t,vert){skCtx.save();skCtx.font='10px sans-serif';skCtx.fillStyle='#378ADD';if(vert){skCtx.translate(x,y);skCtx.rotate(-Math.PI/2);skCtx.fillText(t,0,0);}else{skCtx.fillText(t,x-skCtx.measureText(t).width/2,y);}skCtx.restore();}
+function updateSkSize(v){skSize=parseInt(v);document.getElementById('sk-size-out').textContent=v;skUpdateLabel();}
+function skUpdateLabel(){
+  const n={pen:'Pen',pencil:'Pencil',highlight:'Marker',line:'Line',rect:'Rectangle',circle:'Circle',text:'Text',eraser:'Eraser',calibrate:'Ref dim'};
+  const name=calPhase>0?'Drawing ref line…':(n[skTool]||skTool);
+  document.getElementById('sk-tool-label').textContent=name+' · '+skSize+'px'+(skLocked?' · straight':'');
+  document.getElementById('sk-tool-dot').style.background=skTool==='eraser'?'#ccc':(calPhase>0?'#EF9F27':skColor);
+}
+function skDrawGrid(){
+  skCtx.fillStyle='#ffffff'; skCtx.fillRect(0,0,skCanvas.width,skCanvas.height);
+  if(!skGrid)return;
+  skCtx.save(); const step=skScale;
+  skCtx.strokeStyle='#dde8f0'; skCtx.lineWidth=0.5;
+  for(let x=0;x<=skCanvas.width;x+=step){skCtx.beginPath();skCtx.moveTo(x,0);skCtx.lineTo(x,skCanvas.height);skCtx.stroke();}
+  for(let y=0;y<=skCanvas.height;y+=step){skCtx.beginPath();skCtx.moveTo(0,y);skCtx.lineTo(skCanvas.width,y);skCtx.stroke();}
+  skCtx.strokeStyle='#c5d8e8'; skCtx.lineWidth=0.8; const big=step*5;
+  for(let x=0;x<=skCanvas.width;x+=big){skCtx.beginPath();skCtx.moveTo(x,0);skCtx.lineTo(x,skCanvas.height);skCtx.stroke();}
+  for(let y=0;y<=skCanvas.height;y+=big){skCtx.beginPath();skCtx.moveTo(0,y);skCtx.lineTo(skCanvas.width,y);skCtx.stroke();}
+  skCtx.restore();
+}
+function skPushHistory(){skHistory.push(skCtx.getImageData(0,0,skCanvas.width,skCanvas.height));if(skHistory.length>50)skHistory.shift();}
+function skUndo(){if(skHistory.length)skCtx.putImageData(skHistory.pop(),0,0);}
+function skClear(){skPushHistory();skCtx.fillStyle='#fff';skCtx.fillRect(0,0,skCanvas.width,skCanvas.height);skDrawGrid();}
+function skGetPos(e){
+  const r=skCanvas.getBoundingClientRect(), sx=skCanvas.width/r.width, sy=skCanvas.height/r.height;
+  if(e.touches)return{x:(e.touches[0].clientX-r.left)*sx,y:(e.touches[0].clientY-r.top)*sy};
+  return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy};
+}
+function snapAngle(x,y,ox,oy){const dx=x-ox,dy=y-oy,a=Math.atan2(dy,dx),s=Math.round(a/(Math.PI/4))*(Math.PI/4),d=Math.sqrt(dx*dx+dy*dy);return{x:ox+Math.cos(s)*d,y:oy+Math.sin(s)*d};}
+function snapGrid(x,y){return{x:Math.round(x/skScale)*skScale,y:Math.round(y/skScale)*skScale};}
+
+function skStart(e){
+  if(fabOpen){if(!e.target.closest('.fab-wrap'))toggleFab();return;}
+  e.preventDefault();
+  let p=skGetPos(e);
+  if(calPhase===1){skDrawing=true;ssx=p.x;ssy=p.y;slx=p.x;sly=p.y;skSnap=skCtx.getImageData(0,0,skCanvas.width,skCanvas.height);return;}
+  if(skGrid&&(skTool==='line'||skTool==='rect'||skTool==='circle'))p=snapGrid(p.x,p.y);
+  skDrawing=true;slx=p.x;sly=p.y;ssx=p.x;ssy=p.y;
+  skPushHistory();skSnap=skCtx.getImageData(0,0,skCanvas.width,skCanvas.height);
+  if(skTool==='text'){skDrawing=false;const t=prompt('Enter text:');if(t){skCtx.save();skCtx.font='14px sans-serif';skCtx.fillStyle=skColor;skCtx.fillText(t,p.x,p.y);skCtx.restore();}}
+}
+function skMove(e){
+  e.preventDefault();if(!skDrawing)return;
+  let p=skGetPos(e);
+  if(calPhase===1){
+    p=snapAngle(p.x,p.y,ssx,ssy);
+    if(skSnap)skCtx.putImageData(skSnap,0,0);
+    skCtx.save();skCtx.strokeStyle='#EF9F27';skCtx.lineWidth=2;skCtx.setLineDash([6,4]);skCtx.lineCap='round';
+    skCtx.beginPath();skCtx.moveTo(ssx,ssy);skCtx.lineTo(p.x,p.y);skCtx.stroke();skCtx.setLineDash([]);
+    const dx=p.x-ssx,dy=p.y-ssy,px=Math.sqrt(dx*dx+dy*dy).toFixed(0);
+    skCtx.font='11px sans-serif';skCtx.fillStyle='#C07000';skCtx.fillText(px+'px',(ssx+p.x)/2+6,(ssy+p.y)/2-6);
+    skCtx.restore();slx=p.x;sly=p.y;return;
+  }
+  if(skLocked&&(skTool==='pen'||skTool==='pencil'))p=snapAngle(p.x,p.y,ssx,ssy);
+  if(skGrid&&(skTool==='line'||skTool==='rect'||skTool==='circle'))p=snapGrid(p.x,p.y);
+  if(skTool==='line'||skTool==='rect'||skTool==='circle'){
+    skCtx.putImageData(skSnap,0,0);skCtx.save();skCtx.strokeStyle=skColor;skCtx.lineWidth=skSize;skCtx.lineCap='round';
+    if(skTool==='line'){
+      skCtx.beginPath();skCtx.moveTo(ssx,ssy);skCtx.lineTo(p.x,p.y);skCtx.stroke();
+      if(pxPerMm){const dx=p.x-ssx,dy=p.y-ssy,mm=Math.round(Math.sqrt(dx*dx+dy*dy)/pxPerMm);skDimLabel((ssx+p.x)/2,(ssy+p.y)/2-8,mm+'mm');}
+    } else if(skTool==='rect'){
+      skCtx.strokeRect(ssx,ssy,p.x-ssx,p.y-ssy);
+      if(pxPerMm){const wm=Math.round(Math.abs(p.x-ssx)/pxPerMm),hm=Math.round(Math.abs(p.y-ssy)/pxPerMm);skDimLabel((ssx+p.x)/2,Math.min(ssy,p.y)-6,wm+'mm');skDimLabel(Math.max(ssx,p.x)+4,(ssy+p.y)/2,hm+'mm',true);}
+    } else if(skTool==='circle'){
+      const r=Math.sqrt((p.x-ssx)**2+(p.y-ssy)**2);
+      skCtx.beginPath();skCtx.arc(ssx,ssy,r,0,Math.PI*2);skCtx.stroke();
+      if(pxPerMm){const dm=Math.round(r*2/pxPerMm);skDimLabel(ssx,ssy-r-8,'Ø'+dm+'mm');}
+    }
+    skCtx.restore();
+  } else {
+    skCtx.save();skCtx.lineCap='round';skCtx.lineJoin='round';
+    if(skTool==='eraser'){skCtx.globalCompositeOperation='destination-out';skCtx.strokeStyle='rgba(0,0,0,1)';skCtx.lineWidth=skSize;skCtx.beginPath();skCtx.moveTo(slx,sly);skCtx.lineTo(p.x,p.y);skCtx.stroke();skCtx.globalCompositeOperation='source-over';}
+    else if(skTool==='highlight'){skCtx.globalAlpha=0.35;skCtx.globalCompositeOperation='multiply';skCtx.strokeStyle=skColor;skCtx.lineWidth=skSize;skCtx.beginPath();skCtx.moveTo(slx,sly);skCtx.lineTo(p.x,p.y);skCtx.stroke();}
+    else if(skTool==='pencil'){skCtx.globalAlpha=0.75;skCtx.strokeStyle=skColor;skCtx.lineWidth=Math.max(1,skSize*0.7);skCtx.beginPath();skCtx.moveTo(slx,sly);skCtx.lineTo(p.x,p.y);skCtx.stroke();}
+    else{skCtx.strokeStyle=skColor;skCtx.lineWidth=skSize;skCtx.beginPath();skCtx.moveTo(slx,sly);skCtx.lineTo(p.x,p.y);skCtx.stroke();}
+    skCtx.restore();
+  }
+  slx=p.x;sly=p.y;
+}
+function skEnd(e){
+  e.preventDefault();
+  if(calPhase===1&&skDrawing){
+    const touch=e.changedTouches&&e.changedTouches[0];
+    let p=skGetPos(touch?{clientX:touch.clientX,clientY:touch.clientY}:e);
+    p=snapAngle(p.x,p.y,ssx,ssy);
+    calLine={x1:ssx,y1:ssy,x2:p.x,y2:p.y};
+    skDrawing=false;
+    if(calSnap)skCtx.putImageData(calSnap,0,0);
+    drawCalLine(false,null);
+    calPhase=2;
+    document.getElementById('cal-phase1').className='cal-banner';
+    document.getElementById('cal-phase2').className='cal-banner phase2';
+    document.getElementById('cal-mm-input').value='';
+    setTimeout(()=>document.getElementById('cal-mm-input').focus(),100);
+    return;
+  }
+  skDrawing=false;skSnap=null;
+}
+
+function saveSketch(){
+  const dataUrl=skCanvas.toDataURL('image/png');
+  const j=jobs.find(x=>x.id===currentJobId);if(!j)return;
+  j.attachments=j.attachments||[];
+  if(editingAttIndex!==null){
+    j.attachments[editingAttIndex].data=dataUrl;
+    j.attachments[editingAttIndex].name='Sketch (edited '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+').png';
+  } else {
+    const ts=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    j.attachments.push({name:'Sketch '+ts+'.png',type:'image/png',data:dataUrl});
+  }
+  saveJobs();renderDash();
+  const f=document.getElementById('sk-flash');f.style.opacity='1';setTimeout(()=>f.style.opacity='0',2000);
+}
+function saveAsNewCopy(){
+  const orig=editingAttIndex;editingAttIndex=null;
+  saveSketch();editingAttIndex=orig;
+  document.getElementById('edit-banner').classList.remove('show');
+}
+
+buildSkColors();buildFab();loadJobs();updateDimPrev();
+</script>
+</body>
+</html>
