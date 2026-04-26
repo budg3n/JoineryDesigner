@@ -144,6 +144,7 @@ export default function JobDetail() {
   const [matPickerOpen, setMatPickerOpen] = useState(false)
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Track if all-materials has been fetched yet (lazy)
   const allMatsFetched = React.useRef(false)
@@ -299,7 +300,6 @@ export default function JobDetail() {
     toast('Job archived')
   }
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   async function deleteJob() {
     // Delete attachments from storage first
@@ -417,7 +417,7 @@ export default function JobDetail() {
       </div>
 
       {/* kitchen specs — only shown when job type is Kitchen */}
-      {job.type === 'Kitchen' && (
+      {(job.type||'').toLowerCase() === 'kitchen' && (
         <KitchenSpecs specs={job.kitchen_specs} onChange={specs => setJob(j => ({ ...j, kitchen_specs: specs }))} />
       )}
 

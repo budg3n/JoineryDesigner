@@ -77,24 +77,24 @@ export default function Layout() {
     <div style={{ display:'flex', minHeight:'100vh', background:'#F0F2F5' }}>
       {/* ── SIDEBAR ── */}
       <aside style={{
-        width: 220, flexShrink: 0, background: '#2A3042',
+        width: 220, flexShrink: 0, background: '#111318',
         display: 'flex', flexDirection: 'column',
         position: 'sticky', top: 0, height: '100vh',
         overflowY: 'auto',
       }}>
         {/* brand */}
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'20px 20px 16px', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'20px 20px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
           <div style={{ width:32, height:32, background:'#5B8AF0', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
           </div>
-          <span style={{ fontSize:15, fontWeight:700, color:'#fff', letterSpacing:'-.01em' }}>Joinery Jobs</span>
+          <span style={{ fontSize:15, fontWeight:800, color:'#fff', letterSpacing:'-.01em' }}>Joinery Jobs</span>
         </div>
 
         {/* nav */}
         <nav style={{ flex:1, paddingTop:8 }}>
           {NAV.map(group => (
             <div key={group.section}>
-              <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.3)', letterSpacing:'.08em', textTransform:'uppercase', padding:'16px 24px 6px' }}>
+              <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.35)', letterSpacing:'.07em', textTransform:'uppercase', padding:'16px 24px 6px' }}>
                 {group.section}
               </div>
               {group.items.map(item => {
@@ -108,13 +108,13 @@ export default function Layout() {
                       display:'flex', alignItems:'center', gap:10,
                       padding:'9px 12px', margin:'1px 8px', borderRadius:10,
                       cursor:'pointer', transition:'background .12s',
-                      background: isActive ? 'rgba(91,138,240,0.18)' : 'transparent',
-                      color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
+                      background: isActive ? 'rgba(91,138,240,0.22)' : 'transparent',
+                      color: isActive ? '#fff' : 'rgba(255,255,255,0.75)',
                     }}
-                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}>
-                    <span style={{ color: isActive ? '#5B8AF0' : 'rgba(255,255,255,0.4)', display:'flex', flexShrink:0 }}>{item.icon}</span>
-                    <span style={{ fontSize:13, fontWeight: isActive ? 600 : 400 }}>{item.label}</span>
+                    <span style={{ color: isActive ? '#5B8AF0' : 'rgba(255,255,255,0.55)', display:'flex', flexShrink:0 }}>{item.icon}</span>
+                    <span style={{ fontSize:13, fontWeight: isActive ? 700 : 500 }}>{item.label}</span>
                   </div>
                 )
               })}
@@ -123,19 +123,19 @@ export default function Layout() {
         </nav>
 
         {/* user footer */}
-        <div style={{ padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:34, height:34, borderRadius:'50%', background:avatarColor, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff', flexShrink:0 }}>
               {initials(profile?.full_name, profile?.email)}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:13, fontWeight:600, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile?.full_name || profile?.email || '—'}</div>
-              <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>{role}</div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile?.full_name || profile?.email || '—'}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)' }}>{role}</div>
             </div>
             <button onClick={signOut} title="Sign out"
-              style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', padding:4, borderRadius:6, display:'flex' }}
-              onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.7)'}
-              onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.3)'}>
+              style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', padding:4, borderRadius:6, display:'flex' }}
+              onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.9)'}
+              onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.4)'}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             </button>
           </div>

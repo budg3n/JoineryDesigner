@@ -15,6 +15,7 @@ const PERMISSIONS = {
   settings:    ['Admin'],
   team:        ['Admin'],
   seeAllJobs:  ['Admin', 'Project Manager', 'Setout', 'Production Manager'],
+  deleteJob:   ['Admin'],
 }
 
 export function AppProvider({ children }) {
