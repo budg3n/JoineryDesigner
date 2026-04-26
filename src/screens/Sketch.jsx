@@ -284,8 +284,8 @@ export default function Sketch() {
       <BackButton to={`/job/${id}`} label="Job details" />
       <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">{job?.name || '…'}</h1>
-          <div className="text-xs text-gray-400">{job?.id} · {job?.client}</div>
+          <h1 className="text-lg font-bold text-[#2A3042]">{job?.name || '…'}</h1>
+          <div className="text-xs text-[#9CA3AF]">{job?.id} · {job?.client}</div>
         </div>
         {editAtt && <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg">Editing existing sketch</span>}
       </div>
@@ -316,7 +316,7 @@ export default function Sketch() {
         <select value={scale} onChange={e => setScale(parseInt(e.target.value))} className="input text-xs py-1.5 w-24">
           <option value={10}>1:10</option><option value={20}>1:20</option><option value={50}>1:50</option><option value={100}>1:100</option>
         </select>
-        <span className="text-xs text-gray-400 font-mono">{pxMm ? `1px≈${(1/pxMm).toFixed(1)}mm` : `1px=${scale}mm`}</span>
+        <span className="text-xs text-[#9CA3AF] font-mono">{pxMm ? `1px≈${(1/pxMm).toFixed(1)}mm` : `1px=${scale}mm`}</span>
         {pxMm && <span className="text-xs px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">calibrated</span>}
         <button onClick={() => setDimOpen(v => !v)} className="btn btn-sm text-xs">📐 Dim</button>
         <button onClick={skUndo} className="btn btn-sm text-xs">↩ Undo</button>
@@ -325,8 +325,8 @@ export default function Sketch() {
 
       {/* dim panel */}
       {dimOpen && (
-        <div className="card p-3 mb-3">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Draw at exact dimensions</div>
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14, marginBottom:12 }}>
+          <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider mb-2">Draw at exact dimensions</div>
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div><label className="label">Width (mm)</label><input className="input text-sm" type="number" value={dimW} onChange={e => setDimW(e.target.value)} /></div>
             <div><label className="label">Height / length (mm)</label><input className="input text-sm" type="number" value={dimH} onChange={e => setDimH(e.target.value)} /></div>
@@ -337,7 +337,7 @@ export default function Sketch() {
             </select>
             <button onClick={drawDimShape} className="btn btn-sm">Draw</button>
           </div>
-          <div className="text-xs text-gray-400 mt-1">{dimW}mm × {dimH}mm → {Math.round(parseFloat(dimW)*(pxMm||(1/scale)))}px × {Math.round(parseFloat(dimH)*(pxMm||(1/scale)))}px</div>
+          <div className="text-xs text-[#9CA3AF] mt-1">{dimW}mm × {dimH}mm → {Math.round(parseFloat(dimW)*(pxMm||(1/scale)))}px × {Math.round(parseFloat(dimH)*(pxMm||(1/scale)))}px</div>
         </div>
       )}
 
@@ -352,13 +352,13 @@ export default function Sketch() {
         </div>
         <div className="flex items-center gap-2 flex-1 min-w-24">
           <input type="range" min="1" max="40" step="1" value={size} onChange={e => setSize(parseInt(e.target.value))} className="flex-1" />
-          <span className="text-xs text-gray-500 w-5">{size}</span>
+          <span className="text-xs text-[#6B7280] w-5">{size}</span>
         </div>
       </div>
 
       {/* canvas */}
       <div className="relative mb-3" ref={wrapRef}>
-        <div className="border border-gray-200 dark:border-zinc-700 rounded-xl overflow-hidden bg-white touch-none">
+        <div className="border border-[#E8ECF0] rounded-xl overflow-hidden bg-white touch-none">
           <canvas ref={cvRef}
             onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
             onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
@@ -371,7 +371,7 @@ export default function Sketch() {
               {TOOLS.map(t => (
                 <div key={t.id} onClick={() => pickTool(t.id)} className="flex items-center gap-2 cursor-pointer">
                   <span className={`text-xs px-3 py-1.5 rounded-full text-white ${tool===t.id||( t.id==='straight'&&locked) ? 'bg-blue-600' : 'bg-gray-800/85'}`}>{t.lbl}</span>
-                  <div className={`w-9 h-9 rounded-full border flex items-center justify-center shadow-md cursor-pointer ${tool===t.id||(t.id==='straight'&&locked) ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300'}`}>
+                  <div className={`w-9 h-9 rounded-full border flex items-center justify-center shadow-md cursor-pointer ${tool===t.id||(t.id==='straight'&&locked) ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-[#E8ECF0] text-[#4B5563]'}`}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" dangerouslySetInnerHTML={{ __html: t.svg }} />
                   </div>
                 </div>
@@ -389,7 +389,7 @@ export default function Sketch() {
 
       {/* status + save */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center gap-2 text-xs text-[#6B7280]">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: calPhase>0 ? '#EF9F27' : tool==='eraser' ? '#ccc' : color }} />
           <span>{calPhase>0 ? 'Drawing ref line…' : (toolName[tool]||tool)} · {size}px{locked ? ' · straight' : ''}</span>
         </div>

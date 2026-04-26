@@ -74,13 +74,13 @@ function MaterialForm({ material, onSave, onCancel }) {
 
   return (
     <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
-      <h2 className="text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-4">{material?.id ? 'Edit material' : 'Add material'}</h2>
+      <h2 className="text-sm font-semibold text-[#4B5563] mb-4">{material?.id ? 'Edit material' : 'Add material'}</h2>
       {/* swatch upload */}
       <div onClick={() => fileRef.current.click()}
-        className="relative w-full h-28 rounded-xl border-2 border-dashed border-gray-200 dark:border-zinc-600 flex items-center justify-center cursor-pointer overflow-hidden mb-4 hover:border-gray-300 transition-colors">
+        className="relative w-full h-28 rounded-xl border-2 border-dashed border-[#E8ECF0] flex items-center justify-center cursor-pointer overflow-hidden mb-4 hover:border-gray-300 transition-colors">
         {preview
           ? <img src={preview} alt="" className="w-full h-full object-cover" />
-          : <div className="flex flex-col items-center gap-1 text-gray-400"><span className="text-3xl">🎨</span><span className="text-xs">Tap to add colour sample</span></div>
+          : <div className="flex flex-col items-center gap-1 text-[#9CA3AF]"><span className="text-3xl">🎨</span><span className="text-xs">Tap to add colour sample</span></div>
         }
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
       </div>
@@ -146,7 +146,7 @@ export default function Materials() {
     <div>
       <BackButton to="/settings" label="Settings" />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Materials</h1>
+        <h1 className="text-xl font-bold text-[#2A3042]">Materials</h1>
         <button onClick={() => setEditing('new')} className="btn-green">+ Add material</button>
       </div>
 
@@ -162,7 +162,7 @@ export default function Materials() {
       <div className="flex gap-2 flex-wrap mb-4">
         {types.map(t => (
           <button key={t} onClick={() => setTypeFilter(t)}
-            className={`text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${typeFilter === t ? 'bg-gray-900 text-white border-gray-900 dark:bg-white dark:text-gray-900' : 'bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-600 dark:text-zinc-300 hover:border-gray-300'}`}>
+            className={`text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors ${typeFilter === t ? 'bg-[#2A3042] text-white border-[#2A3042]' : 'bg-white border-[#E8ECF0] text-[#6B7280] hover:border-[#9CA3AF]'}`}>
             {t}
           </button>
         ))}
@@ -173,18 +173,18 @@ export default function Materials() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map(m => (
-            <div key={m.id} className="card overflow-hidden cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 transition-colors">
+            <div key={m.id} className="card overflow-hidden cursor-pointer hover:border-gray-300 transition-colors">
               {m.storage_path
                 ? <img src={pubUrl(m.storage_path)} alt={m.name} className="w-full h-20 object-cover" loading="lazy" />
-                : <div className="w-full h-20 bg-gray-100 dark:bg-zinc-700 flex items-center justify-center text-2xl">🎨</div>
+                : <div className="w-full h-20 bg-[#F3F4F6] flex items-center justify-center text-2xl">🎨</div>
               }
               <div className="p-3">
-                <div className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5 truncate">{m.name}</div>
-                <div className="text-xs text-gray-400 mb-2">{m.supplier || '—'}</div>
+                <div className="text-sm font-semibold text-[#2A3042] mb-0.5 truncate">{m.name}</div>
+                <div className="text-xs text-[#9CA3AF] mb-2">{m.supplier || '—'}</div>
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {m.panel_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-700 text-gray-500 dark:text-zinc-400">{m.panel_type}</span>}
-                  {m.thickness  && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-700 text-gray-500 dark:text-zinc-400">{m.thickness}mm</span>}
-                  {m.finish     && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-700 text-gray-500 dark:text-zinc-400">{m.finish}</span>}
+                  {m.panel_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280]">{m.panel_type}</span>}
+                  {m.thickness  && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280]">{m.thickness}mm</span>}
+                  {m.finish     && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280]">{m.finish}</span>}
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => setEditing(m)} className="btn btn-sm flex-1 text-xs py-1">Edit</button>
@@ -194,7 +194,7 @@ export default function Materials() {
             </div>
           ))}
           <button onClick={() => setEditing('new')}
-            className="border-2 border-dashed border-gray-200 dark:border-zinc-700 rounded-xl flex items-center justify-center text-sm text-gray-400 hover:border-gray-300 cursor-pointer min-h-[160px] bg-transparent">
+            className="border-2 border-dashed border-[#E8ECF0] rounded-xl flex items-center justify-center text-sm text-[#9CA3AF] hover:border-gray-300 cursor-pointer min-h-[160px] bg-transparent">
             + Add material
           </button>
         </div>

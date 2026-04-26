@@ -20,7 +20,7 @@ function dFromNow(dateStr, timeStr) {
 }
 
 function DueBadge({ t }) {
-  if (t.done) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">Done</span>
+  if (t.done) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#9CA3AF]">Done</span>
   if (!t.date) return null
   const d = dFromNow(t.date, t.time)
   const lbl = new Date(t.date).toLocaleDateString('en-NZ', { day:'numeric', month:'short' }) + (t.time ? ' ' + t.time : '')
@@ -182,13 +182,13 @@ export default function JobDetail() {
   }
 
   if (loading) return <div className="flex justify-center py-16"><div className="spinner" /></div>
-  if (!job) return <div className="text-center py-16 text-gray-400">Job not found</div>
+  if (!job) return <div className="text-center py-16 text-[#9CA3AF]">Job not found</div>
 
   const statusStyle = {
     'In progress': 'bg-blue-50 text-blue-700 border-blue-200',
     'Review':      'bg-amber-50 text-amber-700 border-amber-200',
     'Complete':    'bg-teal-50 text-teal-700 border-teal-200',
-    'On hold':     'bg-gray-100 text-gray-600 border-gray-200',
+    'On hold':     'bg-[#F3F4F6] text-[#6B7280] border-[#E8ECF0]',
   }
 
   return (
@@ -198,8 +198,8 @@ export default function JobDetail() {
       {/* header */}
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">{job.name}</h1>
-          <div className="text-sm text-gray-500 dark:text-zinc-400 mt-0.5">{job.id} · {job.type} · {job.client}</div>
+          <h1 className="text-xl font-bold text-[#2A3042]">{job.name}</h1>
+          <div className="text-sm text-[#6B7280] mt-0.5">{job.id} · {job.type} · {job.client}</div>
         </div>
         <select value={job.status} onChange={e => setJob(j => ({ ...j, status: e.target.value }))}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
@@ -218,32 +218,32 @@ export default function JobDetail() {
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
         <div className="flex items-center justify-between mb-3">
           <span className="section-title">Tasks</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${overTasks.length > 0 ? 'bg-red-50 text-red-700' : openTasks.length > 0 ? 'bg-blue-50 text-blue-700' : tasks.length > 0 ? 'bg-teal-50 text-teal-700' : 'bg-gray-100 text-gray-400'}`}>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${overTasks.length > 0 ? 'bg-red-50 text-red-700' : openTasks.length > 0 ? 'bg-blue-50 text-blue-700' : tasks.length > 0 ? 'bg-teal-50 text-teal-700' : 'bg-[#F3F4F6] text-[#9CA3AF]'}`}>
             {overTasks.length > 0 ? `${openTasks.length} remaining · ${overTasks.length} overdue` : openTasks.length > 0 ? `${openTasks.length} of ${tasks.length} remaining` : tasks.length > 0 ? 'All complete' : 'No tasks'}
           </span>
         </div>
-        <div className="divide-y divide-gray-100 dark:divide-zinc-700 mb-3">
-          {sortedTasks.length === 0 && <div className="text-sm text-gray-400 py-2">No tasks yet</div>}
+        <div className="divide-y divide-[#F3F4F6] mb-3">
+          {sortedTasks.length === 0 && <div className="text-sm text-[#9CA3AF] py-2">No tasks yet</div>}
           {sortedTasks.map(t => {
             const isOver = !t.done && t.date && dFromNow(t.date, t.time) < 0
             return (
               <div key={t.id} className="flex items-start gap-2.5 py-2.5">
                 <div onClick={() => toggleTask(t.id)}
                   className={`w-5 h-5 rounded-[4px] border-[1.5px] flex-shrink-0 mt-0.5 flex items-center justify-center cursor-pointer transition-colors
-                    ${t.done ? 'bg-teal-500 border-teal-500 text-white' : isOver ? 'border-red-400' : 'border-gray-300 dark:border-zinc-600'}`}>
+                    ${t.done ? 'bg-teal-500 border-teal-500 text-white' : isOver ? 'border-red-400' : 'border-[#DDE3EC]'}`}>
                   {t.done && <span className="text-[10px] font-bold">✓</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm ${t.done ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}>{t.title}</div>
+                  <div className={`text-sm ${t.done ? 'line-through text-[#9CA3AF]' : 'text-[#2A3042]'}`}>{t.title}</div>
                   <div className="flex flex-wrap gap-1.5 mt-1"><DueBadge t={t} /></div>
                 </div>
-                <button onClick={() => deleteTask(t.id)} className="text-gray-300 hover:text-red-400 text-lg leading-none bg-transparent border-none cursor-pointer flex-shrink-0">×</button>
+                <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none bg-transparent border-none cursor-pointer flex-shrink-0">×</button>
               </div>
             )
           })}
         </div>
         {taskForm ? (
-          <div className="border-t border-gray-100 dark:border-zinc-700 pt-3">
+          <div className="border-t border-[#F3F4F6] pt-3">
             <input className="input text-sm mb-2" placeholder="Task description…"
               value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addTask()} autoFocus />
@@ -295,28 +295,28 @@ export default function JobDetail() {
           {jobMats.map(jm => {
             const m = jm.materials; if (!m) return null
             return (
-              <div key={jm.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-zinc-700 border border-gray-200 dark:border-zinc-600 rounded-lg text-xs">
+              <div key={jm.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E8ECF0] rounded-lg text-xs">
                 <div className="w-3.5 h-3.5 rounded-[3px]" style={{ background: m.color||'#ccc' }} />
-                <span className="font-medium text-gray-800 dark:text-zinc-200">{m.name}</span>
-                <span className="text-gray-400">{m.panel_type} {m.thickness ? m.thickness+'mm' : ''}</span>
-                <button onClick={() => removeMat(jm.id)} className="text-gray-300 hover:text-red-400 leading-none bg-transparent border-none cursor-pointer ml-1">×</button>
+                <span className="font-medium text-[#374151]">{m.name}</span>
+                <span className="text-[#9CA3AF]">{m.panel_type} {m.thickness ? m.thickness+'mm' : ''}</span>
+                <button onClick={() => removeMat(jm.id)} className="text-[#D1D5DB] hover:text-red-400 leading-none bg-transparent border-none cursor-pointer ml-1">×</button>
               </div>
             )
           })}
         </div>
         <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
         {matPickerOpen && (
-          <div className="mt-3 grid grid-cols-2 gap-2 max-h-52 overflow-y-auto border-t border-gray-100 dark:border-zinc-700 pt-3">
-            {availMats.length === 0 ? <div className="col-span-2 text-sm text-gray-400 text-center py-3">All materials added</div> :
+          <div className="mt-3 grid grid-cols-2 gap-2 max-h-52 overflow-y-auto border-t border-[#F3F4F6] pt-3">
+            {availMats.length === 0 ? <div className="col-span-2 text-sm text-[#9CA3AF] text-center py-3">All materials added</div> :
               availMats.map(m => (
                 <div key={m.id} onClick={() => addMat(m.id)}
-                  className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 bg-white dark:bg-zinc-800">
+                  className="flex items-center gap-2 p-2 rounded-lg border border-[#E8ECF0] cursor-pointer hover:border-gray-300 bg-white">
                   {m.storage_path
                     ? <img src={pubUrl(m.storage_path)} className="w-7 h-7 rounded object-cover flex-shrink-0" alt="" loading="lazy" />
-                    : <div className="w-7 h-7 rounded flex-shrink-0 bg-gray-100 dark:bg-zinc-700" />
+                    : <div className="w-7 h-7 rounded flex-shrink-0 bg-[#F3F4F6]" />
                   }
-                  <div><div className="text-xs font-medium text-gray-900 dark:text-white leading-tight">{m.name}</div>
-                    <div className="text-[10px] text-gray-400">{m.panel_type} {m.thickness ? '· '+m.thickness+'mm' : ''}</div>
+                  <div><div className="text-xs font-medium text-[#2A3042] leading-tight">{m.name}</div>
+                    <div className="text-[10px] text-[#9CA3AF]">{m.panel_type} {m.thickness ? '· '+m.thickness+'mm' : ''}</div>
                   </div>
                 </div>
               ))
@@ -347,14 +347,14 @@ export default function JobDetail() {
             </div>
           </div>
         )}
-        <div className="relative border-2 border-dashed border-gray-200 dark:border-zinc-600 rounded-xl px-4 py-3 text-sm text-gray-400 text-center cursor-pointer hover:border-gray-300 mb-3">
+        <div className="relative border-2 border-dashed border-[#E8ECF0] rounded-xl px-4 py-3 text-sm text-[#9CA3AF] text-center cursor-pointer hover:border-gray-300 mb-3">
           <input type="file" accept="image/*,.pdf,.dwg,.dxf" multiple onChange={handleFiles} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
           {uploading ? 'Uploading…' : '📎 Tap to upload — images, PDFs, DWG, DXF'}
         </div>
         {imgAtts.length > 0 && (
           <div className="grid grid-cols-3 gap-2 mb-2">
             {imgAtts.map((a, i) => (
-              <div key={a.id} onClick={() => setLbIdx(i)} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-gray-300">
+              <div key={a.id} onClick={() => setLbIdx(i)} className="relative aspect-square rounded-lg overflow-hidden border border-[#E8ECF0] cursor-pointer hover:border-gray-300">
                 <img src={pubUrl(a.storage_path)} alt={a.name} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-0.5 text-[9px] text-white truncate">{a.name}</div>
                 <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center text-xs border-none cursor-pointer">×</button>
@@ -364,10 +364,10 @@ export default function JobDetail() {
         )}
         {fileAtts.map(a => (
           <div key={a.id} onClick={() => window.open(pubUrl(a.storage_path),'_blank')}
-            className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-zinc-700/50 border border-gray-200 dark:border-zinc-700 rounded-lg cursor-pointer hover:border-gray-300 mb-2">
+            className="flex items-center gap-2 px-3 py-2.5 bg-[#F9FAFB] border border-[#E8ECF0] rounded-lg cursor-pointer hover:border-gray-300 mb-2">
             <span className="text-base">📄</span>
-            <span className="text-sm text-gray-600 dark:text-zinc-300 flex-1 truncate">{a.name}</span>
-            <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="text-gray-300 hover:text-red-400 text-base leading-none bg-transparent border-none cursor-pointer">×</button>
+            <span className="text-sm text-[#6B7280] flex-1 truncate">{a.name}</span>
+            <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="text-[#D1D5DB] hover:text-red-400 text-base leading-none bg-transparent border-none cursor-pointer">×</button>
           </div>
         ))}
       </div>

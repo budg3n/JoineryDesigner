@@ -9,7 +9,7 @@ const ROLE_COLORS = {
   'Project Manager':    'bg-teal-100 text-teal-800',
   'Setout':             'bg-amber-100 text-amber-800',
   'Production Manager': 'bg-purple-100 text-purple-800',
-  'Production Team':    'bg-gray-100 text-gray-600',
+  'Production Team':    'bg-[#F3F4F6] text-[#6B7280]',
 }
 const AVATAR_BG = ['#185FA5','#085041','#854F0B','#534AB7','#A32D2D','#0F6E56','#3C3489']
 const initials = m => ((m.full_name||m.email||'?').split(' ').map(w=>w[0]).slice(0,2).join('') || '?').toUpperCase()
@@ -69,7 +69,7 @@ export default function Team() {
     <div>
       <BackButton to="/settings" label="Settings" />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Team</h1>
+        <h1 className="text-xl font-bold text-[#2A3042]">Team</h1>
         <button onClick={() => setShowInvite(v => !v)} className="btn-green">
           {showInvite ? 'Cancel' : '+ Invite user'}
         </button>
@@ -78,7 +78,7 @@ export default function Team() {
       {/* invite form */}
       {showInvite && (
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-zinc-300 mb-3">Invite new user</h2>
+          <h2 className="text-sm font-semibold text-[#4B5563] mb-3">Invite new user</h2>
           {invErr && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{invErr}</div>}
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="col-span-2"><label className="label">Full name</label><input className="input" placeholder="Jake Smith" value={inv.name} onChange={setI('name')} /></div>
@@ -108,21 +108,21 @@ export default function Team() {
       ) : (
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
           {members.length === 0 ? (
-            <div className="p-8 text-center text-sm text-gray-400">No team members yet</div>
+            <div className="p-8 text-center text-sm text-[#9CA3AF]">No team members yet</div>
           ) : members.map((m, i) => (
-            <div key={m.id} className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 dark:border-zinc-700 last:border-0">
+            <div key={m.id} className="flex items-center gap-3 px-4 py-3.5 border-b border-[#F3F4F6] last:border-0">
               <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                 style={{ background: AVATAR_BG[i % AVATAR_BG.length] }}>{initials(m)}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-900 dark:text-white">{m.full_name || '—'}</div>
-                <div className="text-xs text-gray-400 truncate">{m.email}</div>
+                <div className="text-sm font-semibold text-[#2A3042]">{m.full_name || '—'}</div>
+                <div className="text-xs text-[#9CA3AF] truncate">{m.email}</div>
               </div>
               <select value={m.role || 'Production Team'}
                 onChange={e => updateRole(m.id, e.target.value)}
-                className="text-xs border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1 bg-white dark:bg-zinc-800 text-gray-700 dark:text-zinc-200 cursor-pointer max-w-[150px]">
+                className="text-xs border border-[#E8ECF0] rounded-lg px-2 py-1 bg-white text-[#4B5563] cursor-pointer max-w-[150px]">
                 {ROLES.map(r => <option key={r}>{r}</option>)}
               </select>
-              <button onClick={() => removeMember(m)} className="text-gray-300 hover:text-red-500 text-lg leading-none bg-transparent border-none cursor-pointer">×</button>
+              <button onClick={() => removeMember(m)} className="text-[#D1D5DB] hover:text-red-500 text-lg leading-none bg-transparent border-none cursor-pointer">×</button>
             </div>
           ))}
         </div>

@@ -33,14 +33,14 @@ function CustomerForm({ customer, onSave, onCancel }) {
 
   return (
     <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:20, marginBottom:14 }}>
-      <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">{customer?.id ? 'Edit customer' : 'Add customer'}</h2>
+      <h2 className="text-base font-semibold text-[#2A3042] mb-4">{customer?.id ? 'Edit customer' : 'Add customer'}</h2>
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[['first_name','First name','Sam'],['last_name','Last name','Mitchell'],['phone','Phone','027 555 0000'],['email','Email','sam@email.com']].map(([k,l,p]) => (
           <div key={k}><label className="label">{l}</label><input className="input" placeholder={p} value={f[k]} onChange={set(k)} /></div>
         ))}
         <div className="col-span-2"><label className="label">Company (optional)</label><input className="input" placeholder="Mitchell Constructions" value={f.company} onChange={set('company')} /></div>
-        <div className="col-span-2 border-t border-gray-100 dark:border-zinc-700 pt-3 mt-1">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Default delivery address</div>
+        <div className="col-span-2 border-t border-[#F3F4F6] pt-3 mt-1">
+          <div className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Default delivery address</div>
         </div>
         <div className="col-span-2"><label className="label">Street address</label><input className="input" placeholder="12 Example St, Suburb" value={f.address} onChange={set('address')} /></div>
         <div><label className="label">City</label><input className="input" placeholder="Christchurch" value={f.city} onChange={set('city')} /></div>
@@ -99,7 +99,7 @@ export default function Customers() {
     <div>
       <BackButton to="/settings" label="Settings" />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Customers</h1>
+        <h1 className="text-xl font-bold text-[#2A3042]">Customers</h1>
         <button onClick={() => setEditing('new')} className="btn-green">+ Add customer</button>
       </div>
 
@@ -112,7 +112,7 @@ export default function Customers() {
       )}
 
       <div className="relative mb-3">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">⌕</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] text-sm pointer-events-none">⌕</span>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search customers…" className="input pl-9" />
       </div>
@@ -122,26 +122,26 @@ export default function Customers() {
       ) : (
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
           {filtered.length === 0 ? (
-            <div className="p-8 text-center text-sm text-gray-400">
+            <div className="p-8 text-center text-sm text-[#9CA3AF]">
               {search ? 'No customers match your search' : 'No customers yet — add one above'}
             </div>
           ) : filtered.map((c, i) => (
-            <div key={c.id} className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 dark:border-zinc-700 last:border-0 hover:bg-gray-50 dark:hover:bg-zinc-700">
+            <div key={c.id} className="flex items-center gap-3 px-4 py-3.5 border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB]">
               <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                 style={{ background: COLORS[i % COLORS.length] }}>{initials(c)}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                <div className="text-sm font-semibold text-[#2A3042]">
                   {c.first_name} {c.last_name}
-                  {c.company && <span className="font-normal text-gray-500"> · {c.company}</span>}
+                  {c.company && <span className="font-normal text-[#6B7280]"> · {c.company}</span>}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-zinc-400">
+                <div className="text-xs text-[#6B7280]">
                   {[c.phone, c.email].filter(Boolean).join(' · ')}
                 </div>
                 {c.address && (
-                  <div className="text-xs text-gray-400 truncate">{[c.address, c.city].filter(Boolean).join(', ')}</div>
+                  <div className="text-xs text-[#9CA3AF] truncate">{[c.address, c.city].filter(Boolean).join(', ')}</div>
                 )}
               </div>
-              <div className="text-xs text-gray-400 bg-gray-100 dark:bg-zinc-700 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
+              <div className="text-xs text-[#9CA3AF] bg-[#F3F4F6] rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
                 {jobCount(c.id)} job{jobCount(c.id) !== 1 ? 's' : ''}
               </div>
               <div className="flex gap-1 flex-shrink-0">

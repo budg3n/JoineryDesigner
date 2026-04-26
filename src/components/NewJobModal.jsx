@@ -16,23 +16,23 @@ function CustomerPicker({ customers, onSelect, onAddNew }) {
   return (
     <div>
       <div className="relative mb-2">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">⌕</span>
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] text-sm pointer-events-none">⌕</span>
         <input value={q} onChange={e => setQ(e.target.value)}
           placeholder="Search customers…" className="input pl-8 text-sm" />
       </div>
-      <div className="border border-gray-200 dark:border-zinc-600 rounded-lg overflow-hidden max-h-48 overflow-y-auto mb-2">
+      <div className="border border-[#E8ECF0] rounded-lg overflow-hidden max-h-48 overflow-y-auto mb-2">
         {filtered.length === 0 ? (
-          <div className="p-3 text-sm text-gray-400 text-center">No customers found</div>
+          <div className="p-3 text-sm text-[#9CA3AF] text-center">No customers found</div>
         ) : filtered.map((c, i) => (
           <div key={c.id} onClick={() => onSelect(c)}
-            className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-700 border-b border-gray-100 dark:border-zinc-700 last:border-0">
+            className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[#F9FAFB] border-b border-[#F3F4F6] last:border-0">
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
               style={{ background: custColor(c, i) }}>{custInitials(c)}</div>
             <div>
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
+              <div className="text-sm font-medium text-[#2A3042]">
                 {c.first_name} {c.last_name}{c.company ? ` · ${c.company}` : ''}
               </div>
-              <div className="text-xs text-gray-400">{c.phone}{c.phone && c.email ? ' · ' : ''}{c.email}</div>
+              <div className="text-xs text-[#9CA3AF]">{c.phone}{c.phone && c.email ? ' · ' : ''}{c.email}</div>
             </div>
           </div>
         ))}
@@ -58,8 +58,8 @@ function NewCustomerForm({ onSaved, onCancel }) {
   }
 
   return (
-    <div className="border border-gray-200 dark:border-zinc-600 rounded-xl p-4 mb-3 bg-gray-50 dark:bg-zinc-900">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">New customer</div>
+    <div className="border border-[#E8ECF0] rounded-xl p-4 mb-3 bg-[#F9FAFB]">
+      <div className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider mb-3">New customer</div>
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[['first_name','First name','Sam'],['last_name','Last name','Mitchell'],['phone','Phone','027 555 0000'],['email','Email','sam@email.com']].map(([k,l,p]) => (
           <div key={k}><label className="label">{l}</label><input className="input text-sm" placeholder={p} value={f[k]} onChange={set(k)} /></div>
@@ -163,10 +163,10 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
         </button>
       </>}>
 
-      <div className="text-xs text-gray-400 font-mono bg-gray-50 dark:bg-zinc-900 rounded-lg px-2 py-1 inline-block mb-4">{nextId}</div>
+      <div className="text-xs text-[#9CA3AF] font-mono bg-[#F9FAFB] rounded-lg px-2 py-1 inline-block mb-4">{nextId}</div>
 
       {/* customer */}
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-1 pb-1 border-b border-gray-100">Customer</div>
+      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2 mt-1 pb-1 border-b border-[#F3F4F6]">Customer</div>
       {selCust ? (
         <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg mb-3">
           <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
@@ -184,7 +184,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
       )}
 
       {/* delivery address */}
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-gray-100">Delivery address</div>
+      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-[#F3F4F6]">Delivery address</div>
       <div className="grid grid-cols-2 gap-3 mb-1">
         <div className="col-span-2"><label className="label">Street address</label><input className="input text-sm" placeholder="12 Example St, Suburb" value={form.addr} onChange={set('addr')} /></div>
         <div><label className="label">City</label><input className="input text-sm" placeholder="Christchurch" value={form.city} onChange={set('city')} /></div>
@@ -192,7 +192,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
       </div>
 
       {/* job details */}
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-gray-100">Job details</div>
+      <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-[#F3F4F6]">Job details</div>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><label className="label">Job name *</label><input className="input text-sm" placeholder="e.g. Hampden Kitchen" value={form.name} onChange={set('name')} /></div>
         <div><label className="label">Job type</label>

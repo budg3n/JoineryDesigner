@@ -140,7 +140,7 @@ export default function Calendar() {
   allTasks.sort((a,b) => { if(a.done!==b.done)return a.done?1:-1; if(!a.date&&!b.date)return 0; if(!a.date)return 1; if(!b.date)return -1; return new Date(a.date)-new Date(b.date) })
 
   function taskDueLabel(t) {
-    if (t.done) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-zinc-700 text-gray-400">Done</span>
+    if (t.done) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F3F4F6] text-[#9CA3AF]">Done</span>
     if (!t.date) return null
     const d = new Date(t.date); const diff = (d-TODAY)/86400000
     const lbl = d.toLocaleDateString('en-NZ',{day:'numeric',month:'short'})
@@ -162,7 +162,7 @@ export default function Calendar() {
             <button onClick={() => changeMonth(1)} className="btn btn-sm px-2 text-xs">→</button>
           </div>
           <div className="grid grid-cols-7 gap-px mb-3">
-            {['M','T','W','T','F','S','S'].map((d,i) => <div key={i} className="text-center text-[10px] text-gray-400 py-1">{d}</div>)}
+            {['M','T','W','T','F','S','S'].map((d,i) => <div key={i} className="text-center text-[10px] text-[#9CA3AF] py-1">{d}</div>)}
             {Array(firstDay).fill(null).map((_,i) => <div key={'e'+i} />)}
             {Array(daysInMonth).fill(null).map((_,i) => {
               const d = i+1
@@ -170,23 +170,23 @@ export default function Calendar() {
               const has = busyDays.has(d)
               return (
                 <div key={d} className={`aspect-square flex items-center justify-center text-xs rounded-lg cursor-pointer relative
-                  ${isToday ? 'bg-blue-100 text-blue-800 font-semibold' : 'text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-700'}`}>
+                  ${isToday ? 'bg-blue-100 text-blue-800 font-semibold' : 'text-[#6B7280] hover:bg-[#F3F4F6]'}`}>
                   {d}
                   {has && <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${isToday ? 'bg-blue-600' : 'bg-blue-400'}`} />}
                 </div>
               )
             })}
           </div>
-          <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Jobs this period</div>
+          <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2">Jobs this period</div>
           {jobs.filter(j=>j.status!=='Complete').map((j,i) => {
             const tasks = j.tasks ? JSON.parse(j.tasks) : []
             const open  = tasks.filter(t=>!t.done).length
             return (
               <div key={j.id} onClick={() => navigate(`/job/${j.id}`)}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-700 mb-1">
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-[#F9FAFB] mb-1">
                 <div className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{ background: PALETTE[i%PALETTE.length] }} />
-                <span className="text-xs text-gray-800 dark:text-zinc-200 flex-1 truncate font-medium">{j.name}</span>
-                <span className="text-[10px] text-gray-400">{open}t</span>
+                <span className="text-xs text-[#374151] flex-1 truncate font-medium">{j.name}</span>
+                <span className="text-[10px] text-[#9CA3AF]">{open}t</span>
               </div>
             )
           })}
@@ -198,13 +198,13 @@ export default function Calendar() {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <BackButton to="/" label="Jobs" />
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Schedule</h1>
+            <h1 className="text-xl font-bold text-[#2A3042]">Schedule</h1>
           </div>
-          <div className="flex border border-gray-200 dark:border-zinc-700 rounded-xl overflow-hidden">
+          <div className="flex border border-[#E8ECF0] rounded-xl overflow-hidden">
             {[['gantt','Gantt'],['clock','Time clock'],['tasks','Tasks']].map(([v,l]) => (
               <button key={v} onClick={() => setView(v)}
                 className={`text-xs px-4 py-2 border-none cursor-pointer transition-colors
-                  ${view===v ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white font-semibold' : 'bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800'}`}>
+                  ${view===v ? 'bg-white text-[#2A3042] font-semibold' : 'bg-[#F0F2F5] text-[#6B7280] hover:bg-[#E8ECF0]'}`}>
                 {l}
               </button>
             ))}
@@ -213,10 +213,10 @@ export default function Calendar() {
 
         {/* stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <div className="card p-3"><div className="text-xs text-gray-400 mb-1">Active jobs</div><div className="text-xl font-bold text-gray-900 dark:text-white">{active.length}</div></div>
-          <div className="card p-3"><div className="text-xs text-gray-400 mb-1">Tasks open</div><div className="text-xl font-bold text-gray-900 dark:text-white">{totalOpen}</div>{totalOver>0 && <div className="text-xs text-red-600">{totalOver} overdue</div>}</div>
-          <div className="card p-3"><div className="text-xs text-gray-400 mb-1">Hours logged</div><div className="text-xl font-bold text-gray-900 dark:text-white">{totalHours.toFixed(1)}h</div></div>
-          <div className="card p-3"><div className="text-xs text-gray-400 mb-1">On schedule</div><div className="text-xl font-bold text-gray-900 dark:text-white">{jobs.length > 0 ? Math.round(onSched/jobs.length*100) : 100}%</div></div>
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">Active jobs</div><div className="text-xl font-bold text-[#2A3042]">{active.length}</div></div>
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">Tasks open</div><div className="text-xl font-bold text-[#2A3042]">{totalOpen}</div>{totalOver>0 && <div className="text-xs text-red-600">{totalOver} overdue</div>}</div>
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">Hours logged</div><div className="text-xl font-bold text-[#2A3042]">{totalHours.toFixed(1)}h</div></div>
+          <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">On schedule</div><div className="text-xl font-bold text-[#2A3042]">{jobs.length > 0 ? Math.round(onSched/jobs.length*100) : 100}%</div></div>
         </div>
 
         {/* GANTT */}
@@ -225,13 +225,13 @@ export default function Calendar() {
             <div className="overflow-x-auto">
               <div style={{ minWidth: 600 }}>
                 {/* header */}
-                <div className="grid border-b border-gray-100 dark:border-zinc-700" style={{ gridTemplateColumns:'160px 1fr' }}>
-                  <div className="text-xs font-semibold text-gray-500 px-3 py-2 border-r border-gray-100 dark:border-zinc-700">Job / Task</div>
+                <div className="grid border-b border-[#F3F4F6]" style={{ gridTemplateColumns:'160px 1fr' }}>
+                  <div className="text-xs font-semibold text-[#6B7280] px-3 py-2 border-r border-[#F3F4F6]">Job / Task</div>
                   <div className="relative h-8">
                     {[0,7,14,21,28,35].map(d => {
                       const dt = new Date(ganttStart); dt.setDate(dt.getDate()+d)
                       const p = (d/ganttDays)*100
-                      return <span key={d} className="absolute top-2 text-[9px] text-gray-400 -translate-x-1/2" style={{left:`${p}%`}}>{dt.getDate()} {MONTHS[dt.getMonth()].slice(0,3)}</span>
+                      return <span key={d} className="absolute top-2 text-[9px] text-[#9CA3AF] -translate-x-1/2" style={{left:`${p}%`}}>{dt.getDate()} {MONTHS[dt.getMonth()].slice(0,3)}</span>
                     })}
                     <div className="absolute top-0 bottom-0 w-px bg-red-400 z-10" style={{ left:`${todayPct}%` }} />
                   </div>
@@ -246,10 +246,10 @@ export default function Calendar() {
                   const wPct   = hasBar && j.start_date && j.due_date ? barW(j.start_date, j.due_date) : 20
                   return (
                     <div key={j.id}>
-                      <div className="grid border-b border-gray-100 dark:border-zinc-700" style={{ gridTemplateColumns:'160px 1fr' }}>
-                        <div className="flex items-center gap-2 px-3 py-2 border-r border-gray-100 dark:border-zinc-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-700" onClick={() => navigate(`/job/${j.id}`)}>
+                      <div className="grid border-b border-[#F3F4F6]" style={{ gridTemplateColumns:'160px 1fr' }}>
+                        <div className="flex items-center gap-2 px-3 py-2 border-r border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB]" onClick={() => navigate(`/job/${j.id}`)}>
                           <div className="w-2.5 h-2.5 rounded-[3px] flex-shrink-0" style={{background:color}} />
-                          <span className="text-xs font-semibold text-gray-800 dark:text-zinc-200 truncate">{j.name}</span>
+                          <span className="text-xs font-semibold text-[#374151] truncate">{j.name}</span>
                         </div>
                         <div className="relative h-9">
                           <div className="absolute top-0 bottom-0 w-px bg-red-400 opacity-40" style={{left:`${todayPct}%`}} />
@@ -265,8 +265,8 @@ export default function Calendar() {
                         const tp = barPct(t.date)
                         const isDone = t.done; const isOver = !isDone && new Date(t.date) < TODAY
                         return (
-                          <div key={t.id} className="grid border-b border-gray-50 dark:border-zinc-800 bg-gray-50/50 dark:bg-zinc-800/50" style={{gridTemplateColumns:'160px 1fr'}}>
-                            <div className="text-[10px] text-gray-400 px-3 py-1.5 border-r border-gray-100 dark:border-zinc-700 pl-7 truncate">
+                          <div key={t.id} className="grid border-b border-gray-50 bg-[#F9FAFB]/50" style={{gridTemplateColumns:'160px 1fr'}}>
+                            <div className="text-[10px] text-[#9CA3AF] px-3 py-1.5 border-r border-[#F3F4F6] pl-7 truncate">
                               {isDone?'✓ ':isOver?'⚠ ':''}{t.title}
                             </div>
                             <div className="relative h-6">
@@ -280,7 +280,7 @@ export default function Calendar() {
                     </div>
                   )
                 })}
-                {jobs.length === 0 && <div className="p-8 text-center text-sm text-gray-400">No jobs to display</div>}
+                {jobs.length === 0 && <div className="p-8 text-center text-sm text-[#9CA3AF]">No jobs to display</div>}
               </div>
             </div>
           </div>
@@ -290,23 +290,23 @@ export default function Calendar() {
         {view === 'clock' && (
           <div>
             <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Time clock</div>
+              <div className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider mb-3">Time clock</div>
               {!clockJobId ? (
                 <div>
-                  <div className="text-sm text-gray-500 mb-3">Select a job to clock in:</div>
+                  <div className="text-sm text-[#6B7280] mb-3">Select a job to clock in:</div>
                   <div className="flex flex-col gap-2">
                     {jobs.filter(j=>['In progress','Review'].includes(j.status)).map((j,i) => (
                       <div key={j.id} onClick={() => setClockJobId(j.id)}
-                        className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 dark:border-zinc-700 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 bg-white dark:bg-zinc-800">
+                        className="flex items-center gap-3 p-3 rounded-xl border border-[#E8ECF0] cursor-pointer hover:border-gray-300 bg-white">
                         <div className="w-3 h-3 rounded-[3px]" style={{background:PALETTE[i%PALETTE.length]}} />
                         <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">{j.name}</div>
-                          <div className="text-xs text-gray-400">{parseFloat(j.budget_hours)||0}h budget · {parseFloat(j.time_logged)||0}h logged</div>
+                          <div className="text-sm font-medium text-[#2A3042]">{j.name}</div>
+                          <div className="text-xs text-[#9CA3AF]">{parseFloat(j.budget_hours)||0}h budget · {parseFloat(j.time_logged)||0}h logged</div>
                         </div>
                       </div>
                     ))}
                     {jobs.filter(j=>['In progress','Review'].includes(j.status)).length === 0 && (
-                      <div className="text-sm text-gray-400 text-center py-6">No active jobs</div>
+                      <div className="text-sm text-[#9CA3AF] text-center py-6">No active jobs</div>
                     )}
                   </div>
                 </div>
@@ -314,23 +314,23 @@ export default function Calendar() {
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-3 h-3 rounded-[3px]" style={{background:PALETTE[jobs.findIndex(j=>j.id===clockJobId)%PALETTE.length]}} />
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">{clockJob?.name}</div>
-                    <button onClick={() => { clearInterval(intervalRef.current); setClockJobId(null); setClockState('off'); setClockSecs(0) }} className="ml-auto text-xs text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer">Change</button>
+                    <div className="text-sm font-semibold text-[#2A3042]">{clockJob?.name}</div>
+                    <button onClick={() => { clearInterval(intervalRef.current); setClockJobId(null); setClockState('off'); setClockSecs(0) }} className="ml-auto text-xs text-[#9CA3AF] hover:text-[#6B7280] bg-transparent border-none cursor-pointer">Change</button>
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     {[['Session',fmtHMS(clockSecs),'teal'],['Budget',budget>0?fmtHM(budget):'—','gray'],['Logged',fmtHM(total),over?'red':'gray']].map(([l,v,c]) => (
-                      <div key={l} className="bg-gray-50 dark:bg-zinc-700/50 rounded-xl p-3 text-center">
-                        <div className={`text-base font-bold ${c==='teal'?'text-teal-600':c==='red'?'text-red-600':'text-gray-900 dark:text-white'}`}>{v}</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">{l}</div>
+                      <div key={l} className="bg-[#F9FAFB] rounded-xl p-3 text-center">
+                        <div className={`text-base font-bold ${c==='teal'?'text-teal-600':c==='red'?'text-red-600':'text-[#2A3042]'}`}>{v}</div>
+                        <div className="text-[10px] text-[#9CA3AF] mt-0.5">{l}</div>
                       </div>
                     ))}
                   </div>
                   {budget > 0 && (
-                    <div className="h-1.5 bg-gray-100 dark:bg-zinc-700 rounded-full mb-2 overflow-hidden">
+                    <div className="h-1.5 bg-[#F3F4F6] rounded-full mb-2 overflow-hidden">
                       <div className={`h-full rounded-full transition-all ${progPct>=100?'bg-red-500':progPct>=80?'bg-amber-400':'bg-teal-500'}`} style={{width:`${progPct}%`}} />
                     </div>
                   )}
-                  <div className="text-xs text-gray-500 mb-3">{over ? `⚠ ${fmtHM(total-budget)} over budget` : budget>0 ? `${fmtHM(budget-total)} remaining` : ''}</div>
+                  <div className="text-xs text-[#6B7280] mb-3">{over ? `⚠ ${fmtHM(total-budget)} over budget` : budget>0 ? `${fmtHM(budget-total)} remaining` : ''}</div>
                   <div className="flex gap-2">
                     <button onClick={startClock} disabled={clockState==='in'} className="btn-green flex-1 disabled:opacity-40">Clock in</button>
                     <button onClick={holdClock} disabled={clockState!=='in'} className="btn flex-1 border-amber-300 bg-amber-50 text-amber-800 disabled:opacity-40">Pause</button>
@@ -340,17 +340,17 @@ export default function Calendar() {
               )}
             </div>
             <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-700">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Session log</span>
-                <span className="text-xs text-gray-400">{TODAY.toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'})}</span>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#F3F4F6]">
+                <span className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Session log</span>
+                <span className="text-xs text-[#9CA3AF]">{TODAY.toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'})}</span>
               </div>
               {clockLog.length === 0 ? (
-                <div className="p-6 text-center text-sm text-gray-400">No entries yet today</div>
+                <div className="p-6 text-center text-sm text-[#9CA3AF]">No entries yet today</div>
               ) : [...clockLog].reverse().map((e,i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 dark:border-zinc-800 last:border-0">
-                  <span className="text-xs text-gray-400 font-mono min-w-[42px]">{e.time}</span>
-                  <span className="text-sm text-gray-800 dark:text-zinc-200 flex-1">{e.action}{e.job ? ` — ${e.job}` : ''}</span>
-                  {e.dur && <span className="text-xs text-gray-400">{e.dur}</span>}
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                  <span className="text-xs text-[#9CA3AF] font-mono min-w-[42px]">{e.time}</span>
+                  <span className="text-sm text-[#374151] flex-1">{e.action}{e.job ? ` — ${e.job}` : ''}</span>
+                  {e.dur && <span className="text-xs text-[#9CA3AF]">{e.dur}</span>}
                 </div>
               ))}
             </div>
@@ -360,14 +360,14 @@ export default function Calendar() {
         {/* TASKS */}
         {view === 'tasks' && (
           <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", overflow:"hidden" }}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-zinc-700 flex-wrap gap-2">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">All tasks</span>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#F3F4F6] flex-wrap gap-2">
+              <span className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">All tasks</span>
               <div className="flex gap-2">
-                <select value={taskJobFilter} onChange={e => setTaskJobFilter(e.target.value)} className="text-xs border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1 bg-white dark:bg-zinc-800">
+                <select value={taskJobFilter} onChange={e => setTaskJobFilter(e.target.value)} className="text-xs border border-[#E8ECF0] rounded-lg px-2 py-1 bg-white">
                   <option value="all">All jobs</option>
                   {jobs.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
                 </select>
-                <select value={taskStatusFilter} onChange={e => setTaskStatusFilter(e.target.value)} className="text-xs border border-gray-200 dark:border-zinc-600 rounded-lg px-2 py-1 bg-white dark:bg-zinc-800">
+                <select value={taskStatusFilter} onChange={e => setTaskStatusFilter(e.target.value)} className="text-xs border border-[#E8ECF0] rounded-lg px-2 py-1 bg-white">
                   <option value="all">All</option>
                   <option value="open">Open</option>
                   <option value="overdue">Overdue</option>
@@ -376,23 +376,23 @@ export default function Calendar() {
               </div>
             </div>
             {allTasks.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-400">No tasks found</div>
+              <div className="p-8 text-center text-sm text-[#9CA3AF]">No tasks found</div>
             ) : allTasks.map(t => {
               const isOver = !t.done && t.date && new Date(t.date) < TODAY
               return (
-                <div key={t.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 dark:border-zinc-800 last:border-0 hover:bg-gray-50/50 dark:hover:bg-zinc-800/50">
+                <div key={t.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-[#F9FAFB]/50">
                   <div className={`w-4 h-4 rounded-[3px] border-[1.5px] flex-shrink-0 mt-0.5 flex items-center justify-center text-[9px] font-bold
-                    ${t.done ? 'bg-teal-500 border-teal-500 text-white' : isOver ? 'border-red-400' : 'border-gray-300 dark:border-zinc-600'}`}>
+                    ${t.done ? 'bg-teal-500 border-teal-500 text-white' : isOver ? 'border-red-400' : 'border-[#DDE3EC]'}`}>
                     {t.done && '✓'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={`text-sm ${t.done ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}>{t.title}</div>
+                    <div className={`text-sm ${t.done ? 'line-through text-[#9CA3AF]' : 'text-[#2A3042]'}`}>{t.title}</div>
                     <div className="flex flex-wrap items-center gap-2 mt-1">
                       <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-[2px]" style={{background:t.jobColor}} />
-                        <span className="text-[10px] text-gray-400">{t.jobName}</span>
+                        <span className="text-[10px] text-[#9CA3AF]">{t.jobName}</span>
                       </div>
-                      {t.hours && <span className="text-[10px] text-gray-400">{t.hours}h</span>}
+                      {t.hours && <span className="text-[10px] text-[#9CA3AF]">{t.hours}h</span>}
                       {taskDueLabel(t)}
                     </div>
                   </div>
