@@ -1,6 +1,6 @@
-import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const PALETTE = ['#5B8AF0','#1D9E75','#EF9F27','#7F77DD','#E24B4A','#D4537E','#5DCAA5']
 
@@ -59,6 +59,18 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const isDash = location.pathname === '/'
+  const isJob  = location.pathname.startsWith('/job/') && !location.pathname.includes('/sketch')
+  const [jobActions, setJobActions] = useState(null) // { dirty, saving, onSave, onSketch }
+
+  useEffect(() => {
+    const handler = e => setJobActions(e.detail)
+    window.addEventListener('job-actions', handler)
+    // clear when leaving job page
+    return () => { window.removeEventListener('job-actions', handler); setJobActions(null) }
+  }, [])
+
+  // clear job actions when route changes away from job
+  useEffect(() => { if (!isJob) setJobActions(null) }, [isJob])
   const role   = profile?.role || 'Production Team'
   const avatarColor = ROLE_COLORS[role] || '#6B7280'
 
@@ -160,12 +172,27 @@ export default function Layout() {
             <h1 style={{ fontSize:16, fontWeight:700, color:'#2A3042', margin:0 }}>{title}</h1>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {/* job page action buttons */}
+            {isJob && jobActions && (<>
+              <button onClick={jobActions.onSketch}
+                style={{ height:36, fontSize:13, fontWeight:600, padding:'0 14px', borderRadius:9, border:'1px solid #6EE7B7', background:'#ECFDF5', color:'#065F46', cursor:'pointer' }}>
+                ✏️ Sketch
+              </button>
+              {jobActions.dirty && (
+                <button onClick={jobActions.onSave} disabled={jobActions.saving}
+                  style={{ height:36, fontSize:13, fontWeight:700, padding:'0 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor: jobActions.saving?'not-allowed':'pointer', opacity: jobActions.saving?0.7:1, boxShadow:'0 2px 10px rgba(91,138,240,0.4)', transition:'all .15s' }}
+                  onMouseEnter={e=>{ if(!jobActions.saving) e.currentTarget.style.background='#4A79DF' }}
+                  onMouseLeave={e=>{ if(!jobActions.saving) e.currentTarget.style.background='#5B8AF0' }}>
+                  {jobActions.saving ? 'Saving…' : 'Save changes'}
+                </button>
+              )}
+            </>)}
             {/* notification bell */}
-            <div style={{ width:36, height:36, borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative' }}>
+            <div style={{ width:36, height:36, borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
             </div>
             {isDash && can('createJob') && (
-              <button onClick={() => {}} className="btn-primary" style={{ height:36, fontSize:13, padding:'0 16px', borderRadius:9 }}>
+              <button onClick={() => window.dispatchEvent(new CustomEvent('open-new-job'))} className="btn-primary" style={{ height:36, fontSize:13, padding:'0 16px', borderRadius:9 }}>
                 + New job
               </button>
             )}

@@ -196,6 +196,12 @@ export default function Dashboard() {
 
   useEffect(() => { loadJobs() }, [loadJobs])
 
+  useEffect(() => {
+    const handler = () => setShowModal(true)
+    window.addEventListener('open-new-job', handler)
+    return () => window.removeEventListener('open-new-job', handler)
+  }, [])
+
   const filtered = jobs.filter(j => {
     const tabOk    = TABS.find(t => t.key === tab)?.f(j) ?? true
     const q        = search.toLowerCase()

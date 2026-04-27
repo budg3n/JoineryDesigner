@@ -32,16 +32,17 @@ function DueBadge({ t }) {
 
 // ── KITCHEN SPECS ──
 const KITCHEN_FIELDS = [
-  { key:'base_height',       label:'Base cabinet height',      unit:'mm', group:'base',      icon:'▬' },
-  { key:'base_depth',        label:'Base cabinet depth',       unit:'mm', group:'base',      icon:'▬' },
-  { key:'upper_height',      label:'Upper cabinet height',     unit:'mm', group:'upper',     icon:'▭' },
-  { key:'upper_depth',       label:'Upper cabinet depth',      unit:'mm', group:'upper',     icon:'▭' },
-  { key:'tall_height',       label:'Tall cabinet height',      unit:'mm', group:'tall',      icon:'▮' },
-  { key:'tall_depth',        label:'Tall cabinet depth',       unit:'mm', group:'tall',      icon:'▮' },
-  { key:'bench_thickness',   label:'Benchtop thickness',       unit:'mm', group:'benchtop',  icon:'━' },
-  { key:'bench_material',    label:'Benchtop material',        unit:'',   group:'benchtop',  icon:'━', text: true },
-  { key:'bench_overhang_side', label:'Overhang sides',         unit:'mm', group:'benchtop',  icon:'━' },
-  { key:'bench_overhang_front', label:'Overhang front',        unit:'mm', group:'benchtop',  icon:'━' },
+  { key:'toe_kick_height',   label:'Toe kick height',          unit:'mm', group:'base' },
+  { key:'base_height',       label:'Base cabinet height',      unit:'mm', group:'base' },
+  { key:'base_depth',        label:'Base cabinet depth',       unit:'mm', group:'base' },
+  { key:'upper_height',      label:'Upper cabinet height',     unit:'mm', group:'upper' },
+  { key:'upper_depth',       label:'Upper cabinet depth',      unit:'mm', group:'upper' },
+  { key:'tall_height',       label:'Tall cabinet height',      unit:'mm', group:'tall' },
+  { key:'tall_depth',        label:'Tall cabinet depth',       unit:'mm', group:'tall' },
+  { key:'bench_thickness',   label:'Benchtop thickness',       unit:'mm', group:'benchtop' },
+  { key:'bench_material',    label:'Benchtop material',        unit:'',   group:'benchtop', text: true },
+  { key:'bench_overhang_side',  label:'Overhang sides',        unit:'mm', group:'benchtop' },
+  { key:'bench_overhang_front', label:'Overhang front',        unit:'mm', group:'benchtop' },
 ]
 
 const GROUP_LABELS = {
@@ -49,9 +50,246 @@ const GROUP_LABELS = {
   upper:    { label:'Upper cabinets', color:'#1D9E75', bg:'#ECFDF5' },
   tall:     { label:'Tall cabinets',  color:'#EF9F27', bg:'#FEF3C7' },
   benchtop: { label:'Benchtop',       color:'#7F77DD', bg:'#F5F3FF' },
+  materials:{ label:'Board materials', color:'#374151', bg:'#F9FAFB' },
 }
 
-function KitchenSpecs({ specs, onChange }) {
+// Material selector keys — map to friendly labels and which cabinet group they colour
+const MAT_SELECTORS = [
+  { key:'mat_carcase',      label:'Carcase material',          hint:'Interior box material', group:'carcase' },
+  { key:'mat_base_face',    label:'Base finished faces',       hint:'Visible base doors/panels', group:'base' },
+  { key:'mat_upper_face',   label:'Upper finished faces',      hint:'Visible upper doors/panels', group:'upper' },
+  { key:'mat_tall_face',    label:'Tall finished faces',       hint:'Visible tall doors/panels', group:'tall' },
+]
+
+// ── Cabinet Illustration ──────────────────────────────────────────
+function CabinetIllustration({ specs, materials }) {
+  const p = specs || {}
+  const W = 340 // SVG viewport width
+
+  const toeKick   = Math.min(Math.max(parseFloat(p.toe_kick_height)||150, 50), 300)
+  const baseH     = Math.min(Math.max(parseFloat(p.base_height)||720, 100), 1200)
+  const baseD     = Math.min(Math.max(parseFloat(p.base_depth)||600, 100), 900)
+  const upperH    = Math.min(Math.max(parseFloat(p.upper_height)||700, 100), 1200)
+  const upperD    = Math.min(Math.max(parseFloat(p.upper_depth)||300, 100), 600)
+  const tallH     = Math.min(Math.max(parseFloat(p.tall_height)||2100, 200), 3000)
+  const tallD     = Math.min(Math.max(parseFloat(p.tall_depth)||600, 100), 900)
+  const benchT    = Math.min(Math.max(parseFloat(p.bench_thickness)||20, 10), 80)
+  const overFront = Math.min(Math.max(parseFloat(p.bench_overhang_front)||20, 0), 100)
+  const overSide  = Math.min(Math.max(parseFloat(p.bench_overhang_side)||5, 0), 50)
+  const gapBetween = 150 // gap between upper and bench in mm
+
+  // total height = toeKick + base + bench + gap + upper
+  const totalH = tallH // tall cabinet is always tallest
+  const scale  = (W * 0.45) / totalH // px per mm — fit tall cab in ~45% of width
+
+  const floorY = 20 + totalH * scale // SVG floor line y
+
+  // colours from selected materials
+  const getColor = (key, fallback) => {
+    const matId = p[key]
+    if (!matId) return fallback
+    const mat = materials?.find(m => m.id === matId)
+    return mat?.color || (mat?.storage_path ? null : fallback)
+  }
+  const getImg = (key) => {
+    const matId = p[key]
+    if (!matId) return null
+    const mat = materials?.find(m => m.id === matId)
+    return mat?.storage_path ? pubUrl(mat.storage_path) : null
+  }
+
+  const carcaseColor   = getColor('mat_carcase', '#D4C5A9')
+  const baseFaceColor  = getColor('mat_base_face', '#B8A898')
+  const upperFaceColor = getColor('mat_upper_face', '#C8B8A8')
+  const tallFaceColor  = getColor('mat_tall_face', '#BCA898')
+  const benchColor     = '#E8E4DE'
+
+  // positions in SVG px (from top)
+  const toeY     = floorY - toeKick * scale
+  const baseTopY = toeY - baseH * scale
+  const benchTopY = baseTopY - benchT * scale
+  const upperBotY = benchTopY - gapBetween * scale
+  const upperTopY = upperBotY - upperH * scale
+
+  const tallTopY  = floorY - tallH * scale
+
+  // widths
+  const baseW  = baseD * scale
+  const upperW = upperD * scale
+  const tallW  = tallD * scale
+  const benchW = baseW + overFront * scale + overSide * scale
+
+  // x positions — base starts at left edge offset
+  const leftPad = 30
+  const baseX   = leftPad
+  const benchX  = baseX - overSide * scale
+  const upperX  = baseX + (baseW - upperW) / 2 // centred over base
+  const tallX   = baseX + baseW + 20
+
+  const totalW  = tallX + tallW + 20
+  const svgW    = Math.max(totalW + leftPad, 240)
+  const svgH    = floorY + 24
+
+  const faceW = 10 * scale // visible face depth
+
+  // Pattern id for texture
+  const uid = 'cab'
+
+  return (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:10 }}>
+        Cabinet preview
+      </div>
+      <div style={{ background:'#F9FAFB', borderRadius:14, border:'2px solid #E8ECF0', overflow:'hidden', padding:'12px 8px 4px' }}>
+        <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} xmlns="http://www.w3.org/2000/svg" style={{ display:'block' }}>
+          <defs>
+            {/* carcase fill */}
+            <pattern id={`${uid}-carcase`} patternUnits="userSpaceOnUse" width="6" height="6">
+              <rect width="6" height="6" fill={carcaseColor || '#D4C5A9'} />
+              <line x1="0" y1="6" x2="6" y2="0" stroke="rgba(0,0,0,0.06)" strokeWidth="0.8" />
+            </pattern>
+          </defs>
+
+          {/* ── BASE CABINET ── */}
+          {/* carcase body */}
+          <rect x={baseX} y={baseTopY} width={baseW} height={baseH * scale}
+            fill={`url(#${uid}-carcase)`} stroke="#9B8E82" strokeWidth="1" rx="2" />
+          {/* toe kick */}
+          <rect x={baseX + faceW} y={toeY} width={baseW - faceW} height={toeKick * scale}
+            fill="#2A2A2A" stroke="#1a1a1a" strokeWidth="0.5" />
+          {/* face overlay */}
+          <rect x={baseX} y={baseTopY} width={faceW} height={baseH * scale}
+            fill={baseFaceColor || '#B8A898'} stroke="#8A7E72" strokeWidth="1" rx="1" opacity="0.9" />
+          {/* door lines on face */}
+          <line x1={baseX+2} y1={baseTopY + (baseH*scale)*0.33} x2={baseX+faceW-2} y2={baseTopY + (baseH*scale)*0.33} stroke="rgba(0,0,0,0.15)" strokeWidth="0.5" />
+          <line x1={baseX+2} y1={baseTopY + (baseH*scale)*0.66} x2={baseX+faceW-2} y2={baseTopY + (baseH*scale)*0.66} stroke="rgba(0,0,0,0.15)" strokeWidth="0.5" />
+
+          {/* ── BENCHTOP ── */}
+          <rect x={benchX} y={benchTopY} width={benchW} height={benchT * scale}
+            fill={benchColor} stroke="#C4B89A" strokeWidth="1" rx="1" />
+          {/* bench edge highlight */}
+          <rect x={benchX} y={benchTopY} width={benchW} height={Math.max(2, benchT*scale*0.15)}
+            fill="rgba(255,255,255,0.5)" rx="1" />
+
+          {/* ── UPPER CABINET ── */}
+          <rect x={upperX} y={upperTopY} width={upperW} height={upperH * scale}
+            fill={`url(#${uid}-carcase)`} stroke="#9B8E82" strokeWidth="1" rx="2" />
+          {/* face */}
+          <rect x={upperX} y={upperTopY} width={faceW * 0.8} height={upperH * scale}
+            fill={upperFaceColor || '#C8B8A8'} stroke="#8A7E72" strokeWidth="1" rx="1" opacity="0.9" />
+          {/* shelf line */}
+          <line x1={upperX+2} y1={upperTopY + (upperH*scale)*0.5} x2={upperX+upperW-2} y2={upperTopY + (upperH*scale)*0.5} stroke="rgba(0,0,0,0.1)" strokeWidth="0.5" />
+
+          {/* ── TALL CABINET ── */}
+          <rect x={tallX} y={tallTopY} width={tallW} height={tallH * scale}
+            fill={`url(#${uid}-carcase)`} stroke="#9B8E82" strokeWidth="1" rx="2" />
+          {/* face */}
+          <rect x={tallX} y={tallTopY} width={faceW} height={tallH * scale}
+            fill={tallFaceColor || '#BCA898'} stroke="#8A7E72" strokeWidth="1" rx="1" opacity="0.9" />
+          {/* shelf lines */}
+          {[0.25,0.5,0.75].map((p,i) => (
+            <line key={i} x1={tallX+2} y1={tallTopY + tallH*scale*p} x2={tallX+tallW-2} y2={tallTopY + tallH*scale*p} stroke="rgba(0,0,0,0.1)" strokeWidth="0.5" />
+          ))}
+
+          {/* ── FLOOR LINE ── */}
+          <line x1={0} y1={floorY} x2={svgW} y2={floorY} stroke="#C4C9D4" strokeWidth="1" strokeDasharray="4,3" />
+
+          {/* ── DIMENSION ANNOTATIONS ── */}
+          {/* base height */}
+          <line x1={baseX-8} y1={toeY} x2={baseX-8} y2={baseTopY} stroke="#5B8AF0" strokeWidth="0.8" />
+          <line x1={baseX-11} y1={toeY} x2={baseX-5} y2={toeY} stroke="#5B8AF0" strokeWidth="0.8" />
+          <line x1={baseX-11} y1={baseTopY} x2={baseX-5} y2={baseTopY} stroke="#5B8AF0" strokeWidth="0.8" />
+          <text x={baseX-12} y={(toeY+baseTopY)/2} fontSize="7" fill="#5B8AF0" textAnchor="middle" transform={`rotate(-90,${baseX-12},${(toeY+baseTopY)/2})`} fontWeight="600">{p.base_height||'—'}mm</text>
+
+          {/* upper height */}
+          <line x1={upperX-8} y1={upperTopY} x2={upperX-8} y2={upperBotY} stroke="#1D9E75" strokeWidth="0.8" />
+          <line x1={upperX-11} y1={upperTopY} x2={upperX-5} y2={upperTopY} stroke="#1D9E75" strokeWidth="0.8" />
+          <line x1={upperX-11} y1={upperBotY} x2={upperX-5} y2={upperBotY} stroke="#1D9E75" strokeWidth="0.8" />
+          <text x={upperX-12} y={(upperTopY+upperBotY)/2} fontSize="7" fill="#1D9E75" textAnchor="middle" transform={`rotate(-90,${upperX-12},${(upperTopY+upperBotY)/2})`} fontWeight="600">{p.upper_height||'—'}mm</text>
+
+          {/* tall height */}
+          <line x1={tallX+tallW+6} y1={tallTopY} x2={tallX+tallW+6} y2={floorY} stroke="#EF9F27" strokeWidth="0.8" />
+          <line x1={tallX+tallW+3} y1={tallTopY} x2={tallX+tallW+9} y2={tallTopY} stroke="#EF9F27" strokeWidth="0.8" />
+          <line x1={tallX+tallW+3} y1={floorY} x2={tallX+tallW+9} y2={floorY} stroke="#EF9F27" strokeWidth="0.8" />
+          <text x={tallX+tallW+14} y={(tallTopY+floorY)/2} fontSize="7" fill="#EF9F27" textAnchor="middle" transform={`rotate(-90,${tallX+tallW+14},${(tallTopY+floorY)/2})`} fontWeight="600">{p.tall_height||'—'}mm</text>
+
+          {/* toe kick label */}
+          <text x={baseX + baseW/2} y={floorY - toeKick*scale/2 + 3} fontSize="7" fill="#9CA3AF" textAnchor="middle">{p.toe_kick_height||150}mm</text>
+        </svg>
+
+        {/* legend */}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'4px 8px 10px', justifyContent:'center' }}>
+          {[
+            { label:'Carcase', color:carcaseColor||'#D4C5A9' },
+            { label:'Base faces', color:baseFaceColor||'#B8A898' },
+            { label:'Upper faces', color:upperFaceColor||'#C8B8A8' },
+            { label:'Tall faces', color:tallFaceColor||'#BCA898' },
+            { label:'Benchtop', color:benchColor },
+          ].map(item => (
+            <div key={item.label} style={{ display:'flex', alignItems:'center', gap:5 }}>
+              <div style={{ width:10, height:10, borderRadius:2, background:item.color, border:'1px solid rgba(0,0,0,0.1)', flexShrink:0 }} />
+              <span style={{ fontSize:10, color:'#6B7280' }}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Material Selector ─────────────────────────────────────────────
+function MaterialSelector({ panelMaterials, specs, onChange }) {
+  const parsed = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
+  const set = (key, val) => onChange(JSON.stringify({ ...parsed, [key]: val }))
+
+  return (
+    <div style={{ marginBottom:20 }}>
+      {/* group header */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+        <div style={{ width:4, height:16, borderRadius:2, background:'#374151', flexShrink:0 }} />
+        <span style={{ fontSize:12, fontWeight:800, color:'#374151', textTransform:'uppercase', letterSpacing:'.07em' }}>Board materials</span>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {MAT_SELECTORS.map(sel => {
+          const matId = parsed[sel.key] || ''
+          const mat   = panelMaterials.find(m => m.id === matId)
+          return (
+            <div key={sel.key} style={{
+              borderRadius:14, border:`2px solid ${matId ? '#37414166' : '#E8ECF0'}`,
+              background: matId ? '#F9FAFB' : '#FAFAFA', padding:'12px 14px',
+              transition:'all .15s',
+            }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:700, color: matId ? '#374151' : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em' }}>{sel.label}</div>
+                  <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>{sel.hint}</div>
+                </div>
+                {mat?.storage_path && (
+                  <div style={{ width:36, height:36, borderRadius:8, overflow:'hidden', border:'1px solid #E8ECF0', flexShrink:0 }}>
+                    <img src={pubUrl(mat.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />
+                  </div>
+                )}
+                {mat?.color && !mat?.storage_path && (
+                  <div style={{ width:36, height:36, borderRadius:8, background:mat.color, border:'1px solid #E8ECF0', flexShrink:0 }} />
+                )}
+              </div>
+              <select value={matId} onChange={e => set(sel.key, e.target.value)}
+                style={{ width:'100%', fontSize:13, fontWeight:600, padding:'7px 10px', borderRadius:9, border:'1px solid #DDE3EC', background:'#fff', color:'#2A3042', cursor:'pointer', outline:'none' }}>
+                <option value="">— Select material —</option>
+                {panelMaterials.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}{m.supplier ? ` (${m.supplier})` : ''}{m.thickness ? ` ${m.thickness}mm` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Kitchen Specs Panel ───────────────────────────────────────────
+function KitchenSpecs({ specs, onChange, panelMaterials }) {
   const parsed = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
   const set = (key, val) => {
     const updated = { ...parsed, [key]: val }
@@ -61,57 +299,52 @@ function KitchenSpecs({ specs, onChange }) {
   const groups = ['base','upper','tall','benchtop']
 
   return (
-    <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+    <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:'24px 20px' }}>
       {/* header */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:18 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em" }}>Kitchen specifications</div>
-        <div style={{ flex:1, height:1, background:'#F3F4F6' }} />
-        <span style={{ fontSize:11, padding:'2px 9px', borderRadius:20, background:'#EEF2FF', color:'#3730A3', fontWeight:600 }}>Kitchen</span>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+        <span style={{ fontSize:11, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.1em' }}>Kitchen specs</span>
+        <span style={{ fontSize:11, fontWeight:700, padding:'4px 12px', borderRadius:20, background:'#5B8AF0', color:'#fff' }}>Kitchen</span>
       </div>
 
-      {/* groups */}
-      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      {/* live illustration */}
+      <CabinetIllustration specs={parsed} materials={panelMaterials} />
+
+      {/* material selectors */}
+      <MaterialSelector panelMaterials={panelMaterials} specs={specs} onChange={onChange} />
+
+      {/* measurement groups */}
+      <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
         {groups.map(group => {
           const g = GROUP_LABELS[group]
           const fields = KITCHEN_FIELDS.filter(f => f.group === group)
           return (
             <div key={group}>
-              {/* group label */}
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                <div style={{ width:3, height:16, borderRadius:2, background:g.color, flexShrink:0 }} />
-                <span style={{ fontSize:12, fontWeight:700, color:g.color }}>{g.label}</span>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+                <div style={{ width:4, height:16, borderRadius:2, background:g.color, flexShrink:0 }} />
+                <span style={{ fontSize:12, fontWeight:800, color:g.color, textTransform:'uppercase', letterSpacing:'.07em' }}>{g.label}</span>
               </div>
-              {/* spec tiles */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:8 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                 {fields.map(f => {
                   const val = parsed[f.key] || ''
                   const hasVal = val !== '' && val !== null && val !== undefined
                   return (
                     <label key={f.key} style={{
-                      display:'block', borderRadius:10, border:`1.5px solid ${hasVal ? g.color+'55' : '#E8ECF0'}`,
+                      display:'block', borderRadius:14,
                       background: hasVal ? g.bg : '#FAFAFA',
-                      padding:'10px 12px', cursor:'text', transition:'all .15s',
-                    }}>
-                      <div style={{ fontSize:10, fontWeight:700, color: hasVal ? g.color : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, lineHeight:1.3 }}>
+                      border: `2px solid ${hasVal ? g.color+'66' : '#E8ECF0'}`,
+                      padding:'16px 16px 14px', cursor:'text', transition:'all .15s',
+                      gridColumn: f.text ? 'span 2' : 'span 1',
+                    }}
+                    onMouseEnter={e => { if (!hasVal) e.currentTarget.style.background='#F3F4F6' }}
+                    onMouseLeave={e => { if (!hasVal) e.currentTarget.style.background='#FAFAFA' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color: hasVal ? g.color : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10, lineHeight:1.3 }}>
                         {f.label}
                       </div>
-                      <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
-                        <input
-                          type={f.text ? 'text' : 'number'}
-                          value={val}
-                          onChange={e => set(f.key, e.target.value)}
-                          placeholder={f.text ? 'e.g. Caesarstone' : '0'}
-                          min={f.text ? undefined : 0}
-                          style={{
-                            border:'none', outline:'none', background:'transparent', padding:0, margin:0,
-                            fontSize:20, fontWeight:800, color: hasVal ? '#2A3042' : '#C4C9D4',
-                            width:'100%', fontFamily:'inherit',
-                            WebkitUserSelect:'text', userSelect:'text',
-                          }}
-                        />
-                        {f.unit && (
-                          <span style={{ fontSize:12, color: hasVal ? g.color : '#C4C9D4', fontWeight:600, flexShrink:0 }}>{f.unit}</span>
-                        )}
+                      <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                        <input type={f.text ? 'text' : 'number'} value={val} onChange={e => set(f.key, e.target.value)}
+                          placeholder="—" min={f.text ? undefined : 0}
+                          style={{ border:'none', outline:'none', background:'transparent', padding:0, margin:0, fontSize: f.text ? 22 : 34, fontWeight:800, color: hasVal ? '#2A3042' : '#C4C9D4', width:'100%', fontFamily:'inherit', WebkitUserSelect:'text', userSelect:'text', lineHeight:1, MozAppearance:'textfield', WebkitAppearance:'none', appearance:'textfield' }} />
+                        {f.unit && <span style={{ fontSize:15, fontWeight:700, flexShrink:0, color: hasVal ? g.color : '#C4C9D4' }}>{f.unit}</span>}
                       </div>
                     </label>
                   )
@@ -121,6 +354,12 @@ function KitchenSpecs({ specs, onChange }) {
           )
         })}
       </div>
+
+      <style>{`
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+        input[type=number] { -moz-appearance:textfield; }
+      `}</style>
     </div>
   )
 }
@@ -136,6 +375,7 @@ export default function JobDetail() {
   const [materials, setMaterials] = useState([])
   const [jobMats, setJobMats]     = useState([])
   const [allMats, setAllMats]     = useState([])
+  const [panelMaterials, setPanelMaterials] = useState([])
   const [loading, setLoading]     = useState(true)
   const [saving, setSaving]       = useState(false)
   const [tasks, setTasks]         = useState([])
@@ -145,6 +385,7 @@ export default function JobDetail() {
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [dirty, setDirty] = useState(false)
 
   // Track if all-materials has been fetched yet (lazy)
   const allMatsFetched = React.useRef(false)
@@ -152,14 +393,18 @@ export default function JobDetail() {
   const loadAll = useCallback(async () => {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
-    const [{ data: j }, { data: a }, { data: jm }] = await Promise.all([
+    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
+      supabase.from('materials').select('*').order('name'),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
+    const panelCats = []
+    setPanelMaterials((panelMats||[]).filter(m => m.panel_type || m.category_id))
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setLoading(false)
+    setDirty(false)
 
     // Silently refresh mat_colors if stored version is missing storage_path data
     // (happens for jobs created before this field was added)
@@ -184,6 +429,21 @@ export default function JobDetail() {
   }, [id])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  // Broadcast current state to Layout topbar
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('job-actions', { detail: {
+      dirty,
+      saving,
+      onSave: saveJob,
+      onSketch: () => navigate(`/job/${id}/sketch`),
+    }}))
+  }, [dirty, saving, id])
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => window.dispatchEvent(new CustomEvent('job-actions', { detail: null }))
+  }, [])
 
   // Lazy-load the full materials library only when picker is opened.
   // Uses a module-level cache so re-opening the same or different job
@@ -212,7 +472,7 @@ export default function JobDetail() {
     }).eq('id', id)
     setSaving(false)
     if (error) toast(error.message, 'error')
-    else toast('Saved ✓')
+    else { toast('Saved ✓'); setDirty(false) }
   }
 
   // tasks
@@ -326,8 +586,12 @@ export default function JobDetail() {
     'On hold':     'bg-[#F3F4F6] text-[#6B7280] border-[#E8ECF0]',
   }
 
+  const isKitchen = (job.type||'').toLowerCase() === 'kitchen'
+
   return (
-    <div>
+    <div style={{ display: isKitchen ? 'grid' : 'block', gridTemplateColumns: isKitchen ? '1fr 380px' : undefined, gap: isKitchen ? 20 : undefined, alignItems:'start' }}>
+      {/* LEFT COLUMN — always shown */}
+      <div>
       <BackButton to="/" label="Jobs" />
 
       {/* header */}
@@ -336,7 +600,7 @@ export default function JobDetail() {
           <h1 className="text-xl font-bold text-[#2A3042]">{job.name}</h1>
           <div className="text-sm text-[#6B7280] mt-0.5">{job.id} · {job.type} · {job.client}</div>
         </div>
-        <select value={job.status} onChange={e => setJob(j => ({ ...j, status: e.target.value }))}
+        <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
           {STATUSES.map(s => <option key={s}>{s}</option>)}
         </select>
@@ -402,30 +666,25 @@ export default function JobDetail() {
         <div className="grid grid-cols-2 gap-3">
           {[['Job name','name','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
             <div key={k}><label className="label">{l}</label>
-              <input className="input text-sm" type={t} value={job[k]||''} onChange={e => setJob(j => ({ ...j, [k]: e.target.value }))} />
+              <input className="input text-sm" type={t} value={job[k]||''} onChange={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }} />
             </div>
           ))}
           <div><label className="label">Job type</label>
-            <select className="input text-sm" value={job.type||'Kitchen'} onChange={e => setJob(j => ({ ...j, type: e.target.value }))}>
+            <select className="input text-sm" value={job.type||'Kitchen'} onChange={e => { setJob(j => ({ ...j, type: e.target.value })); setDirty(true) }}>
               {TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
           <div><label className="label">Delivery address</label>
-            <input className="input text-sm" value={job.delivery_address||''} onChange={e => setJob(j => ({ ...j, delivery_address: e.target.value }))} />
+            <input className="input text-sm" value={job.delivery_address||''} onChange={e => { setJob(j => ({ ...j, delivery_address: e.target.value })); setDirty(true) }} />
           </div>
         </div>
       </div>
-
-      {/* kitchen specs — only shown when job type is Kitchen */}
-      {(job.type||'').toLowerCase() === 'kitchen' && (
-        <KitchenSpecs specs={job.kitchen_specs} onChange={specs => setJob(j => ({ ...j, kitchen_specs: specs }))} />
-      )}
 
       {/* notes */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
         <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8, display:"block" }}>Notes</div>
         <textarea className="input text-sm min-h-[80px] resize-y w-full" placeholder="Notes, observations, specs…"
-          value={job.notes||''} onChange={e => setJob(j => ({ ...j, notes: e.target.value }))} />
+          value={job.notes||''} onChange={e => { setJob(j => ({ ...j, notes: e.target.value })); setDirty(true) }} />
       </div>
 
       {/* materials */}
@@ -512,12 +771,8 @@ export default function JobDetail() {
         ))}
       </div>
 
-      {/* primary actions */}
-      <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12 }}>
-        <button onClick={saveJob} disabled={saving} className="btn-primary disabled:opacity-50">
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        <button onClick={() => navigate(`/job/${id}/sketch`)} className="btn-green">✏️ New sketch</button>
+      {/* archive + delete */}
+      <div style={{ display:'flex', gap:8, marginBottom:12 }}>
         <button onClick={archiveJob} className="btn btn-red btn-sm">Archive job</button>
       </div>
 
@@ -563,6 +818,18 @@ export default function JobDetail() {
               </div>
             </div>
           )}
+        </div>
+      )}
+      </div>{/* end left column */}
+
+      {/* RIGHT COLUMN — kitchen specs panel, sticky alongside content */}
+      {isKitchen && (
+        <div style={{ position:'sticky', top:80 }}>
+          <KitchenSpecs
+            specs={job.kitchen_specs}
+            panelMaterials={panelMaterials}
+            onChange={specs => { setJob(j => ({ ...j, kitchen_specs: specs })); setDirty(true) }}
+          />
         </div>
       )}
     </div>
