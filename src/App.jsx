@@ -10,6 +10,7 @@ import Settings from './screens/Settings'
 import Materials from './screens/Materials'
 import Customers from './screens/Customers'
 import Team from './screens/Team'
+import Appliances from './screens/Appliances'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="settings/materials" element={<Materials />} />
         <Route path="settings/customers" element={<Customers />} />
         <Route path="settings/team" element={<Team />} />
+        <Route path="settings/appliances" element={<Appliances />} />
       </Route>
     </Routes>
   )

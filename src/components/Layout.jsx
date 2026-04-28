@@ -32,7 +32,8 @@ const NAV = [
   {
     section: 'Settings',
     items: [
-      { label: 'Materials', to: '/settings/materials', icon: <SbIcon><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></SbIcon> },
+      { label: 'Materials',   to: '/settings/materials',  icon: <SbIcon><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></SbIcon> },
+      { label: 'Appliances',  to: '/settings/appliances', icon: <SbIcon><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3h-8"/><path d="M12 3v4"/></SbIcon> },
       { label: 'Team',      to: '/settings/team',      icon: <SbIcon><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4"/><path d="M16 11l2 2 4-4"/></SbIcon> },
       { label: 'Settings',  to: '/settings',           icon: <SbIcon><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></SbIcon> },
     ]
@@ -82,6 +83,7 @@ export default function Layout() {
     '/settings/materials': 'Materials',
     '/settings/customers': 'Customers',
     '/settings/team':      'Team',
+    '/settings/appliances': 'Appliance library',
   }
   const title = PAGE_TITLES[location.pathname] || (location.pathname.startsWith('/job/') ? 'Job details' : 'Joinery Jobs')
 

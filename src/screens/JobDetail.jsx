@@ -364,6 +364,617 @@ function KitchenSpecs({ specs, onChange, panelMaterials }) {
   )
 }
 
+
+const APPLIANCE_TYPES2 = ['Oven','Microwave','Combi Steam Oven','Warming Drawer','Cooktop','Induction Cooktop','Gas Cooktop','Rangehood','Dishwasher','Fridge','Freezer','Sink','Tap','Waste Disposal','Washing Machine','Dryer','Other']
+
+function fileIcon2(name=''){const ext=name.split('.').pop().toLowerCase();if(ext==='pdf')return'📄';if(['dwg','dxf'].includes(ext))return'📐';return'📎'}
+
+function QuickAddAppliance({ onSave, onCancel }) {
+  const toast = useToast()
+  const [f, setF] = useState({ brand:'', model:'', type:'Oven', width:'', height:'', depth:'', cutout_width:'', cutout_height:'', cutout_depth:'', notes:'' })
+  const set = k => e => setF(p=>({...p,[k]:e.target.value}))
+  const [saving, setSaving] = useState(false)
+  const attRef = React.useRef()
+  const [files, setFiles] = useState([])
+  const [savedId, setSavedId] = useState(null)
+
+  async function save() {
+    if (!f.brand.trim()||!f.model.trim()){toast('Brand and model required','error');return}
+    setSaving(true)
+    const row={...f,width:f.width?parseFloat(f.width):null,height:f.height?parseFloat(f.height):null,depth:f.depth?parseFloat(f.depth):null,cutout_width:f.cutout_width?parseFloat(f.cutout_width):null,cutout_height:f.cutout_height?parseFloat(f.cutout_height):null,cutout_depth:f.cutout_depth?parseFloat(f.cutout_depth):null}
+    const {data,error}=await supabase.from('appliances').insert(row).select().single()
+    setSaving(false)
+    if(error){toast(error.message,'error');return}
+    setSavedId(data.id)
+    toast('Appliance added to library ✓')
+    onSave(data)
+  }
+
+  async function handleFiles(fileList) {
+    if (!savedId) { toast('Save the appliance first','error'); return }
+    for (const file of Array.from(fileList)) {
+      const path = `appliances/${savedId}/${Date.now()}_${file.name}`
+      await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type })
+      await supabase.from('appliance_files').insert({ appliance_id: savedId, name: file.name, type: file.type, size: file.size, storage_path: path })
+      setFiles(p=>[...p,{name:file.name,size:file.size}])
+    }
+    toast('Files attached ✓')
+  }
+
+  const inputStyle = { width:'100%', padding:'7px 9px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none' }
+  return (
+    <div style={{ background:'#F9FAFB', borderRadius:12, border:'2px solid #5B8AF0', padding:18, marginBottom:12 }}>
+      <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', marginBottom:14 }}>Add new appliance to library</div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+        <div style={{ gridColumn:'span 2' }}>
+          <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:3 }}>Type</label>
+          <select value={f.type} onChange={set('type')} style={{...inputStyle}}>
+            {APPLIANCE_TYPES2.map(t=><option key={t}>{t}</option>)}
+          </select>
+        </div>
+        {[['brand','Brand *'],['model','Model *']].map(([k,l])=>(
+          <div key={k}>
+            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:3 }}>{l}</label>
+            <input value={f[k]} onChange={set(k)} placeholder={k==='brand'?'e.g. Bosch':'e.g. HBG634BS1A'} style={inputStyle} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:8 }}>
+        <div style={{ gridColumn:'span 3', fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Unit dimensions</div>
+        {['width','height','depth'].map(k=>(
+          <div key={k}>
+            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:3, textTransform:'capitalize' }}>{k}</label>
+            <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+              <input type="number" value={f[k]} onChange={set(k)} placeholder="0" min="0" style={{...inputStyle}} />
+              <span style={{ fontSize:10, color:'#9CA3AF' }}>mm</span>
+            </div>
+          </div>
+        ))}
+        <div style={{ gridColumn:'span 3', fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginTop:4 }}>Cutout dimensions</div>
+        {['cutout_width','cutout_height','cutout_depth'].map(k=>(
+          <div key={k}>
+            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:3 }}>{k.replace('cutout_','').charAt(0).toUpperCase()+k.replace('cutout_','').slice(1)}</label>
+            <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+              <input type="number" value={f[k]} onChange={set(k)} placeholder="0" min="0" style={{...inputStyle}} />
+              <span style={{ fontSize:10, color:'#9CA3AF' }}>mm</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:3 }}>Notes</label>
+        <textarea value={f.notes} onChange={set('notes')} placeholder="Installation notes, clearances…"
+          style={{...inputStyle, minHeight:50, resize:'vertical', fontFamily:'inherit', lineHeight:1.5}} />
+      </div>
+      {/* file attachments — only after saved */}
+      {savedId && (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:'#6B7280' }}>Files (PDF, DWG, DXF)</span>
+            <div style={{ position:'relative' }}>
+              <input ref={attRef} type="file" accept=".pdf,.dwg,.dxf,image/*" multiple style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
+              <button onClick={()=>attRef.current.click()} style={{ fontSize:11, padding:'3px 10px', borderRadius:7, border:'1px solid #DDE3EC', background:'#fff', cursor:'pointer', fontWeight:600, color:'#374151' }}>+ Attach</button>
+            </div>
+          </div>
+          {files.map((f2,i)=>(
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', background:'#fff', borderRadius:7, border:'1px solid #E8ECF0', marginBottom:4 }}>
+              <span>{fileIcon2(f2.name)}</span>
+              <span style={{ fontSize:12, color:'#374151', flex:1 }}>{f2.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display:'flex', gap:8 }}>
+        {!savedId
+          ? <button onClick={save} disabled={saving} style={{ fontSize:12, fontWeight:700, padding:'7px 16px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:saving?'not-allowed':'pointer', opacity:saving?0.6:1 }}>{saving?'Saving…':'Save to library'}</button>
+          : <button onClick={onCancel} style={{ fontSize:12, fontWeight:600, padding:'7px 16px', borderRadius:8, border:'none', background:'#1D9E75', color:'#fff', cursor:'pointer' }}>✓ Added — close</button>
+        }
+        <button onClick={onCancel} style={{ fontSize:12, fontWeight:600, padding:'7px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#374151', cursor:'pointer' }}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function AppliancePicker({ allAppliances, onSelect, onClose }) {
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('All')
+  const types = ['All', ...new Set(allAppliances.map(a=>a.type).filter(Boolean).sort())]
+  const filtered = allAppliances.filter(a => {
+    if (typeFilter!=='All' && a.type!==typeFilter) return false
+    if (!search) return true
+    const q=search.toLowerCase()
+    return (a.brand||'').toLowerCase().includes(q)||(a.model||'').toLowerCase().includes(q)||(a.type||'').toLowerCase().includes(q)
+  })
+  return (
+    <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 4px 20px rgba(0,0,0,0.1)', padding:16, marginBottom:12 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <span style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>Select appliance</span>
+        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#9CA3AF', lineHeight:1 }}>×</button>
+      </div>
+      <div style={{ position:'relative', marginBottom:10 }}>
+        <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF', fontSize:13, pointerEvents:'none' }}>⌕</span>
+        <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search brand, model…"
+          style={{ width:'100%', padding:'7px 9px 7px 28px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none' }} />
+      </div>
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
+        {types.map(t=>(
+          <button key={t} onClick={()=>setTypeFilter(t)}
+            style={{ fontSize:10, fontWeight:600, padding:'3px 9px', borderRadius:14, border:`1.5px solid ${typeFilter===t?'#5B8AF0':'#E8ECF0'}`, background:typeFilter===t?'#5B8AF0':'#fff', color:typeFilter===t?'#fff':'#6B7280', cursor:'pointer' }}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <div style={{ maxHeight:220, overflowY:'auto', display:'flex', flexDirection:'column', gap:5 }}>
+        {filtered.length===0 && <div style={{ textAlign:'center', padding:'16px', color:'#9CA3AF', fontSize:13 }}>No appliances found</div>}
+        {filtered.map(a=>(
+          <div key={a.id} onClick={()=>onSelect(a)}
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 11px', borderRadius:9, border:'1px solid #E8ECF0', cursor:'pointer', background:'#fff', transition:'all .1s' }}
+            onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#C4C9D4'}}
+            onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
+            {a.image_path
+              ? <img src={pubUrl(a.image_path)} style={{ width:36, height:36, borderRadius:7, objectFit:'contain', background:'#F9FAFB', border:'1px solid #E8ECF0', flexShrink:0 }} alt="" />
+              : <div style={{ width:36, height:36, borderRadius:7, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🔌</div>
+            }
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{a.brand} {a.model}</div>
+              <div style={{ fontSize:11, color:'#9CA3AF' }}>{a.type}{a.width?` · ${a.width}×${a.height}×${a.depth}mm`:''}</div>
+            </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── PDF viewer overlay ───────────────────────────────────────────
+function PdfViewer({ url, name, onClose }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:999, display:'flex', flexDirection:'column' }}>
+      {/* toolbar */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 16px', background:'#1a1a2e', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:18 }}>📄</span>
+          <span style={{ fontSize:13, fontWeight:600, color:'#fff', maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <a href={url} download target="_blank" rel="noreferrer"
+            style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'1px solid #5B8AF0', background:'#EEF2FF', color:'#3730A3', textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download
+          </a>
+          <button onClick={onClose}
+            style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'1px solid rgba(255,255,255,0.2)', background:'transparent', color:'#fff', cursor:'pointer' }}>
+            Close ×
+          </button>
+        </div>
+      </div>
+      {/* pdf embed */}
+      <div style={{ flex:1, overflow:'hidden' }}>
+        <iframe src={`${url}#toolbar=1&navpanes=0`} style={{ width:'100%', height:'100%', border:'none', display:'block' }} title={name} />
+      </div>
+    </div>
+  )
+}
+
+// ── DXF viewer overlay ────────────────────────────────────────────
+function DxfViewer({ url, name, onClose }) {
+  const canvasRef = React.useRef()
+  const [status, setStatus] = React.useState('loading') // loading | ok | error | dwg
+  const isDwg = name.toLowerCase().endsWith('.dwg')
+
+  React.useEffect(() => {
+    if (isDwg) { setStatus('dwg'); return }
+
+    async function loadDxf() {
+      try {
+        setStatus('loading')
+        // Fetch the DXF text
+        const res = await fetch(url)
+        const text = await res.text()
+
+        // Dynamically load three-dxf via CDN
+        if (!window.THREE) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script')
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
+            s.onload = resolve; s.onerror = reject
+            document.head.appendChild(s)
+          })
+        }
+        if (!window.DxfParser) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script')
+            s.src = 'https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js'
+            s.onload = resolve; s.onerror = reject
+            document.head.appendChild(s)
+          })
+        }
+
+        const parser = new window.DxfParser()
+        const dxf = parser.parseSync(text)
+        const canvas = canvasRef.current
+        if (!canvas) return
+
+        // Simple canvas-based DXF renderer
+        const ctx = canvas.getContext('2d')
+        const W = canvas.width = canvas.offsetWidth || 800
+        const H = canvas.height = canvas.offsetHeight || 600
+        ctx.fillStyle = '#0d1117'
+        ctx.fillRect(0, 0, W, H)
+
+        // Collect all line endpoints to auto-scale
+        const lines = []
+        ;(dxf.entities || []).forEach(e => {
+          if (e.type === 'LINE') {
+            lines.push({ x1:e.vertices[0].x, y1:e.vertices[0].y, x2:e.vertices[1].x, y2:e.vertices[1].y })
+          } else if (e.type === 'LWPOLYLINE' || e.type === 'POLYLINE') {
+            const verts = e.vertices || []
+            for (let i = 0; i < verts.length - 1; i++) {
+              lines.push({ x1:verts[i].x, y1:verts[i].y, x2:verts[i+1].x, y2:verts[i+1].y })
+            }
+            if (e.shape && verts.length > 1) {
+              const last = verts[verts.length-1], first = verts[0]
+              lines.push({ x1:last.x, y1:last.y, x2:first.x, y2:first.y })
+            }
+          }
+        })
+
+        if (lines.length === 0) { setStatus('error'); return }
+
+        // Bounding box
+        let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity
+        lines.forEach(l => {
+          minX=Math.min(minX,l.x1,l.x2); maxX=Math.max(maxX,l.x1,l.x2)
+          minY=Math.min(minY,l.y1,l.y2); maxY=Math.max(maxY,l.y1,l.y2)
+        })
+        const pad = 40
+        const scaleX = (W - pad*2) / (maxX - minX || 1)
+        const scaleY = (H - pad*2) / (maxY - minY || 1)
+        const scale  = Math.min(scaleX, scaleY)
+        const offX   = pad + ((W - pad*2) - (maxX-minX)*scale) / 2
+        const offY   = pad + ((H - pad*2) - (maxY-minY)*scale) / 2
+
+        const tx = x => offX + (x - minX) * scale
+        const ty = y => H - (offY + (y - minY) * scale) // flip Y
+
+        ctx.strokeStyle = '#5B8AF0'
+        ctx.lineWidth = 1
+        ctx.lineCap = 'round'
+        lines.forEach(l => {
+          ctx.beginPath()
+          ctx.moveTo(tx(l.x1), ty(l.y1))
+          ctx.lineTo(tx(l.x2), ty(l.y2))
+          ctx.stroke()
+        })
+
+        // Dimension labels (TEXT entities)
+        ctx.fillStyle = '#9CA3AF'
+        ctx.font = '10px monospace'
+        ;(dxf.entities || []).filter(e => e.type==='TEXT'||e.type==='MTEXT').forEach(e => {
+          const x = tx(e.startPoint?.x || 0)
+          const y = ty(e.startPoint?.y || 0)
+          ctx.fillText(e.text || '', x, y)
+        })
+
+        setStatus('ok')
+      } catch(err) {
+        console.warn('DXF parse error:', err)
+        setStatus('error')
+      }
+    }
+    loadDxf()
+  }, [url, isDwg])
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:999, display:'flex', flexDirection:'column' }}>
+      {/* toolbar */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 16px', background:'#0d1117', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:18 }}>📐</span>
+          <span style={{ fontSize:13, fontWeight:600, color:'#fff', maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+          {status === 'ok' && <span style={{ fontSize:11, padding:'2px 8px', borderRadius:10, background:'#1D9E7533', color:'#1D9E75', fontWeight:600 }}>DXF</span>}
+          {status === 'dwg' && <span style={{ fontSize:11, padding:'2px 8px', borderRadius:10, background:'#EF9F2733', color:'#EF9F27', fontWeight:600 }}>DWG</span>}
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <a href={url} download target="_blank" rel="noreferrer"
+            style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'1px solid #5B8AF0', background:'#EEF2FF', color:'#3730A3', textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download
+          </a>
+          <button onClick={onClose}
+            style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'1px solid rgba(255,255,255,0.2)', background:'transparent', color:'#fff', cursor:'pointer' }}>
+            Close ×
+          </button>
+        </div>
+      </div>
+      {/* viewer area */}
+      <div style={{ flex:1, position:'relative', overflow:'hidden' }}>
+        {status === 'loading' && (
+          <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#fff', gap:12 }}>
+            <div className="spinner" style={{ borderTopColor:'#5B8AF0' }} />
+            <span style={{ fontSize:13, color:'#9CA3AF' }}>Parsing DXF file…</span>
+          </div>
+        )}
+        {status === 'dwg' && (
+          <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#fff', gap:12, padding:32, textAlign:'center' }}>
+            <span style={{ fontSize:48 }}>📐</span>
+            <div style={{ fontSize:16, fontWeight:700 }}>DWG files can't be previewed in the browser</div>
+            <div style={{ fontSize:13, color:'#9CA3AF', maxWidth:340, lineHeight:1.6 }}>
+              DWG is a proprietary Autodesk format that requires AutoCAD or a dedicated viewer. Download the file to open it in your CAD software.
+            </div>
+            <a href={url} download target="_blank" rel="noreferrer"
+              style={{ fontSize:13, fontWeight:700, padding:'10px 24px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:7 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download DWG
+            </a>
+          </div>
+        )}
+        {status === 'error' && (
+          <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#fff', gap:10, padding:32, textAlign:'center' }}>
+            <span style={{ fontSize:40 }}>⚠️</span>
+            <div style={{ fontSize:15, fontWeight:700 }}>Couldn't render this DXF file</div>
+            <div style={{ fontSize:13, color:'#9CA3AF' }}>The file may use unsupported entities. Download to view in your CAD software.</div>
+            <a href={url} download target="_blank" rel="noreferrer"
+              style={{ fontSize:13, fontWeight:700, padding:'9px 22px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', textDecoration:'none' }}>
+              Download
+            </a>
+          </div>
+        )}
+        <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display: status==='ok' ? 'block' : 'none' }} />
+      </div>
+    </div>
+  )
+}
+
+// ── File viewer state ─────────────────────────────────────────────
+function ApplianceFiles({ applianceId }) {
+  const [files, setFiles] = React.useState(null)
+  const [viewing, setViewing] = React.useState(null) // { url, name, type }
+
+  React.useEffect(() => {
+    supabase.from('appliance_files').select('*').eq('appliance_id', applianceId).order('created_at')
+      .then(({ data }) => setFiles(data || []))
+  }, [applianceId])
+
+  if (files === null) return <div style={{ fontSize:12, color:'#9CA3AF', padding:'4px 0' }}>Loading files…</div>
+  if (files.length === 0) return null
+
+  function fileExt(name='') { return (name.split('.').pop()||'').toLowerCase() }
+  function fileIcon(name='') {
+    const ext = fileExt(name)
+    if (ext==='pdf') return '📄'
+    if (['dwg','dxf'].includes(ext)) return '📐'
+    if (['jpg','jpeg','png','webp'].includes(ext)) return '🖼'
+    return '📎'
+  }
+  function canView(name='') {
+    const ext = fileExt(name)
+    return ['pdf','dxf','dwg'].includes(ext)
+  }
+
+  return (
+    <>
+      {/* overlays */}
+      {viewing?.type === 'pdf' && <PdfViewer url={viewing.url} name={viewing.name} onClose={() => setViewing(null)} />}
+      {(viewing?.type === 'dxf' || viewing?.type === 'dwg') && <DxfViewer url={viewing.url} name={viewing.name} onClose={() => setViewing(null)} />}
+
+      <div style={{ marginTop:10 }}>
+        <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:7 }}>Files</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {files.map(f => {
+            const ext  = fileExt(f.name)
+            const url  = pubUrl(f.storage_path)
+            const viewable = canView(f.name)
+            return (
+              <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0' }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>{fileIcon(f.name)}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name}</div>
+                  {f.size && <div style={{ fontSize:10, color:'#9CA3AF' }}>{(f.size/1024).toFixed(0)} KB · {ext.toUpperCase()}</div>}
+                </div>
+                <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                  {viewable && (
+                    <button onClick={() => setViewing({ url, name: f.name, type: ext })}
+                      style={{ fontSize:11, fontWeight:700, padding:'5px 11px', borderRadius:8, border:'1px solid #1D9E75', background:'#ECFDF5', color:'#065F46', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      View
+                    </button>
+                  )}
+                  <a href={url} download target="_blank" rel="noreferrer"
+                    style={{ fontSize:11, fontWeight:700, padding:'5px 11px', borderRadius:8, border:'1px solid #5B8AF0', background:'#EEF2FF', color:'#3730A3', textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                  </a>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function JobAppliancesSection({ jobId, jobAppliances, allAppliances, setJobAppliances, setAllAppliances }) {
+  const toast = useToast()
+  const [query, setQuery] = useState('')
+  const [focused, setFocused] = useState(false)
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+  const inputRef = React.useRef()
+  const dropRef = React.useRef()
+
+  // already-added appliance ids so we don't show duplicates
+  const addedIds = new Set(jobAppliances.map(ja => ja.appliance_id))
+
+  // live filter
+  const matches = query.trim().length < 1 ? [] : allAppliances.filter(a => {
+    if (addedIds.has(a.id)) return false
+    const q = query.toLowerCase()
+    return (a.brand||'').toLowerCase().includes(q) ||
+           (a.model||'').toLowerCase().includes(q) ||
+           (a.type||'').toLowerCase().includes(q)
+  })
+
+  // close dropdown on outside click
+  React.useEffect(() => {
+    function handle(e) {
+      if (dropRef.current && !dropRef.current.contains(e.target) && !inputRef.current.contains(e.target)) {
+        setFocused(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  async function addAppliance(appliance) {
+    const {data,error} = await supabase.from('job_appliances').insert({ job_id: jobId, appliance_id: appliance.id }).select('*,appliances(*)').single()
+    if (error) { toast(error.message,'error'); return }
+    setJobAppliances(p=>[...p,data])
+    setQuery(''); setFocused(false)
+    toast(`${appliance.brand} ${appliance.model} added ✓`)
+  }
+
+  async function removeAppliance(jaId) {
+    if (!confirm('Remove this appliance from the job?')) return
+    await supabase.from('job_appliances').delete().eq('id', jaId)
+    setJobAppliances(p=>p.filter(x=>x.id!==jaId))
+    toast('Removed')
+  }
+
+  function onQuickAdded(newApp) {
+    setAllAppliances(p=>[...p, newApp])
+    addAppliance(newApp)
+    setShowQuickAdd(false)
+    setQuery('')
+  }
+
+  const showDrop = focused && query.trim().length > 0
+  const noMatches = showDrop && matches.length === 0
+
+  return (
+    <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:12 }}>Appliances</div>
+
+      {/* smart search input */}
+      {!showQuickAdd && (
+        <div style={{ position:'relative', marginBottom:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', border:`1.5px solid ${focused?'#5B8AF0':'#DDE3EC'}`, borderRadius:10, background:'#fff', transition:'border-color .15s' }}>
+            <span style={{ fontSize:15, color:'#9CA3AF', flexShrink:0 }}>⌕</span>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onKeyDown={e => { if(e.key==='Escape'){setQuery('');setFocused(false)} }}
+              placeholder="Search appliances or type to add new…"
+              style={{ flex:1, border:'none', outline:'none', fontSize:13, background:'transparent', color:'#2A3042', WebkitUserSelect:'text', userSelect:'text' }}
+            />
+            {query && <button onClick={()=>{setQuery('');setFocused(false);inputRef.current.focus()}} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16, lineHeight:1, padding:0 }}>×</button>}
+          </div>
+
+          {/* dropdown */}
+          {showDrop && (
+            <div ref={dropRef} style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.1)', zIndex:50, overflow:'hidden', maxHeight:260, overflowY:'auto' }}>
+              {matches.map(a => (
+                <div key={a.id} onClick={() => addAppliance(a)}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid #F3F4F6', transition:'background .1s' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  {a.image_path
+                    ? <img src={pubUrl(a.image_path)} style={{ width:34, height:34, borderRadius:7, objectFit:'contain', background:'#F9FAFB', border:'1px solid #E8ECF0', flexShrink:0 }} alt="" />
+                    : <div style={{ width:34, height:34, borderRadius:7, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>🔌</div>
+                  }
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{a.brand} {a.model}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{a.type}{a.width?` · ${a.width}×${a.height}×${a.depth}mm`:''}</div>
+                  </div>
+                  <span style={{ fontSize:11, color:'#5B8AF0', fontWeight:600, flexShrink:0 }}>Add</span>
+                </div>
+              ))}
+              {/* no matches — prompt to add */}
+              {noMatches && (
+                <div style={{ padding:'14px 16px' }}>
+                  <div style={{ fontSize:13, color:'#6B7280', marginBottom:10 }}>
+                    No appliances found for <strong style={{ color:'#2A3042' }}>"{query}"</strong>
+                  </div>
+                  <button onClick={() => { setShowQuickAdd(true); setFocused(false) }}
+                    style={{ width:'100%', padding:'9px', borderRadius:9, border:'1.5px dashed #5B8AF0', background:'#EEF2FF', color:'#3730A3', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                    + Add "{query}" to appliance library
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showQuickAdd && (
+        <QuickAddAppliance onSave={onQuickAdded} onCancel={()=>setShowQuickAdd(false)} />
+      )}
+
+      {jobAppliances.length===0 && !showQuickAdd ? (
+        <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No appliances added yet — search above</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {jobAppliances.map(ja => {
+            const a = ja.appliances
+            if (!a) return null
+            const expanded = expandedId===ja.id
+            return (
+              <div key={ja.id} style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                {/* collapsed row */}
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', background:'#FAFAFA' }}
+                  onClick={()=>setExpandedId(expanded?null:ja.id)}>
+                  {a.image_path
+                    ? <img src={pubUrl(a.image_path)} style={{ width:36, height:36, borderRadius:7, objectFit:'contain', background:'#fff', border:'1px solid #E8ECF0', flexShrink:0 }} alt="" />
+                    : <div style={{ width:36, height:36, borderRadius:7, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🔌</div>
+                  }
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{a.brand} {a.model}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{a.type}{a.width?` · ${a.width}×${a.height}×${a.depth}mm`:''}</div>
+                  </div>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <button onClick={e=>{e.stopPropagation();removeAppliance(ja.id)}}
+                      style={{ fontSize:12, color:'#FCA5A5', background:'none', border:'none', cursor:'pointer', fontWeight:700, padding:'2px 6px' }}>×</button>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" style={{ transform:expanded?'rotate(180deg)':'none', transition:'transform .15s' }}><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                {/* expanded dims */}
+                {expanded && (
+                  <div style={{ padding:'12px 14px', borderTop:'1px solid #E8ECF0', background:'#fff' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10 }}>
+                      {[['Width',a.width,'#5B8AF0','#EEF2FF'],['Height',a.height,'#5B8AF0','#EEF2FF'],['Depth',a.depth,'#5B8AF0','#EEF2FF']].map(([l,v,c,bg])=>(
+                        <div key={l} style={{ borderRadius:9, border:`1.5px solid ${v?c+'55':'#E8ECF0'}`, background:v?bg:'#FAFAFA', padding:'9px 11px' }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:v?c:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>{l}</div>
+                          <div style={{ fontSize:20, fontWeight:800, color:v?'#2A3042':'#C4C9D4', lineHeight:1 }}>{v||'—'}{v&&<span style={{ fontSize:11, color:c, marginLeft:3 }}>mm</span>}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {(a.cutout_width||a.cutout_height||a.cutout_depth) && (
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10 }}>
+                        {[['Cutout W',a.cutout_width,'#1D9E75','#ECFDF5'],['Cutout H',a.cutout_height,'#1D9E75','#ECFDF5'],['Cutout D',a.cutout_depth,'#1D9E75','#ECFDF5']].map(([l,v,c,bg])=>(
+                          <div key={l} style={{ borderRadius:9, border:`1.5px solid ${v?c+'55':'#E8ECF0'}`, background:v?bg:'#FAFAFA', padding:'9px 11px' }}>
+                            <div style={{ fontSize:10, fontWeight:700, color:v?c:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>{l}</div>
+                            <div style={{ fontSize:20, fontWeight:800, color:v?'#2A3042':'#C4C9D4', lineHeight:1 }}>{v||'—'}{v&&<span style={{ fontSize:11, color:c, marginLeft:3 }}>mm</span>}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {a.notes && <div style={{ fontSize:12, color:'#6B7280', padding:'8px 10px', background:'#F9FAFB', borderRadius:8, marginBottom:4 }}>{a.notes}</div>}
+                    <ApplianceFiles applianceId={a.id} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
@@ -386,6 +997,9 @@ export default function JobDetail() {
   const [uploading, setUploading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [jobAppliances, setJobAppliances] = useState([])
+  const [allAppliances, setAllAppliances] = useState([])
+  const [showAppPicker, setShowAppPicker] = useState(false)
 
   // Track if all-materials has been fetched yet (lazy)
   const allMatsFetched = React.useRef(false)
@@ -393,16 +1007,20 @@ export default function JobDetail() {
   const loadAll = useCallback(async () => {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
-    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }] = await Promise.all([
+    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
       supabase.from('materials').select('*').order('name'),
+      supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
+      supabase.from('appliances').select('*').order('brand'),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
     const panelCats = []
     setPanelMaterials((panelMats||[]).filter(m => m.panel_type || m.category_id))
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
+    setJobAppliances(ja||[])
+    setAllAppliances(appLib||[])
     setLoading(false)
     setDirty(false)
 
@@ -723,6 +1341,15 @@ export default function JobDetail() {
           </div>
         )}
       </div>
+
+      {/* appliances */}
+      <JobAppliancesSection
+        jobId={id}
+        jobAppliances={jobAppliances}
+        allAppliances={allAppliances}
+        setJobAppliances={setJobAppliances}
+        setAllAppliances={setAllAppliances}
+      />
 
       {/* drawings */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
