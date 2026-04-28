@@ -1259,7 +1259,21 @@ export default function JobDetail() {
                   {t.done && <span className="text-[10px] font-bold">✓</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm ${t.done ? 'line-through text-[#9CA3AF]' : 'text-[#2A3042]'}`}>{t.title}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className={`text-sm ${t.done ? 'line-through text-[#9CA3AF]' : 'text-[#2A3042]'}`}>{t.title}</div>
+                    {t.from_note && (
+                      <span onClick={() => navigate(`/notes/${t.from_note}`)}
+                        title="From a linked note — click to open"
+                        style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>
+                        📄 Note
+                      </span>
+                    )}
+                    {t.private && (
+                      <span title="Only visible to you" style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F3F4F6', color:'#6B7280', fontWeight:600, flexShrink:0 }}>
+                        🔒
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-1.5 mt-1"><DueBadge t={t} /></div>
                 </div>
                 <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none bg-transparent border-none cursor-pointer flex-shrink-0">×</button>

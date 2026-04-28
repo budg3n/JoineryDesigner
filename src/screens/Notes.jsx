@@ -315,7 +315,7 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
       const noteTasks = todoBlocks.map(b => ({
         id:            b.id,
         note_block_id: b.id,
-        title:         b.content,
+        title:         b.content.trim(),
         done:          b.checked || false,
         date:          b.due_date || '',
         time:          '09:00',
@@ -339,15 +339,10 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
 
   async function saveNote(auto = false) {
     setSaving(true)
-    const content = { blocks }
-    // Sync todos to job before saving
-    let syncedBlocks = blocks
-    if (jobId) {
-      syncedBlocks = await syncTodosToJob(blocks, jobId, note?.id, isPublic, profile?.id)
-      setBlocks(syncedBlocks)
-    }
-    const content = { blocks: syncedBlocks }
-    const row = { title: title||'Untitled', content, is_public: isPublic, job_id: jobId||null, updated_at: new Date().toISOString() }
+
+    // Save the note first so we have an ID for new notes
+    const noteContent = { blocks }
+    const row = { title: title||'Untitled', content: noteContent, is_public: isPublic, job_id: jobId||null, updated_at: new Date().toISOString() }
     let saved
     if (note?.id) {
       const { data } = await supabase.from('notes').update(row).eq('id', note.id).select().single()
@@ -357,6 +352,16 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
       saved = data
       if (saved) navigate(`/notes/${saved.id}`, { replace: true })
     }
+
+    // Sync todos to job tasks (now we have a valid note ID)
+    if (jobId && saved?.id) {
+      const syncedBlocks = await syncTodosToJob(blocks, jobId, saved.id, isPublic, profile?.id)
+      setBlocks(syncedBlocks)
+      // Re-save with synced block state
+      await supabase.from('notes').update({ content: { blocks: syncedBlocks } }).eq('id', saved.id)
+      if (saved) saved = { ...saved, content: { blocks: syncedBlocks } }
+    }
+
     setSaving(false)
     setDirty(false)
     setLastSaved(new Date())
