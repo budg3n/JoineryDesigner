@@ -189,7 +189,9 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     // Kitchen spec field — type is 'spec_field:key_name'
     if (type.startsWith('spec_field:')) {
       const specKey = type.split(':')[1]
-      onChange(block.id, { type: 'spec_field', spec_key: specKey, content: '' })
+      // Clear the div content so no leftover /spec text shows
+      if (ref.current) ref.current.innerHTML = ''
+      onChange(block.id, { type: 'spec_field', spec_key: specKey, content: '', spec_value: '' })
       return
     }
     if (type === 'divider') { onChange(block.id, { type, content: '' }); return }
@@ -266,42 +268,63 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     const val = block.spec_value || ''
     const hasVal = val !== '' && val !== null && val !== undefined
     return (
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:12, border:`2px solid ${hasVal ? spec.color+'66' : '#E8ECF0'}`, background: hasVal ? spec.color+'11' : '#FAFAFA', transition:'all .15s', marginBottom:2 }}>
-        {/* colour accent */}
-        <div style={{ width:4, height:'100%', minHeight:32, borderRadius:2, background:spec.color, flexShrink:0, alignSelf:'stretch' }} />
-        {/* label */}
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:10, fontWeight:700, color:spec.color, textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>
-            📐 {spec.label}
-            <span style={{ fontSize:10, color:'#9CA3AF', fontWeight:400, marginLeft:6, textTransform:'none', letterSpacing:0 }}>·  {spec.group}</span>
+      <div style={{
+        borderRadius:12,
+        border:`2px solid ${hasVal ? spec.color+'55' : '#E8ECF0'}`,
+        background: hasVal ? spec.color+'0D' : '#FAFAFA',
+        borderLeft:`4px solid ${spec.color}`,
+        transition:'all .15s',
+        overflow:'hidden',
+      }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px' }}>
+          {/* content */}
+          <div style={{ flex:1, minWidth:0 }}>
+            {/* label row */}
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+              <span style={{ fontSize:11 }}>📐</span>
+              <span style={{ fontSize:10, fontWeight:700, color:spec.color, textTransform:'uppercase', letterSpacing:'.07em' }}>{spec.label}</span>
+              <span style={{ fontSize:10, color:'#9CA3AF' }}>· {spec.group}</span>
+            </div>
+            {/* value row */}
+            <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+              <input
+                type={spec.text ? 'text' : 'number'}
+                value={val}
+                onChange={e => onChange(block.id, { spec_value: e.target.value })}
+                placeholder={spec.text ? 'Enter value…' : '—'}
+                min={spec.text ? undefined : 0}
+                style={{
+                  border:'none', outline:'none', background:'transparent', padding:0, margin:0,
+                  fontSize:28, fontWeight:800,
+                  color: hasVal ? '#2A3042' : '#C4C9D4',
+                  width: spec.text ? '100%' : 120,
+                  fontFamily:'inherit',
+                  WebkitUserSelect:'text', userSelect:'text',
+                  lineHeight:1,
+                  MozAppearance:'textfield', WebkitAppearance:'none', appearance:'textfield',
+                }} />
+              {spec.unit && (
+                <span style={{ fontSize:14, fontWeight:700, color: hasVal ? spec.color : '#D1D5DB', flexShrink:0 }}>
+                  {spec.unit}
+                </span>
+              )}
+            </div>
           </div>
-          <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
-            <input
-              type={spec.text ? 'text' : 'number'}
-              value={val}
-              onChange={e => onChange(block.id, { spec_value: e.target.value })}
-              placeholder={spec.text ? 'Enter value…' : '0'}
-              min={spec.text ? undefined : 0}
-              style={{
-                border:'none', outline:'none', background:'transparent', padding:0, margin:0,
-                fontSize:26, fontWeight:800, color: hasVal ? '#2A3042' : '#C4C9D4',
-                width: spec.text ? '100%' : 100, fontFamily:'inherit',
-                WebkitUserSelect:'text', userSelect:'text', lineHeight:1,
-                MozAppearance:'textfield', WebkitAppearance:'none', appearance:'textfield',
-              }} />
-            {spec.unit && <span style={{ fontSize:14, fontWeight:700, color: hasVal ? spec.color : '#C4C9D4' }}>{spec.unit}</span>}
+          {/* right side — badge + delete */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+            {block.synced_to_job && (
+              <span style={{ fontSize:10, padding:'3px 9px', borderRadius:20, background:'#ECFDF5', color:'#065F46', fontWeight:700, border:'1px solid #6EE7B7', whiteSpace:'nowrap' }}>
+                ✓ In job
+              </span>
+            )}
+            <button onClick={() => onDelete(block.id)}
+              style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, padding:'2px 4px', borderRadius:6, transition:'color .1s' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+              onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
           </div>
         </div>
-        {/* synced badge */}
-        <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6 }}>
-          {block.synced_to_job && (
-            <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#ECFDF5', color:'#065F46', fontWeight:700, border:'1px solid #6EE7B7' }}>✓ In job</span>
-          )}
-          <button onClick={() => onDelete(block.id)}
-            style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C9D4', fontSize:16, lineHeight:1, padding:'0 2px' }}
-            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
-            onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>×</button>
-        </div>
+        {/* hide number spinners */}
+        <style>{`input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}`}</style>
       </div>
     )
   }
