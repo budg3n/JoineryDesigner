@@ -1313,9 +1313,12 @@ export default function JobDetail() {
             const m = jm.materials; if (!m) return null
             return (
               <div key={jm.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E8ECF0] rounded-lg text-xs">
-                <div className="w-3.5 h-3.5 rounded-[3px]" style={{ background: m.color||'#ccc' }} />
+                {m.storage_path
+                  ? <img src={pubUrl(m.storage_path)} style={{ width:18, height:18, borderRadius:4, objectFit:'cover', flexShrink:0, border:'1px solid #E8ECF0' }} alt="" loading="lazy" />
+                  : <div style={{ width:18, height:18, borderRadius:4, background:m.color||'#D1D5DB', flexShrink:0, border:'1px solid rgba(0,0,0,0.08)' }} />
+                }
                 <span className="font-medium text-[#374151]">{m.name}</span>
-                <span className="text-[#9CA3AF]">{m.panel_type} {m.thickness ? m.thickness+'mm' : ''}</span>
+                <span className="text-[#9CA3AF]">{m.panel_type}{m.thickness ? ' · '+m.thickness+'mm' : ''}</span>
                 <button onClick={() => removeMat(jm.id)} className="text-[#D1D5DB] hover:text-red-400 leading-none bg-transparent border-none cursor-pointer ml-1">×</button>
               </div>
             )
