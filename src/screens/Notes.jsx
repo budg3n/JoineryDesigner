@@ -6,6 +6,21 @@ import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 
 // ── Block types config ────────────────────────────────────────────
+// ── Kitchen spec fields available as note blocks ─────────────────
+const KITCHEN_SPEC_FIELDS = [
+  { key:'toe_kick_height',      label:'Toe kick height',     unit:'mm', group:'Base cabinets',  color:'#5B8AF0' },
+  { key:'base_height',          label:'Base cabinet height', unit:'mm', group:'Base cabinets',  color:'#5B8AF0' },
+  { key:'base_depth',           label:'Base cabinet depth',  unit:'mm', group:'Base cabinets',  color:'#5B8AF0' },
+  { key:'upper_height',         label:'Upper cabinet height',unit:'mm', group:'Upper cabinets', color:'#1D9E75' },
+  { key:'upper_depth',          label:'Upper cabinet depth', unit:'mm', group:'Upper cabinets', color:'#1D9E75' },
+  { key:'tall_height',          label:'Tall cabinet height', unit:'mm', group:'Tall cabinets',  color:'#EF9F27' },
+  { key:'tall_depth',           label:'Tall cabinet depth',  unit:'mm', group:'Tall cabinets',  color:'#EF9F27' },
+  { key:'bench_thickness',      label:'Benchtop thickness',  unit:'mm', group:'Benchtop',       color:'#7F77DD' },
+  { key:'bench_material',       label:'Benchtop material',   unit:'',   group:'Benchtop',       color:'#7F77DD', text:true },
+  { key:'bench_overhang_side',  label:'Overhang sides',      unit:'mm', group:'Benchtop',       color:'#7F77DD' },
+  { key:'bench_overhang_front', label:'Overhang front',      unit:'mm', group:'Benchtop',       color:'#7F77DD' },
+]
+
 const BLOCK_TYPES = [
   { type:'paragraph',  label:'Text',          icon:'¶',  desc:'Plain text' },
   { type:'heading1',   label:'Heading 1',     icon:'H1', desc:'Large heading' },
@@ -18,6 +33,7 @@ const BLOCK_TYPES = [
   { type:'divider',    label:'Divider',       icon:'—',  desc:'Horizontal line' },
   { type:'link_note',  label:'Link to note',  icon:'🔗', desc:'Link another note' },
   { type:'code',       label:'Code',          icon:'<>', desc:'Code block' },
+  { type:'spec_field', label:'Kitchen spec',  icon:'📐', desc:'Live kitchen measurement' },
 ]
 
 function makeBlock(type='paragraph', content='') {
@@ -42,22 +58,58 @@ function SlashMenu({ filter, onSelect, onClose }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [filtered, sel, onSelect, onClose])
 
-  if (!filtered.length) return null
+  // Also filter kitchen spec fields
+  const filteredSpecs = filter
+    ? KITCHEN_SPEC_FIELDS.filter(s =>
+        s.label.toLowerCase().includes(filter.toLowerCase()) ||
+        s.key.includes(filter.toLowerCase()) ||
+        s.group.toLowerCase().includes(filter.toLowerCase()) ||
+        'spec kitchen measurement'.includes(filter.toLowerCase())
+      )
+    : []
+
+  if (!filtered.length && !filteredSpecs.length) return null
+
+  const totalItems = filtered.length + filteredSpecs.length
+  const clampedSel = Math.min(sel, totalItems - 1)
 
   return (
-    <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:220, overflow:'hidden' }}>
-      <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6' }}>Blocks</div>
-      {filtered.map((b, i) => (
-        <div key={b.type} onClick={() => onSelect(b.type)}
-          style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background: i===sel ? '#F3F4F6' : 'transparent', transition:'background .08s' }}
-          onMouseEnter={() => setSel(i)}>
-          <div style={{ width:28, height:28, borderRadius:7, background:'#F9FAFB', border:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#374151', flexShrink:0 }}>{b.icon}</div>
-          <div>
-            <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{b.label}</div>
-            <div style={{ fontSize:11, color:'#9CA3AF' }}>{b.desc}</div>
-          </div>
-        </div>
-      ))}
+    <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:260, overflow:'hidden', maxHeight:320, overflowY:'auto' }}>
+      {filtered.length > 0 && (
+        <>
+          <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6' }}>Blocks</div>
+          {filtered.map((b, i) => (
+            <div key={b.type} onClick={() => onSelect(b.type)}
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background: i===clampedSel ? '#F3F4F6' : 'transparent', transition:'background .08s' }}
+              onMouseEnter={() => setSel(i)}>
+              <div style={{ width:28, height:28, borderRadius:7, background:'#F9FAFB', border:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#374151', flexShrink:0 }}>{b.icon}</div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{b.label}</div>
+                <div style={{ fontSize:11, color:'#9CA3AF' }}>{b.desc}</div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+      {filteredSpecs.length > 0 && (
+        <>
+          <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6', background:'#F8FAFF' }}>Kitchen specs</div>
+          {filteredSpecs.map((s, i) => {
+            const idx = filtered.length + i
+            return (
+              <div key={s.key} onClick={() => onSelect('spec_field:' + s.key)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background: idx===clampedSel ? '#EEF2FF' : 'transparent', transition:'background .08s' }}
+                onMouseEnter={() => setSel(idx)}>
+                <div style={{ width:28, height:28, borderRadius:7, background: s.color + '22', border:`1px solid ${s.color}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0 }}>📐</div>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{s.label}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF' }}>{s.group}{s.unit ? ` · ${s.unit}` : ''}</div>
+                </div>
+              </div>
+            )
+          })}
+        </>
+      )}
     </div>
   )
 }
@@ -134,6 +186,12 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     const lastSlash = text.lastIndexOf('/')
     const newContent = lastSlash >= 0 ? text.slice(0, lastSlash) : text
     setShowSlash(false); setSlashFilter('')
+    // Kitchen spec field — type is 'spec_field:key_name'
+    if (type.startsWith('spec_field:')) {
+      const specKey = type.split(':')[1]
+      onChange(block.id, { type: 'spec_field', spec_key: specKey, content: '' })
+      return
+    }
     if (type === 'divider') { onChange(block.id, { type, content: '' }); return }
     if (type === 'link_note') { onChange(block.id, { type, content: newContent }); setShowLinkPicker(true); return }
     onChange(block.id, { type, content: newContent })
@@ -196,6 +254,53 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
           <span>🔗</span>
           <span style={{ fontSize:13, fontWeight:600, color:'#3730A3', flex:1 }}>{linked?.title || block.content || 'Linked note'}</span>
           <button onClick={e=>{e.stopPropagation();onDelete(block.id)}} style={{ fontSize:14, color:'#A5B4FC', background:'none', border:'none', cursor:'pointer', lineHeight:1 }}>×</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Kitchen spec field block ──
+  if (block.type === 'spec_field') {
+    const spec = KITCHEN_SPEC_FIELDS.find(s => s.key === block.spec_key)
+    if (!spec) return null
+    const val = block.spec_value || ''
+    const hasVal = val !== '' && val !== null && val !== undefined
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:12, border:`2px solid ${hasVal ? spec.color+'66' : '#E8ECF0'}`, background: hasVal ? spec.color+'11' : '#FAFAFA', transition:'all .15s', marginBottom:2 }}>
+        {/* colour accent */}
+        <div style={{ width:4, height:'100%', minHeight:32, borderRadius:2, background:spec.color, flexShrink:0, alignSelf:'stretch' }} />
+        {/* label */}
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:spec.color, textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>
+            📐 {spec.label}
+            <span style={{ fontSize:10, color:'#9CA3AF', fontWeight:400, marginLeft:6, textTransform:'none', letterSpacing:0 }}>·  {spec.group}</span>
+          </div>
+          <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+            <input
+              type={spec.text ? 'text' : 'number'}
+              value={val}
+              onChange={e => onChange(block.id, { spec_value: e.target.value })}
+              placeholder={spec.text ? 'Enter value…' : '0'}
+              min={spec.text ? undefined : 0}
+              style={{
+                border:'none', outline:'none', background:'transparent', padding:0, margin:0,
+                fontSize:26, fontWeight:800, color: hasVal ? '#2A3042' : '#C4C9D4',
+                width: spec.text ? '100%' : 100, fontFamily:'inherit',
+                WebkitUserSelect:'text', userSelect:'text', lineHeight:1,
+                MozAppearance:'textfield', WebkitAppearance:'none', appearance:'textfield',
+              }} />
+            {spec.unit && <span style={{ fontSize:14, fontWeight:700, color: hasVal ? spec.color : '#C4C9D4' }}>{spec.unit}</span>}
+          </div>
+        </div>
+        {/* synced badge */}
+        <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6 }}>
+          {block.synced_to_job && (
+            <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#ECFDF5', color:'#065F46', fontWeight:700, border:'1px solid #6EE7B7' }}>✓ In job</span>
+          )}
+          <button onClick={() => onDelete(block.id)}
+            style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C9D4', fontSize:16, lineHeight:1, padding:'0 2px' }}
+            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+            onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>×</button>
         </div>
       </div>
     )
@@ -281,13 +386,22 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   const titleRef = useRef()
   const saveTimer = useRef()
 
-  // Hydrate todo blocks from job tasks on mount
+  // Hydrate todo + spec blocks from job on mount
   useEffect(() => {
     if (!note?.job_id || !note?.id) return
-    supabase.from('jobs').select('tasks').eq('id', note.job_id).single().then(({ data }) => {
-      if (!data?.tasks) return
-      const tasks = JSON.parse(data.tasks)
-      setBlocks(prev => hydrateBlocks(prev, tasks))
+    supabase.from('jobs').select('tasks,kitchen_specs').eq('id', note.job_id).single().then(({ data }) => {
+      if (!data) return
+      setBlocks(prev => {
+        let updated = prev
+        if (data.tasks) {
+          const tasks = typeof data.tasks === 'string' ? JSON.parse(data.tasks) : data.tasks
+          updated = hydrateBlocks(updated, tasks)
+        }
+        if (data.kitchen_specs) {
+          updated = hydrateSpecBlocks(updated, data.kitchen_specs)
+        }
+        return updated
+      })
     })
   }, [note?.id])
 
@@ -298,6 +412,47 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
     saveTimer.current = setTimeout(() => saveNote(true), 1500)
     return () => clearTimeout(saveTimer.current)
   }, [title, blocks, isPublic, jobId, dirty])
+
+  // Sync spec_field blocks to job's kitchen_specs
+  async function syncSpecsToJob(currentBlocks, jobId) {
+    if (!jobId) return currentBlocks
+    try {
+      const specBlocks = currentBlocks.filter(b => b.type === 'spec_field' && b.spec_key)
+      if (!specBlocks.length) return currentBlocks
+      // Load current kitchen_specs from job
+      const { data: job } = await supabase.from('jobs').select('kitchen_specs').eq('id', jobId).single()
+      const existing = job?.kitchen_specs
+        ? (typeof job.kitchen_specs === 'string' ? JSON.parse(job.kitchen_specs) : job.kitchen_specs)
+        : {}
+      // Merge spec block values into kitchen_specs
+      const updated = { ...existing }
+      specBlocks.forEach(b => {
+        if (b.spec_value !== '' && b.spec_value !== null && b.spec_value !== undefined) {
+          updated[b.spec_key] = b.spec_value
+        }
+      })
+      await supabase.from('jobs').update({ kitchen_specs: JSON.stringify(updated) }).eq('id', jobId)
+      // Mark blocks as synced
+      return currentBlocks.map(b =>
+        b.type === 'spec_field' ? { ...b, synced_to_job: true } : b
+      )
+    } catch(e) {
+      console.warn('Spec sync failed:', e)
+      return currentBlocks
+    }
+  }
+
+  // Hydrate spec blocks from job's kitchen_specs on load
+  function hydrateSpecBlocks(rawBlocks, kitchenSpecs) {
+    if (!kitchenSpecs) return rawBlocks
+    const specs = typeof kitchenSpecs === 'string' ? JSON.parse(kitchenSpecs) : kitchenSpecs
+    return rawBlocks.map(b => {
+      if (b.type !== 'spec_field' || !b.spec_key) return b
+      const val = specs[b.spec_key]
+      if (val === undefined || val === null) return b
+      return { ...b, spec_value: String(val), synced_to_job: true }
+    })
+  }
 
   // Sync todo blocks to job tasks when note is linked to a job
   async function syncTodosToJob(currentBlocks, jobId, noteId, isPublic, creatorId) {
@@ -353,9 +508,10 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
       if (saved) navigate(`/notes/${saved.id}`, { replace: true })
     }
 
-    // Sync todos to job tasks (now we have a valid note ID)
+    // Sync todos + specs to job (now we have a valid note ID)
     if (jobId && saved?.id) {
-      const syncedBlocks = await syncTodosToJob(blocks, jobId, saved.id, isPublic, profile?.id)
+      let syncedBlocks = await syncTodosToJob(blocks, jobId, saved.id, isPublic, profile?.id)
+      syncedBlocks = await syncSpecsToJob(syncedBlocks, jobId)
       setBlocks(syncedBlocks)
       // Re-save with synced block state
       await supabase.from('notes').update({ content: { blocks: syncedBlocks } }).eq('id', saved.id)
@@ -374,6 +530,22 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   function changeBlock(id, patch) {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b))
     markDirty()
+    // Real-time sync spec values back to job as user types
+    if (patch.spec_value !== undefined && jobId) {
+      const block = blocks.find(b => b.id === id)
+      if (block?.spec_key) {
+        clearTimeout(window._specSyncTimer)
+        window._specSyncTimer = setTimeout(async () => {
+          const { data: job } = await supabase.from('jobs').select('kitchen_specs').eq('id', jobId).single()
+          const existing = job?.kitchen_specs
+            ? (typeof job.kitchen_specs === 'string' ? JSON.parse(job.kitchen_specs) : job.kitchen_specs)
+            : {}
+          await supabase.from('jobs').update({
+            kitchen_specs: JSON.stringify({ ...existing, [block.spec_key]: patch.spec_value })
+          }).eq('id', jobId)
+        }, 800)
+      }
+    }
   }
 
   function deleteBlock(id) {

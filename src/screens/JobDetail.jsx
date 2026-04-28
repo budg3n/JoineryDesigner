@@ -1093,7 +1093,35 @@ export default function JobDetail() {
     }).eq('id', id)
     setSaving(false)
     if (error) toast(error.message, 'error')
-    else { toast('Saved ✓'); setDirty(false) }
+    else {
+      toast('Saved ✓'); setDirty(false)
+      // Push kitchen_specs back to any linked notes with spec_field blocks
+      if (job.kitchen_specs) {
+        const specs = typeof job.kitchen_specs === 'string'
+          ? JSON.parse(job.kitchen_specs) : (job.kitchen_specs || {})
+        const { data: linkedNotes } = await supabase
+          .from('notes').select('id,content').eq('job_id', id)
+        if (linkedNotes?.length) {
+          for (const note of linkedNotes) {
+            const blocks = note.content?.blocks || []
+            let changed = false
+            const updated = blocks.map(b => {
+              if (b.type !== 'spec_field' || !b.spec_key) return b
+              const val = specs[b.spec_key]
+              if (val === undefined || val === null) return b
+              if (String(b.spec_value) === String(val)) return b
+              changed = true
+              return { ...b, spec_value: String(val), synced_to_job: true }
+            })
+            if (changed) {
+              await supabase.from('notes')
+                .update({ content: { blocks: updated }, updated_at: new Date().toISOString() })
+                .eq('id', note.id)
+            }
+          }
+        }
+      }
+    }
   }
 
   // tasks
