@@ -65,41 +65,44 @@ function SlashMenu({ filter, onSelect, onClose }) {
 // ── Single Block ──────────────────────────────────────────────────
 function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers }) {
   const ref = useRef()
-  const didMount = useRef(false)
   const [showSlash, setShowSlash] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [showLinkPicker, setShowLinkPicker] = useState(false)
   const [linkSearch, setLinkSearch] = useState('')
+  const navigate = useNavigate()
 
-  // Focus when block becomes focused
+  // Set innerHTML ONCE on mount only — never let React update it
   useEffect(() => {
-    if (focused && ref.current && block.type !== 'divider') {
+    if (ref.current && block.type !== 'divider' && block.type !== 'link_note') {
+      ref.current.innerHTML = block.content || ''
+    }
+  }, []) // empty deps — only on mount
+
+  // Focus management
+  useEffect(() => {
+    if (focused && ref.current && block.type !== 'divider' && block.type !== 'link_note') {
       ref.current.focus()
-      // Move cursor to end
-      const range = document.createRange()
-      const sel = window.getSelection()
-      if (ref.current.childNodes.length) {
-        const lastNode = ref.current.childNodes[ref.current.childNodes.length - 1]
-        range.setStartAfter(lastNode)
-        range.collapse(true)
+      try {
+        const range = document.createRange()
+        const sel = window.getSelection()
+        range.selectNodeContents(ref.current)
+        range.collapse(false)
         sel.removeAllRanges()
         sel.addRange(range)
-      }
+      } catch(e) {}
     }
   }, [focused])
 
   function handleInput(e) {
-    const text = e.currentTarget.textContent
+    const text = e.currentTarget.textContent || ''
     onChange(block.id, { content: text })
-
-    // slash command
+    // slash command detection
     const sel = window.getSelection()
-    const pos = sel.anchorOffset
-    const beforeCursor = text.slice(0, pos)
-    const lastSlash = beforeCursor.lastIndexOf('/')
-
-    if (lastSlash >= 0 && !beforeCursor.slice(lastSlash + 1).includes(' ')) {
-      setSlashFilter(beforeCursor.slice(lastSlash + 1))
+    const pos = sel?.anchorOffset || 0
+    const before = text.slice(0, pos)
+    const lastSlash = before.lastIndexOf('/')
+    if (lastSlash >= 0 && !before.slice(lastSlash + 1).includes(' ')) {
+      setSlashFilter(before.slice(lastSlash + 1))
       setShowSlash(true)
     } else {
       setShowSlash(false)
@@ -109,67 +112,62 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
 
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey && !showSlash) {
-      e.preventDefault()
-      onEnter(block.id)
+      e.preventDefault(); onEnter(block.id)
     }
-    if (e.key === 'Backspace' && !block.content && block.type !== 'paragraph') {
-      e.preventDefault()
-      onChange(block.id, { type: 'paragraph' })
+    if (e.key === 'Backspace' && !(ref.current?.textContent) && block.type !== 'paragraph') {
+      e.preventDefault(); onChange(block.id, { type: 'paragraph', content: '' })
+      if (ref.current) ref.current.innerHTML = ''
     }
-    if (e.key === 'Backspace' && !block.content && index > 0) {
-      e.preventDefault()
-      onDelete(block.id)
+    if (e.key === 'Backspace' && !(ref.current?.textContent) && index > 0) {
+      e.preventDefault(); onDelete(block.id)
     }
-    if (e.key === 'ArrowUp') { const sel=window.getSelection(); if (sel.anchorOffset===0) { e.preventDefault(); onArrowUp(index) } }
-    if (e.key === 'ArrowDown') { onArrowDown(index) }
+    if (e.key === 'ArrowUp') {
+      const sel = window.getSelection()
+      if (sel?.anchorOffset === 0) { e.preventDefault(); onArrowUp(index) }
+    }
+    if (e.key === 'ArrowDown') onArrowDown(index)
+    if (e.key === 'Escape') { setShowSlash(false); setSlashFilter('') }
   }
 
   function selectBlockType(type) {
-    // clear the slash command from content
     const text = ref.current?.textContent || ''
     const lastSlash = text.lastIndexOf('/')
     const newContent = lastSlash >= 0 ? text.slice(0, lastSlash) : text
-    setShowSlash(false)
-    setSlashFilter('')
+    setShowSlash(false); setSlashFilter('')
     if (type === 'divider') { onChange(block.id, { type, content: '' }); return }
     if (type === 'link_note') { onChange(block.id, { type, content: newContent }); setShowLinkPicker(true); return }
     onChange(block.id, { type, content: newContent })
+    if (ref.current) ref.current.innerHTML = newContent
     setTimeout(() => ref.current?.focus(), 10)
   }
 
   function linkNote(note) {
-    onChange(block.id, { type:'link_note', content: note.title, linked_note_id: note.id })
+    onChange(block.id, { type: 'link_note', content: note.title, linked_note_id: note.id })
     setShowLinkPicker(false)
   }
 
   const baseStyle = {
-    outline: 'none', width: '100%', minHeight: 24, lineHeight: 1.7,
-    WebkitUserSelect: 'text', userSelect: 'text',
-    fontFamily: 'inherit',
+    outline: 'none', width: '100%', minHeight: 28, lineHeight: 1.7,
+    WebkitUserSelect: 'text', userSelect: 'text', fontFamily: 'inherit',
+    wordBreak: 'break-word',
   }
-
   const STYLES = {
-    paragraph: { fontSize:14, color:'#374151' },
-    heading1:  { fontSize:28, fontWeight:800, color:'#111318', lineHeight:1.3, marginTop:8 },
-    heading2:  { fontSize:22, fontWeight:700, color:'#2A3042', lineHeight:1.35, marginTop:6 },
+    paragraph: { fontSize:15, color:'#374151' },
+    heading1:  { fontSize:30, fontWeight:800, color:'#111318', lineHeight:1.25, marginTop:8 },
+    heading2:  { fontSize:22, fontWeight:700, color:'#2A3042', lineHeight:1.3, marginTop:6 },
     heading3:  { fontSize:17, fontWeight:700, color:'#2A3042', lineHeight:1.4, marginTop:4 },
-    bullet:    { fontSize:14, color:'#374151' },
-    numbered:  { fontSize:14, color:'#374151' },
-    quote:     { fontSize:14, color:'#4B5563', fontStyle:'italic', borderLeft:'3px solid #5B8AF0', paddingLeft:14 },
-    code:      { fontSize:13, color:'#2D3748', fontFamily:'monospace', background:'#F3F4F6', padding:'2px 6px', borderRadius:5 },
+    bullet:    { fontSize:15, color:'#374151' },
+    numbered:  { fontSize:15, color:'#374151' },
+    quote:     { fontSize:15, color:'#4B5563', fontStyle:'italic', borderLeft:'3px solid #5B8AF0', paddingLeft:14 },
+    code:      { fontSize:13, color:'#2D3748', fontFamily:'monospace', background:'#F3F4F6', padding:'6px 10px', borderRadius:7, display:'block' },
   }
 
-  // Divider
-  if (block.type === 'divider') {
-    return (
-      <div {...dragHandlers} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', cursor:'default' }}>
-        <div style={{ flex:1, height:1, background:'#E8ECF0' }} />
-        <button onClick={() => onDelete(block.id)} style={{ opacity:0, fontSize:11, color:'#FCA5A5', background:'none', border:'none', cursor:'pointer' }} className="del-btn">×</button>
-      </div>
-    )
-  }
+  if (block.type === 'divider') return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 0' }}>
+      <div style={{ flex:1, height:1, background:'#E8ECF0' }} />
+    </div>
+  )
 
-  // Linked note block
   if (block.type === 'link_note') {
     const linked = allNotes?.find(n => n.id === block.linked_note_id)
     return (
@@ -177,79 +175,69 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
         {showLinkPicker && (
           <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:260, overflow:'hidden' }}>
             <div style={{ padding:'8px 12px', borderBottom:'1px solid #F3F4F6' }}>
-              <input autoFocus value={linkSearch} onChange={e=>setLinkSearch(e.target.value)} placeholder="Search notes…"
-                style={{ width:'100%', border:'none', outline:'none', fontSize:13, color:'#2A3042' }} />
+              <input autoFocus value={linkSearch} onChange={e=>setLinkSearch(e.target.value)}
+                placeholder="Search notes…"
+                style={{ width:'100%', border:'none', outline:'none', fontSize:13, color:'#2A3042', WebkitUserSelect:'text', userSelect:'text' }} />
             </div>
             <div style={{ maxHeight:200, overflowY:'auto' }}>
-              {allNotes?.filter(n => !linkSearch || n.title.toLowerCase().includes(linkSearch.toLowerCase())).map(n => (
+              {allNotes?.filter(n => !linkSearch || (n.title||'').toLowerCase().includes(linkSearch.toLowerCase())).map(n => (
                 <div key={n.id} onClick={() => linkNote(n)}
                   style={{ padding:'9px 14px', cursor:'pointer', fontSize:13, color:'#2A3042', borderBottom:'1px solid #F9FAFB' }}
-                  onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   📄 {n.title || 'Untitled'}
                 </div>
               ))}
             </div>
           </div>
         )}
-        <div {...dragHandlers} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'#F0F4FF', border:'1px solid #C4D4F8', borderRadius:9, cursor:'pointer' }}
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'#F0F4FF', border:'1px solid #C4D4F8', borderRadius:9, cursor:'pointer' }}
           onClick={() => linked && navigate(`/notes/${linked.id}`)}>
-          <span style={{ fontSize:16 }}>🔗</span>
+          <span>🔗</span>
           <span style={{ fontSize:13, fontWeight:600, color:'#3730A3', flex:1 }}>{linked?.title || block.content || 'Linked note'}</span>
-          <button onClick={e=>{e.stopPropagation();onDelete(block.id)}} style={{ fontSize:12, color:'#A5B4FC', background:'none', border:'none', cursor:'pointer' }}>×</button>
+          <button onClick={e=>{e.stopPropagation();onDelete(block.id)}} style={{ fontSize:14, color:'#A5B4FC', background:'none', border:'none', cursor:'pointer', lineHeight:1 }}>×</button>
         </div>
       </div>
     )
   }
 
-  // Todo
-  if (block.type === 'todo') {
-    return (
-      <div {...dragHandlers} style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-        <div onClick={() => onChange(block.id, { checked: !block.checked })}
-          style={{ width:18, height:18, borderRadius:5, border:`2px solid ${block.checked?'#5B8AF0':'#C4C9D4'}`, background:block.checked?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:3, cursor:'pointer', transition:'all .12s' }}>
-          {block.checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
-        </div>
-        <div key={block.id + '-todo'} ref={ref} contentEditable suppressContentEditableWarning
-          onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-          style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration: block.checked?'line-through':'none', color: block.checked?'#9CA3AF':'#374151' }}
-          dangerouslySetInnerHTML={{ __html: block.content || '' }}
-        />
-        {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+  if (block.type === 'todo') return (
+    <div style={{ display:'flex', alignItems:'flex-start', gap:8, position:'relative' }}>
+      <div onClick={() => onChange(block.id, { checked: !block.checked })}
+        style={{ width:18, height:18, borderRadius:5, border:`2px solid ${block.checked?'#5B8AF0':'#C4C9D4'}`, background:block.checked?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:5, cursor:'pointer', transition:'all .12s' }}>
+        {block.checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
       </div>
-    )
-  }
+      <div ref={ref} contentEditable suppressContentEditableWarning
+        onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
+        style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration:block.checked?'line-through':'none', color:block.checked?'#9CA3AF':'#374151' }} />
+      {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+    </div>
+  )
 
-  // Bullet / numbered
-  if (block.type === 'bullet' || block.type === 'numbered') {
-    return (
-      <div {...dragHandlers} style={{ display:'flex', alignItems:'flex-start', gap:8, position:'relative' }}>
-        <div style={{ width:20, flexShrink:0, textAlign:'right', fontSize:14, color:'#9CA3AF', marginTop:1, fontWeight:600 }}>
-          {block.type === 'bullet' ? '•' : `${index+1}.`}
-        </div>
-        <div key={block.id + '-list'} ref={ref} contentEditable suppressContentEditableWarning
-          onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-          style={{ ...baseStyle, ...STYLES.paragraph, flex:1 }}
-          dangerouslySetInnerHTML={{ __html: block.content || '' }}
-        />
-        {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+  if (block.type === 'bullet' || block.type === 'numbered') return (
+    <div style={{ display:'flex', alignItems:'flex-start', gap:8, position:'relative' }}>
+      <div style={{ width:20, flexShrink:0, textAlign:'right', fontSize:15, color:'#9CA3AF', marginTop:1, fontWeight:600, lineHeight:1.7 }}>
+        {block.type === 'bullet' ? '•' : `${index+1}.`}
       </div>
-    )
-  }
+      <div ref={ref} contentEditable suppressContentEditableWarning
+        onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
+        style={{ ...baseStyle, ...STYLES.paragraph, flex:1 }} />
+      {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+    </div>
+  )
 
   const style = STYLES[block.type] || STYLES.paragraph
-
   return (
-    <div {...dragHandlers} style={{ position:'relative' }}>
-      <div key={block.id + '-main'} ref={ref} contentEditable suppressContentEditableWarning
+    <div style={{ position:'relative' }}>
+      <div ref={ref} contentEditable suppressContentEditableWarning
         onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-        data-placeholder={block.type === 'paragraph' ? "Type '/' for commands…" : block.type.replace('heading','Heading ')}
-        style={{ ...baseStyle, ...style }}
-        dangerouslySetInnerHTML={{ __html: block.content || '' }}
-      />
+        data-placeholder={block.type==='paragraph' ? "Type '/' for commands…" : ''}
+        style={{ ...baseStyle, ...style }} />
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
     </div>
   )
 }
+
 
 // ── Note Editor ───────────────────────────────────────────────────
 function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
