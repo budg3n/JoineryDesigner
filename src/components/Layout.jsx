@@ -26,6 +26,7 @@ const NAV = [
     items: [
       { label: 'Dashboard', to: '/', icon: <SbIcon><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></SbIcon>, exact: true },
       { label: 'Schedule',  to: '/calendar', icon: <SbIcon><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></SbIcon> },
+      { label: 'Notes',     to: '/notes',              icon: <SbIcon><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></SbIcon> },
       { label: 'Customers', to: '/settings/customers', icon: <SbIcon><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></SbIcon> },
     ]
   },
@@ -84,6 +85,7 @@ export default function Layout() {
     '/settings/customers': 'Customers',
     '/settings/team':      'Team',
     '/settings/appliances': 'Appliance library',
+    '/notes': 'Notes',
   }
   const title = PAGE_TITLES[location.pathname] || (location.pathname.startsWith('/job/') ? 'Job details' : 'Joinery Jobs')
 

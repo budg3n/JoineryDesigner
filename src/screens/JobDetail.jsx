@@ -996,6 +996,7 @@ export default function JobDetail() {
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [jobNotes, setJobNotes] = useState([])
   const [dirty, setDirty] = useState(false)
   const [jobAppliances, setJobAppliances] = useState([])
   const [allAppliances, setAllAppliances] = useState([])
@@ -1007,13 +1008,14 @@ export default function JobDetail() {
   const loadAll = useCallback(async () => {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
-    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }] = await Promise.all([
+    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
       supabase.from('materials').select('*').order('name'),
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       supabase.from('appliances').select('*').order('brand'),
+      supabase.from('notes').select('id,title,is_public,created_by,updated_at').eq('job_id', id).order('updated_at',{ascending:false}),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
     const panelCats = []
@@ -1021,6 +1023,7 @@ export default function JobDetail() {
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setJobAppliances(ja||[])
     setAllAppliances(appLib||[])
+    setJobNotes(jNotes||[])
     setLoading(false)
     setDirty(false)
 
@@ -1353,6 +1356,41 @@ export default function JobDetail() {
         setJobAppliances={setJobAppliances}
         setAllAppliances={setAllAppliances}
       />
+
+      {/* linked notes */}
+      {(jobNotes.length > 0 || true) && (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: jobNotes.length>0 ? 12 : 0 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Notes</div>
+            <button onClick={() => navigate(`/notes/new?job=${id}`)}
+              style={{ fontSize:12, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
+              + New note
+            </button>
+          </div>
+          {jobNotes.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+              {jobNotes.map(n => (
+                <div key={n.id} onClick={() => navigate(`/notes/${n.id}`)}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .1s' }}
+                  onMouseEnter={e=>{e.currentTarget.style.background='#F0F4FF';e.currentTarget.style.borderColor='#C4D4F8'}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#E8ECF0'}}>
+                  <span style={{ fontSize:16 }}>📄</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.title||'Untitled'}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{new Date(n.updated_at||n.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</div>
+                  </div>
+                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background: n.is_public?'#ECFDF5':'#F3F4F6', color: n.is_public?'#065F46':'#6B7280', fontWeight:600, flexShrink:0 }}>
+                    {n.is_public ? '🌐' : '🔒'}
+                  </span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* drawings */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
