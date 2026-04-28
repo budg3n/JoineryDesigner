@@ -1097,9 +1097,14 @@ export default function JobDetail() {
   }
 
   // tasks
-  const openTasks  = tasks.filter(t => !t.done)
+  // Private note tasks only visible to their creator; all other tasks visible to everyone
+  const visibleTasks = tasks.filter(t => {
+    if (!t.private || !t.from_note) return true
+    return t.created_by === profile?.id || profile?.role === 'Admin'
+  })
+  const openTasks  = visibleTasks.filter(t => !t.done)
   const overTasks  = openTasks.filter(t => t.date && dFromNow(t.date, t.time) < 0)
-  const sortedTasks = [...tasks].sort((a,b) => {
+  const sortedTasks = [...visibleTasks].sort((a,b) => {
     if (a.done !== b.done) return a.done ? 1 : -1
     if (!a.date && !b.date) return 0
     if (!a.date) return 1; if (!b.date) return -1

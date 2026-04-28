@@ -21,7 +21,7 @@ const BLOCK_TYPES = [
 ]
 
 function makeBlock(type='paragraph', content='') {
-  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2), type, content, checked: false }
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2), type, content, checked: false, due_date: '', synced: false }
 }
 
 // ── Slash command menu ────────────────────────────────────────────
@@ -202,14 +202,29 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
   }
 
   if (block.type === 'todo') return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:8, position:'relative' }}>
-      <div onClick={() => onChange(block.id, { checked: !block.checked })}
-        style={{ width:18, height:18, borderRadius:5, border:`2px solid ${block.checked?'#5B8AF0':'#C4C9D4'}`, background:block.checked?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:5, cursor:'pointer', transition:'all .12s' }}>
-        {block.checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
+    <div style={{ position:'relative' }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+        {/* checkbox */}
+        <div onClick={() => onChange(block.id, { checked: !block.checked })}
+          style={{ width:18, height:18, borderRadius:5, border:`2px solid ${block.checked?'#5B8AF0':'#C4C9D4'}`, background:block.checked?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:5, cursor:'pointer', transition:'all .12s' }}>
+          {block.checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
+        </div>
+        {/* text */}
+        <div ref={ref} contentEditable suppressContentEditableWarning
+          onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
+          style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration:block.checked?'line-through':'none', color:block.checked?'#9CA3AF':'#374151' }} />
+        {/* due date + sync badge */}
+        <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0, paddingTop:5 }}>
+          <input type="date" value={block.due_date||''} onChange={e => onChange(block.id, { due_date: e.target.value })}
+            title="Due date"
+            style={{ fontSize:11, border:'1px solid #E8ECF0', borderRadius:7, padding:'3px 6px', color: block.due_date ? '#5B8AF0' : '#C4C9D4', background:'#FAFAFA', cursor:'pointer', outline:'none', maxWidth:130 }} />
+          {block.synced && (
+            <span title="Synced to job tasks" style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'#ECFDF5', color:'#065F46', fontWeight:700, whiteSpace:'nowrap', border:'1px solid #6EE7B7' }}>
+              ✓ Task
+            </span>
+          )}
+        </div>
       </div>
-      <div ref={ref} contentEditable suppressContentEditableWarning
-        onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-        style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration:block.checked?'line-through':'none', color:block.checked?'#9CA3AF':'#374151' }} />
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
     </div>
   )
@@ -246,6 +261,16 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   const navigate = useNavigate()
 
   const [title, setTitle]       = useState(note?.title || '')
+  // Hydrate blocks — restore checked/due_date from job tasks if linked
+  function hydrateBlocks(rawBlocks, jobTasks) {
+    if (!jobTasks?.length) return rawBlocks
+    return rawBlocks.map(b => {
+      if (b.type !== 'todo') return b
+      const task = jobTasks.find(t => t.note_block_id === b.id)
+      if (!task) return b
+      return { ...b, checked: task.done, due_date: task.date || '', synced: true }
+    })
+  }
   const [blocks, setBlocks]     = useState(note?.content?.blocks?.length ? note.content.blocks : [makeBlock()])
   const [isPublic, setIsPublic] = useState(note?.is_public ?? false)
   const [jobId, setJobId]       = useState(note?.job_id || '')
@@ -256,6 +281,16 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   const titleRef = useRef()
   const saveTimer = useRef()
 
+  // Hydrate todo blocks from job tasks on mount
+  useEffect(() => {
+    if (!note?.job_id || !note?.id) return
+    supabase.from('jobs').select('tasks').eq('id', note.job_id).single().then(({ data }) => {
+      if (!data?.tasks) return
+      const tasks = JSON.parse(data.tasks)
+      setBlocks(prev => hydrateBlocks(prev, tasks))
+    })
+  }, [note?.id])
+
   // Auto-save after 1.5s of inactivity
   useEffect(() => {
     if (!dirty) return
@@ -264,9 +299,54 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
     return () => clearTimeout(saveTimer.current)
   }, [title, blocks, isPublic, jobId, dirty])
 
+  // Sync todo blocks to job tasks when note is linked to a job
+  async function syncTodosToJob(currentBlocks, jobId, noteId, isPublic, creatorId) {
+    if (!jobId) return currentBlocks
+    try {
+      // Load current job tasks
+      const { data: job } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
+      const existingTasks = job?.tasks ? JSON.parse(job.tasks) : []
+
+      // Separate note-sourced tasks from manually-added tasks
+      const manualTasks = existingTasks.filter(t => !t.note_block_id)
+      const todoBlocks  = currentBlocks.filter(b => b.type === 'todo' && b.content?.trim())
+
+      // Build updated task list from todo blocks
+      const noteTasks = todoBlocks.map(b => ({
+        id:            b.id,
+        note_block_id: b.id,
+        title:         b.content,
+        done:          b.checked || false,
+        date:          b.due_date || '',
+        time:          '09:00',
+        private:       !isPublic,
+        created_by:    creatorId,
+        from_note:     noteId,
+      }))
+
+      const updatedTasks = [...manualTasks, ...noteTasks]
+      await supabase.from('jobs').update({ tasks: JSON.stringify(updatedTasks) }).eq('id', jobId)
+
+      // Mark blocks as synced
+      return currentBlocks.map(b =>
+        b.type === 'todo' && b.content?.trim() ? { ...b, synced: true } : b
+      )
+    } catch(e) {
+      console.warn('Task sync failed:', e)
+      return currentBlocks
+    }
+  }
+
   async function saveNote(auto = false) {
     setSaving(true)
     const content = { blocks }
+    // Sync todos to job before saving
+    let syncedBlocks = blocks
+    if (jobId) {
+      syncedBlocks = await syncTodosToJob(blocks, jobId, note?.id, isPublic, profile?.id)
+      setBlocks(syncedBlocks)
+    }
+    const content = { blocks: syncedBlocks }
     const row = { title: title||'Untitled', content, is_public: isPublic, job_id: jobId||null, updated_at: new Date().toISOString() }
     let saved
     if (note?.id) {
@@ -403,6 +483,14 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
             style={{ height:60, cursor:'text' }} />
         )}
       </div>
+
+      {/* job task sync notice */}
+      {jobId && blocks.some(b=>b.type==='todo') && (
+        <div style={{ maxWidth:760, margin:'-12px auto 16px', padding:'10px 16px', background:'#ECFDF5', border:'1px solid #6EE7B7', borderRadius:10, display:'flex', alignItems:'center', gap:8, fontSize:12, color:'#065F46' }}>
+          <span>🔗</span>
+          <span><strong>Tip:</strong> Todo items in this note sync to the job's task list. Set a due date on each item to track deadlines. Private notes only show tasks to you.</span>
+        </div>
+      )}
 
       <style>{`
         [contenteditable]:empty:before { content: attr(data-placeholder); color: #C4C9D4; pointer-events:none; }
