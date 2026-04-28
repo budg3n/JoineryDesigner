@@ -65,6 +65,7 @@ function SlashMenu({ filter, onSelect, onClose }) {
 // ── Single Block ──────────────────────────────────────────────────
 function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers }) {
   const ref = useRef()
+  const didMount = useRef(false)
   const [showSlash, setShowSlash] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [showLinkPicker, setShowLinkPicker] = useState(false)
@@ -208,11 +209,11 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
           style={{ width:18, height:18, borderRadius:5, border:`2px solid ${block.checked?'#5B8AF0':'#C4C9D4'}`, background:block.checked?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:3, cursor:'pointer', transition:'all .12s' }}>
           {block.checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
         </div>
-        <div ref={ref} contentEditable suppressContentEditableWarning
+        <div key={block.id + '-todo'} ref={ref} contentEditable suppressContentEditableWarning
           onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-          style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration: block.checked?'line-through':'none', color: block.checked?'#9CA3AF':'#374151' }}>
-          {block.content}
-        </div>
+          style={{ ...baseStyle, ...STYLES.paragraph, flex:1, textDecoration: block.checked?'line-through':'none', color: block.checked?'#9CA3AF':'#374151' }}
+          dangerouslySetInnerHTML={{ __html: block.content || '' }}
+        />
         {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
       </div>
     )
@@ -225,11 +226,11 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
         <div style={{ width:20, flexShrink:0, textAlign:'right', fontSize:14, color:'#9CA3AF', marginTop:1, fontWeight:600 }}>
           {block.type === 'bullet' ? '•' : `${index+1}.`}
         </div>
-        <div ref={ref} contentEditable suppressContentEditableWarning
+        <div key={block.id + '-list'} ref={ref} contentEditable suppressContentEditableWarning
           onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-          style={{ ...baseStyle, ...STYLES.paragraph, flex:1 }}>
-          {block.content}
-        </div>
+          style={{ ...baseStyle, ...STYLES.paragraph, flex:1 }}
+          dangerouslySetInnerHTML={{ __html: block.content || '' }}
+        />
         {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
       </div>
     )
@@ -239,12 +240,12 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
 
   return (
     <div {...dragHandlers} style={{ position:'relative' }}>
-      <div ref={ref} contentEditable suppressContentEditableWarning
+      <div key={block.id + '-main'} ref={ref} contentEditable suppressContentEditableWarning
         onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
         data-placeholder={block.type === 'paragraph' ? "Type '/' for commands…" : block.type.replace('heading','Heading ')}
-        style={{ ...baseStyle, ...style }}>
-        {block.content}
-      </div>
+        style={{ ...baseStyle, ...style }}
+        dangerouslySetInnerHTML={{ __html: block.content || '' }}
+      />
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
     </div>
   )
