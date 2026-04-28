@@ -979,7 +979,7 @@ export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
   const toast    = useToast()
-  const { can } = useApp()
+  const { can, profile } = useApp()
 
   const [job, setJob]       = useState(null)
   const [atts, setAtts]     = useState([])
