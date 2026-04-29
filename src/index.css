@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #F0F2F5;
+    color: #2A3042;
+    -webkit-user-select: none;
+    user-select: none;
+    margin: 0;
+  }
+  input, textarea, select { -webkit-user-select: text; user-select: text; }
+}
+
+@layer components {
+  /* buttons */
+  .btn        { @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg border border-[#DDE3EC] bg-white text-[#374151] cursor-pointer transition-all hover:bg-[#F9FAFB] active:scale-[0.98]; }
+  .btn-primary{ @apply btn bg-[#5B8AF0] text-white border-[#5B8AF0] hover:bg-[#4A79DF]; }
+  .btn-green  { @apply btn bg-[#ECFDF5] text-[#065F46] border-[#6EE7B7] hover:bg-[#D1FAE5]; }
+  .btn-blue   { @apply btn bg-[#EEF2FF] text-[#3730A3] border-[#A5B4FC] hover:bg-[#E0E7FF]; }
+  .btn-red    { @apply btn bg-[#FEF2F2] text-[#991B1B] border-[#FCA5A5] hover:bg-[#FEE2E2]; }
+  .btn-sm     { @apply px-3 py-1.5 text-xs; }
+  .btn-ghost  { @apply btn bg-transparent; }
+
+  /* cards */
+  .card { @apply bg-white rounded-xl border border-[#E8ECF0] shadow-sm; }
+  .card-pad { @apply card p-5; }
+
+  /* form */
+  .input { @apply w-full px-3 py-2 text-sm border border-[#DDE3EC] rounded-lg bg-white text-[#2A3042] focus:outline-none focus:border-[#5B8AF0] focus:ring-1 focus:ring-[#5B8AF0]/20 transition-colors; }
+  .label { @apply block text-xs font-semibold text-[#6B7280] mb-1.5 tracking-wide; }
+  .section-title { @apply text-xs font-bold text-[#6B7280] uppercase tracking-wider; }
+
+  /* status badges */
+  .badge-active { @apply text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#EEF2FF] text-[#3730A3]; }
+  .badge-review { @apply text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]; }
+  .badge-done   { @apply text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#ECFDF5] text-[#065F46]; }
+  .badge-hold   { @apply text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#6B7280]; }
+
+  /* stat card */
+  .stat-card { @apply card p-5; }
+  .stat-icon { @apply w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0; }
+
+  /* sidebar */
+  .sb-item { @apply flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-all text-[#8B92A5] hover:bg-white/5 hover:text-white mx-2 rounded-xl; }
+  .sb-item-active { @apply bg-white/10 text-white; }
+  .sb-label { @apply text-[13px] font-medium; }
+}
+
+canvas { cursor: crosshair; touch-action: none; }
+
+.page-enter { animation: fadeIn 0.12s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.spinner { width: 24px; height: 24px; border: 2.5px solid #E8ECF0; border-top-color: #5B8AF0; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Stack two-column job detail layout */
+  [style*="gridTemplateColumns: isKitchen"],
+  [style*="grid-template-columns: 1fr 380px"] {
+    display: block !important;
+  }
+
+  /* Reduce padding on mobile */
+  main { padding: 12px !important; }
+
+  /* Kitchen specs panel not sticky on mobile */
+  [style*="position:'sticky'"] {
+    position: static !important;
+  }
+
+  /* Stat cards 2 col */
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Full width modals */
+  [style*="maxWidth:540"],
+  [style*="maxWidth: 540"],
+  [style*="maxWidth:480"],
+  [style*="maxWidth:400"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  /* Hide desktop sidebar label in topbar */
+  .topbar-title { font-size: 14px !important; }
+
+  /* Task pill wraps */
+  .task-pill-row { flex-wrap: wrap !important; }
+
+  /* Material grid — 2 cols on phone */
+  [style*="minmax(170px"] {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)) !important;
+  }
+
+  /* Category tiles 2 col */
+  [style*="minmax(200px"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Image lightbox full screen */
+  [style*="max-h-[60vh]"] { max-height: 55vw !important; }
+
+  /* Search bar full width */
+  [style*="width:180"] { width: 100% !important; }
+
+  /* Kitchen specs 2 col already, reduce font */
+  [style*="fontSize:28"] { font-size: 22px !important; }
+  [style*="fontSize:34"] { font-size: 26px !important; }
+}
+
+@media (max-width: 480px) {
+  /* Single column grids on very small screens */
+  [style*="minmax(150px"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  [style*="repeat(3,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Prevent horizontal overflow globally */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+
+/* Job detail two-column layout */
+.job-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .job-detail-grid {
+    display: block;
+  }
+  .job-detail-grid > div:last-child {
+    margin-top: 16px;
+  }
+}
