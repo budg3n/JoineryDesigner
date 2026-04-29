@@ -926,8 +926,22 @@ export default function Notes() {
       } else if (preJobId && isStartup) {
         // Look for existing startup note for this job
         const existing = (n||[]).find(x => x.job_id === preJobId && x.is_startup)
-        if (existing) setActive(existing)
-        else setActive({ _preJobId: preJobId, _isStartup: true })
+        if (existing) { setActive(existing); setLoading(false); return }
+        // Build a rich pre-populated startup note from job data
+        try {
+          const [
+            { data: jobData },
+            { data: jobMats },
+            { data: jobApps },
+          ] = await Promise.all([
+            supabase.from('jobs').select('*').eq('id', preJobId).single(),
+            supabase.from('job_materials').select('*,materials(name,supplier,panel_type,thickness,colour_code,finish)').eq('job_id', preJobId),
+            supabase.from('job_appliances').select('*,appliances(brand,model,type,width,height,depth,cutout_width,cutout_height,cutout_depth)').eq('job_id', preJobId),
+          ])
+          setActive({ _preJobId: preJobId, _isStartup: true, _jobData: jobData, _jobMats: jobMats||[], _jobApps: jobApps||[] })
+        } catch(e) {
+          setActive({ _preJobId: preJobId, _isStartup: true })
+        }
       } else if (preJobId) {
         setActive({ _preJobId: preJobId })
       }
@@ -974,13 +988,80 @@ export default function Notes() {
 
   if (active === 'new' || active?._preJobId) {
     const isStartup = active?._isStartup || false
-    const preNote   = active?._preJobId
-      ? { job_id: active._preJobId, is_startup: isStartup,
-          title: isStartup ? 'Startup Meeting' : '',
-          content: isStartup
-            ? { blocks: [{ id:'startup-1', type:'startup', content:'', job_id: active._preJobId }] }
-            : null }
-      : null
+    let preNote = null
+    if (active?._preJobId) {
+      if (isStartup) {
+        const job    = active._jobData || {}
+        const mats   = active._jobMats || []
+        const apps   = active._jobApps || []
+        const jobName = job.name || ''
+
+        // Build rich pre-populated blocks
+        const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2)
+        const blocks = [
+          // Startup block (form fields)
+          { id: uid(), type:'startup', content:'', job_id: active._preJobId, spec_value:'' },
+          { id: uid(), type:'divider', content:'' },
+        ]
+
+        // Materials section
+        if (mats.length > 0) {
+          blocks.push({ id: uid(), type:'heading2', content:'Materials' })
+          const panelMats = mats.filter(m => m.materials?.panel_type || m.materials?.thickness)
+          const otherMats = mats.filter(m => !m.materials?.panel_type && !m.materials?.thickness)
+          if (panelMats.length > 0) {
+            blocks.push({ id: uid(), type:'heading3', content:'Board' })
+            panelMats.forEach(jm => {
+              const m = jm.materials
+              if (!m) return
+              const desc = [m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null, m.colour_code, m.finish].filter(Boolean).join(' · ')
+              blocks.push({ id: uid(), type:'bullet', content: `${m.name}${desc ? ' — ' + desc : ''}` })
+            })
+          }
+          if (otherMats.length > 0) {
+            blocks.push({ id: uid(), type:'heading3', content:'Hardware & other' })
+            otherMats.forEach(jm => {
+              const m = jm.materials
+              if (!m) return
+              blocks.push({ id: uid(), type:'bullet', content: `${m.name}${m.supplier ? ' — ' + m.supplier : ''}` })
+            })
+          }
+        }
+
+        // Appliances section
+        if (apps.length > 0) {
+          blocks.push({ id: uid(), type:'divider', content:'' })
+          blocks.push({ id: uid(), type:'heading2', content:'Appliances' })
+          apps.forEach(ja => {
+            const a = ja.appliances
+            if (!a) return
+            const dims = a.width ? `${a.width}×${a.height}×${a.depth}mm` : ''
+            const cutout = a.cutout_width ? ` · Cutout: ${a.cutout_width}×${a.cutout_height}×${a.cutout_depth}mm` : ''
+            blocks.push({ id: uid(), type:'bullet', content: `${a.brand} ${a.model} (${a.type})${dims ? ' — ' + dims : ''}${cutout}` })
+          })
+        }
+
+        // Job notes
+        if (job.notes?.trim()) {
+          blocks.push({ id: uid(), type:'divider', content:'' })
+          blocks.push({ id: uid(), type:'heading2', content:'Job notes' })
+          blocks.push({ id: uid(), type:'paragraph', content: job.notes })
+        }
+
+        blocks.push({ id: uid(), type:'divider', content:'' })
+        blocks.push({ id: uid(), type:'heading2', content:'Meeting notes' })
+        blocks.push({ id: uid(), type:'paragraph', content:'' })
+
+        preNote = {
+          job_id: active._preJobId,
+          is_startup: true,
+          title: `Startup — ${jobName}`,
+          content: { blocks },
+        }
+      } else {
+        preNote = { job_id: active._preJobId, is_startup: false, title: '', content: null }
+      }
+    }
     return (
       <NoteEditor
         note={preNote} allNotes={notes} jobs={jobs}

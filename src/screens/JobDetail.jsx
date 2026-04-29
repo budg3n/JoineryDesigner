@@ -1599,13 +1599,10 @@ export default function JobDetail() {
           )}
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
-        {(jobNotes.length === 0) ? (
+        {jobNotes.length === 0 ? (
           <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
         ) : (
-          {jobNotes.length === 0 ? (
-            <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
-          ) : (
-            <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
               {jobNotes.map(n => (
                 <div key={n.id} onClick={() => navigate(`/notes/${n.id}`)}
                   style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .1s' }}
@@ -1622,10 +1619,9 @@ export default function JobDetail() {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {/* time tracking */}
       <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
