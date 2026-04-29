@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
+import { NoteEditor } from './Notes'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import StatusBadge from '../components/StatusBadge'
@@ -239,25 +240,8 @@ function CabinetIllustration({ specs, materials }) {
 }
 
 // ── Material Selector ─────────────────────────────────────────────
-function MaterialSelector({ panelMaterials, specs, onChange }) {
-  // Keep local state so multiple selectors don't overwrite each other
-  const [local, setLocal] = React.useState(() =>
-    specs ? (typeof specs === 'string' ? JSON.parse(specs) : { ...specs }) : {}
-  )
-
-  // Sync inbound specs changes (e.g. on load) into local state
-  React.useEffect(() => {
-    const incoming = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
-    setLocal(prev => ({ ...incoming, ...prev }))
-  }, []) // only on mount — after that local state is the source of truth
-
-  const parsed = local
-
-  const set = (key, val) => {
-    const updated = { ...local, [key]: val }
-    setLocal(updated)
-    onChange(JSON.stringify(updated))
-  }
+function MaterialSelector({ panelMaterials, parsed = {}, onSet }) {
+  // parsed and onSet come directly from KitchenSpecs
 
   return (
     <div style={{ marginBottom:20 }}>
@@ -290,7 +274,7 @@ function MaterialSelector({ panelMaterials, specs, onChange }) {
                   <div style={{ width:36, height:36, borderRadius:8, background:mat.color, border:'1px solid #E8ECF0', flexShrink:0 }} />
                 )}
               </div>
-              <select value={matId} onChange={e => set(sel.key, e.target.value)}
+              <select value={matId} onChange={e => onSet(sel.key, e.target.value)}
                 style={{ width:'100%', fontSize:13, fontWeight:600, padding:'7px 10px', borderRadius:9, border:'1px solid #DDE3EC', background:'#fff', color:'#2A3042', cursor:'pointer', outline:'none' }}>
                 <option value="">— Select material —</option>
                 {panelMaterials.map(m => (
@@ -306,11 +290,19 @@ function MaterialSelector({ panelMaterials, specs, onChange }) {
 }
 
 // ── Kitchen Specs Panel ───────────────────────────────────────────
-function KitchenSpecs({ specs, onChange, panelMaterials }) {
-  const parsed = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
+function KitchenSpecs({ specs, onChange, panelMaterials, specsRef }) {
+  // Parse specs from prop for display — onChange accumulates in parent's specsRef
+  const parsed = React.useMemo(() => {
+    try { return specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {} }
+    catch { return {} }
+  }, [specs])
+
+  // set reads from specsRef (always latest) then calls onChange
   const set = (key, val) => {
-    const updated = { ...parsed, [key]: val }
-    onChange(JSON.stringify(updated))
+    const current = specsRef?.current || parsed
+    const next = { ...current, [key]: val }
+    if (specsRef) specsRef.current = next
+    onChange(JSON.stringify(next))
   }
 
   const groups = ['base','upper','tall','benchtop']
@@ -326,8 +318,8 @@ function KitchenSpecs({ specs, onChange, panelMaterials }) {
       {/* live illustration */}
       <CabinetIllustration specs={parsed} materials={panelMaterials} />
 
-      {/* material selectors */}
-      <MaterialSelector panelMaterials={panelMaterials} specs={specs} onChange={onChange} />
+      {/* material selectors — pass the shared set function */}
+      <MaterialSelector panelMaterials={panelMaterials} parsed={parsed} onSet={set} />
 
       {/* measurement groups */}
       <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
@@ -992,6 +984,113 @@ function JobAppliancesSection({ jobId, jobAppliances, allAppliances, setJobAppli
   )
 }
 
+// ── Startup Floating Panel ───────────────────────────────────────
+function StartupPanel({ job, jobMats, jobApps, startupNote, allNotes, allJobs, onClose, onSaved }) {
+  // Build a simple startup note with just a title and blank meeting notes
+  // Materials/appliances are shown as a read-only summary above the editor
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2)
+
+  // Freeze the note on first render — never update from props to avoid remounting NoteEditor
+  const frozenNote = React.useRef(
+    startupNote || {
+      job_id: job.id,
+      is_startup: true,
+      is_public: true,
+      title: `Startup — ${job.name}`,
+      content: { blocks: [
+        { id: uid(), type:'heading2', content:'Meeting notes' },
+        { id: uid(), type:'paragraph', content:'' },
+      ]},
+    }
+  )
+  const note = frozenNote.current
+
+  const panelMats = jobMats.filter(jm => jm.materials)
+  const hasApps = jobApps.filter(ja => ja.appliances).length > 0
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', justifyContent:'flex-end', pointerEvents:'none' }}>
+      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', pointerEvents:'all' }} onClick={onClose} />
+      <div style={{ position:'relative', width:'min(680px,100vw)', height:'100%', background:'#F0F2F5', boxShadow:'-8px 0 40px rgba(0,0,0,0.18)', display:'flex', flexDirection:'column', pointerEvents:'all', zIndex:1, overflow:'hidden' }}>
+
+        {/* orange header */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 20px', background:'#F97316', flexShrink:0 }}>
+          <span style={{ fontSize:18 }}>🚀</span>
+          <div style={{ flex:1, fontSize:14, fontWeight:800, color:'#fff' }}>Startup — {job.name}</div>
+          <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', cursor:'pointer', color:'#fff', width:28, height:28, borderRadius:7, fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+        </div>
+
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {/* ── Job summary (read-only) ── */}
+          {panelMats.length > 0 && (
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid #E8ECF0', background:'#fff' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>Materials</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                {panelMats.map(jm => {
+                  const m = jm.materials
+                  const tags = [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean)
+                  return (
+                    <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      {m.storage_path
+                        ? <img src={pubUrl(m.storage_path)} style={{ width:32, height:32, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" />
+                        : <div style={{ width:32, height:32, borderRadius:6, background:m.color||'#E8ECF0', flexShrink:0, border:'1px solid #E8ECF0' }} />
+                      }
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
+                        {tags.length > 0 && <div style={{ fontSize:11, color:'#9CA3AF' }}>{tags.join(' · ')}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {hasApps && (
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid #E8ECF0', background:'#fff' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>Appliances</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                {jobApps.filter(ja=>ja.appliances).map(ja => {
+                  const a = ja.appliances
+                  return (
+                    <div key={ja.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{ width:32, height:32, borderRadius:6, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>🔌</div>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{a.brand} {a.model}</div>
+                        <div style={{ fontSize:11, color:'#9CA3AF' }}>{a.type}{a.width?` · ${a.width}×${a.height}×${a.depth}mm`:''}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {job.notes?.trim() && (
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid #E8ECF0', background:'#fff' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:6 }}>Job notes</div>
+              <div style={{ fontSize:13, color:'#374151', lineHeight:1.6 }}>{job.notes}</div>
+            </div>
+          )}
+
+          {/* ── Notion-style notes editor ── */}
+          <NoteEditor
+            key='startup-editor'
+            note={note}
+            allNotes={allNotes}
+            jobs={allJobs}
+            floating={true}
+            onClose={onClose}
+            onSave={onSaved}
+            onBack={onClose}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Approval bar shown below each file attachment ────────────────
 function ApprovalBar({ att, ft, approval, onRequest, onReview, profile }) {
   const [showReview, setShowReview] = useState(false)
@@ -1088,8 +1187,13 @@ export default function JobDetail() {
   const [showTypeModal, setShowTypeModal] = useState(false) // pending files waiting for type
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [timeRefresh, setTimeRefresh] = useState(0)
+  const specsRef = React.useRef(null) // holds kitchen_specs without triggering re-renders
   const [jobNotes, setJobNotes] = useState([])
   const [startupNote, setStartupNote] = useState(null)
+  const [showStartup, setShowStartup] = useState(false)
+  const [startupOpenKey, setStartupOpenKey] = useState(0)
+  const [allNotes, setAllNotes] = useState([])
+  const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
   const [jobAppliances, setJobAppliances] = useState([])
   const [allAppliances, setAllAppliances] = useState([])
@@ -1113,6 +1217,10 @@ export default function JobDetail() {
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
+    // Initialise specsRef from loaded job
+    specsRef.current = j?.kitchen_specs
+      ? (typeof j.kitchen_specs === 'string' ? JSON.parse(j.kitchen_specs) : j.kitchen_specs)
+      : {}
     const panelCats = []
     setPanelMaterials((panelMats||[]).filter(m => m.panel_type || m.category_id))
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
@@ -1125,6 +1233,9 @@ export default function JobDetail() {
     setApprovals(approvs||[])
     setLoading(false)
     setDirty(false)
+    // Load all jobs + notes for the startup note editor dropdowns
+    supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
+    supabase.from('notes').select('id,title,job_id,is_startup').order('updated_at',{ascending:false}).then(({data}) => setAllNotes(data||[]))
 
     // Silently refresh mat_colors if stored version is missing storage_path data
     // (happens for jobs created before this field was added)
@@ -1157,9 +1268,31 @@ export default function JobDetail() {
       saving,
       onSave: saveJob,
       onSketch: () => navigate(`/job/${id}/sketch`),
-      onStartup: () => navigate(`/notes/${startupNote?.id || 'new'}?job=${id}&startup=1`),
+      onStartup: async () => {
+        // Load startup note — try is_startup flag first, then title pattern
+        let sNote = null
+        const { data: d1 } = await supabase.from('notes')
+          .select('id,title,is_public,created_by,updated_at,content,is_startup')
+          .eq('job_id', id).eq('is_startup', true).maybeSingle()
+        if (d1) {
+          sNote = d1
+        } else {
+          // Fallback: find by title starting with 'Startup'
+          const { data: d2 } = await supabase.from('notes')
+            .select('id,title,is_public,created_by,updated_at,content,is_startup')
+            .eq('job_id', id).ilike('title', 'Startup%').order('created_at',{ascending:false}).limit(1).maybeSingle()
+          if (d2) {
+            sNote = d2
+            // Fix is_startup flag in DB
+            await supabase.from('notes').update({ is_startup: true }).eq('id', d2.id)
+          }
+        }
+        setStartupNote(sNote)
+        setShowStartup(true)
+        setStartupOpenKey(k => k+1)
+      },
     }}))
-  }, [dirty, saving, id])
+  }, [dirty, saving, id, showStartup])
 
   // Clean up on unmount
   useEffect(() => {
@@ -1189,7 +1322,7 @@ export default function JobDetail() {
       name: job.name, client: job.client, type: job.type, status: job.status,
       notes: job.notes, mvnum: job.mvnum, start_date: job.start_date,
       due_date: job.due_date, budget_hours: job.budget_hours, delivery_address: job.delivery_address,
-      kitchen_specs: job.kitchen_specs || null,
+      kitchen_specs: specsRef.current && Object.keys(specsRef.current).length > 0 ? JSON.stringify(specsRef.current) : (job.kitchen_specs || null),
     }).eq('id', id)
     setSaving(false)
     if (error) toast(error.message, 'error')
@@ -1397,9 +1530,35 @@ export default function JobDetail() {
   const isKitchen = (job.type||'').toLowerCase() === 'kitchen'
 
   return (
+    <>
+    {/* Startup overlay — outside grid so it covers full screen */}
+    {showStartup && (
+      <StartupPanel
+        key={startupOpenKey}
+        job={job}
+        jobMats={jobMats}
+        jobApps={jobAppliances}
+        startupNote={startupNote}
+        allNotes={allNotes}
+        allJobs={allJobs}
+        onClose={() => {
+          setShowStartup(false)
+          // Refresh notes list after panel closes
+          supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup')
+            .eq('job_id', id).order('updated_at',{ascending:false})
+            .then(({data}) => {
+              if (!data) return
+              setJobNotes(data.filter(n=>!n.is_startup))
+              setStartupNote(data.find(n=>n.is_startup)||null)
+            })
+        }}
+        onSaved={() => {}}
+      />
+    )}
     <div className={isKitchen ? 'job-detail-grid' : ''} style={{ alignItems:'start' }}>
       {/* LEFT COLUMN — always shown */}
       <div>
+
       <BackButton to="/" label="Jobs" />
 
       {/* header */}
@@ -1581,8 +1740,23 @@ export default function JobDetail() {
           </button>
         </div>
         {/* startup note card */}
-        <div onClick={() => navigate(`/notes/${startupNote?.id || 'new'}?job=${id}&startup=1`)}
+        <div
           style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background: startupNote ? '#FFF7ED' : '#FAFAFA', borderRadius:9, border:`1px solid ${startupNote ? '#FED7AA' : '#E8ECF0'}`, cursor:'pointer', marginBottom: jobNotes.length > 0 ? 8 : 0, transition:'all .12s' }}
+          onClick={async () => {
+              let sNote = null
+              const { data: d1 } = await supabase.from('notes')
+                .select('id,title,is_public,created_by,updated_at,content,is_startup')
+                .eq('job_id', id).eq('is_startup', true).maybeSingle()
+              if (d1) { sNote = d1 } else {
+                const { data: d2 } = await supabase.from('notes')
+                  .select('id,title,is_public,created_by,updated_at,content,is_startup')
+                  .eq('job_id', id).ilike('title', 'Startup%').order('created_at',{ascending:false}).limit(1).maybeSingle()
+                if (d2) { sNote = d2; await supabase.from('notes').update({ is_startup: true }).eq('id', d2.id) }
+              }
+              setStartupNote(sNote)
+              setShowStartup(true)
+              setStartupOpenKey(k => k+1)
+            }}
           onMouseEnter={e=>{e.currentTarget.style.background=startupNote?'#FEF3C7':'#F3F4F6'}}
           onMouseLeave={e=>{e.currentTarget.style.background=startupNote?'#FFF7ED':'#FAFAFA'}}>
           <div style={{ width:32, height:32, borderRadius:8, background: startupNote ? '#F97316' : '#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1790,11 +1964,16 @@ export default function JobDetail() {
         <div style={{ position:'sticky', top:80 }}>
           <KitchenSpecs
             specs={job.kitchen_specs}
+            specsRef={specsRef}
             panelMaterials={jobMats.filter(jm => jm.materials).map(jm => jm.materials)}
-            onChange={specs => { setJob(j => ({ ...j, kitchen_specs: specs })); setDirty(true) }}
+            onChange={specs => {
+              setJob(j => ({ ...j, kitchen_specs: specs }))
+              setDirty(true)
+            }}
           />
         </div>
       )}
     </div>
+    </>
   )
 }

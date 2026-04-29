@@ -205,7 +205,7 @@ function StartupBlock({ jobId, onDelete }) {
   )
 }
 
-function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers }) {
+function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers, registerRef }) {
   const ref = useRef()
   const [showSlash, setShowSlash] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
@@ -217,7 +217,9 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
   useEffect(() => {
     if (ref.current && block.type !== 'divider' && block.type !== 'link_note') {
       ref.current.innerHTML = block.content || ''
+      if (registerRef) registerRef(ref.current)
     }
+    return () => { if (registerRef) registerRef(null) }
   }, []) // empty deps — only on mount
 
   // Focus management
@@ -485,7 +487,7 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
 
 
 // ── Note Editor ───────────────────────────────────────────────────
-function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
+export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floating }) {
   const { profile } = useApp()
   const toast = useToast()
   const navigate = useNavigate()
@@ -510,7 +512,11 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   const [dirty, setDirty]       = useState(false)
   const titleRef = useRef()
   const saveTimer = useRef()
+  const savedNoteId = useRef(note?.id || null)
+  // Map of blockId -> DOM element for reading latest content at save time
+  const blockRefsMap = useRef({})
 
+  // Auto-save new startup note immediately on mount so it gets an ID
   // Hydrate todo + spec blocks from job on mount
   useEffect(() => {
     if (!note?.job_id || !note?.id) return
@@ -583,36 +589,42 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   async function syncTodosToJob(currentBlocks, jobId, noteId, isPublic, creatorId) {
     if (!jobId) return currentBlocks
     try {
-      // Load current job tasks
-      const { data: job } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
-      const existingTasks = job?.tasks ? JSON.parse(job.tasks) : []
+      const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
+      const existingTasks = jobData?.tasks
+        ? (typeof jobData.tasks === 'string' ? JSON.parse(jobData.tasks) : jobData.tasks)
+        : []
 
-      // Separate note-sourced tasks from manually-added tasks
-      const manualTasks = existingTasks.filter(t => !t.note_block_id)
-      const todoBlocks  = currentBlocks.filter(b => b.type === 'todo' && b.content?.trim())
+      // Keep manually-added tasks, remove old note-sourced ones from THIS note
+      const manualTasks = existingTasks.filter(t => !t.note_block_id || t.from_note !== noteId)
 
-      // Build updated task list from todo blocks
-      const noteTasks = todoBlocks.map(b => ({
-        id:            b.id,
-        note_block_id: b.id,
-        title:         b.content.trim(),
-        done:          b.checked || false,
-        date:          b.due_date || '',
-        time:          '09:00',
-        private:       !isPublic,
-        created_by:    creatorId,
-        from_note:     noteId,
-      }))
+      // Build tasks from todo blocks — content already flushed from DOM before this call
+      const noteTasks = currentBlocks
+        .filter(b => b.type === 'todo' && b.content?.trim())
+        .map(b => ({
+          id:            b.id,
+          note_block_id: b.id,
+          title:         b.content.trim(),
+          done:          b.checked || false,
+          date:          b.due_date || '',
+          time:          '09:00',
+          private:       !isPublic,
+          created_by:    creatorId,
+          from_note:     noteId,
+        }))
 
-      const updatedTasks = [...manualTasks, ...noteTasks]
-      await supabase.from('jobs').update({ tasks: JSON.stringify(updatedTasks) }).eq('id', jobId)
+      const { error } = await supabase.from('jobs')
+        .update({ tasks: JSON.stringify([...manualTasks, ...noteTasks]) })
+        .eq('id', jobId)
 
-      // Mark blocks as synced
+      if (error) { console.error('Task sync error:', error); toast(error.message, 'error') }
+      else if (noteTasks.length > 0) toast(`${noteTasks.length} task${noteTasks.length>1?'s':''} synced to job ✓`)
+
       return currentBlocks.map(b =>
         b.type === 'todo' && b.content?.trim() ? { ...b, synced: true } : b
       )
     } catch(e) {
-      console.warn('Task sync failed:', e)
+      console.error('Task sync failed:', e)
+      toast('Task sync failed: ' + e.message, 'error')
       return currentBlocks
     }
   }
@@ -620,28 +632,57 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
   async function saveNote(auto = false) {
     setSaving(true)
 
-    // Save the note first so we have an ID for new notes
-    const noteContent = { blocks }
+    // Get latest content from DOM refs (most accurate) falling back to state
+    const flushed = blocks.map(b => {
+      const el = blockRefsMap.current[b.id]
+      if (el && b.type !== 'divider' && b.type !== 'link_note' && b.type !== 'spec_field' && b.type !== 'startup') {
+        const domText = el.textContent || ''
+        return { ...b, content: domText }
+      }
+      return b
+    })
     const isStartup = note?.is_startup || false
-    const row = { title: title||'Untitled', content: noteContent, is_public: isPublic, job_id: jobId||null, is_startup: isStartup, updated_at: new Date().toISOString() }
+    const row = { title: title||'Untitled', content: { blocks: flushed }, is_public: isPublic, job_id: jobId||null, is_startup: isStartup, updated_at: new Date().toISOString() }
     let saved
-    if (note?.id) {
-      const { data } = await supabase.from('notes').update(row).eq('id', note.id).select().single()
+    if (savedNoteId.current) {
+      const { data } = await supabase.from('notes').update(row).eq('id', savedNoteId.current).select().single()
       saved = data
     } else {
-      const { data } = await supabase.from('notes').insert({ ...row, created_by: profile?.id }).select().single()
-      saved = data
-      if (saved) navigate(`/notes/${saved.id}`, { replace: true })
+      // Before inserting, check if a startup note already exists for this job
+      // (handles case where is_startup column query failed silently)
+      let existing = null
+      if (row.is_startup && row.job_id) {
+        const { data: ex } = await supabase.from('notes')
+          .select('id').eq('job_id', row.job_id).eq('is_startup', true).maybeSingle()
+        if (!ex) {
+          // Also check by title
+          const { data: ex2 } = await supabase.from('notes')
+            .select('id').eq('job_id', row.job_id).ilike('title', 'Startup%').limit(1).maybeSingle()
+          existing = ex2
+        } else {
+          existing = ex
+        }
+      }
+      if (existing?.id) {
+        // Update the existing note instead of creating a duplicate
+        savedNoteId.current = existing.id
+        const { data } = await supabase.from('notes').update(row).eq('id', existing.id).select().single()
+        saved = data
+      } else {
+        const { data } = await supabase.from('notes').insert({ ...row, created_by: profile?.id }).select().single()
+        saved = data
+        if (saved?.id) {
+          savedNoteId.current = saved.id
+          if (!floating) navigate(`/notes/${saved.id}`, { replace: true })
+        }
+      }
     }
 
-    // Sync todos + specs to job (now we have a valid note ID)
+    // Sync todos to job tasks
     if (jobId && saved?.id) {
-      let syncedBlocks = await syncTodosToJob(blocks, jobId, saved.id, isPublic, profile?.id)
-      syncedBlocks = await syncSpecsToJob(syncedBlocks, jobId)
+      const syncedBlocks = await syncTodosToJob(flushed, jobId, saved.id, isPublic, profile?.id)
+      // Update synced flags in state only — don't re-save to DB (first save already has correct content)
       setBlocks(syncedBlocks)
-      // Re-save with synced block state
-      await supabase.from('notes').update({ content: { blocks: syncedBlocks } }).eq('id', saved.id)
-      if (saved) saved = { ...saved, content: { blocks: syncedBlocks } }
     }
 
     setSaving(false)
@@ -686,7 +727,10 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
 
   function enterBlock(id) {
     const idx = blocks.findIndex(b => b.id === id)
-    const newBlock = makeBlock()
+    const currentBlock = blocks[idx]
+    // New block inherits todo type if current is todo, otherwise paragraph
+    const newType = currentBlock?.type === 'todo' ? 'todo' : 'paragraph'
+    const newBlock = makeBlock(newType)
     setBlocks(prev => { const n=[...prev]; n.splice(idx+1,0,newBlock); return n })
     setTimeout(() => setFocusedIdx(idx + 1), 10)
     markDirty()
@@ -708,17 +752,24 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
     markDirty()
   }
 
-  const canEdit = note ? (note.created_by === profile?.id || profile?.role === 'Admin') : true
+  const canEdit = !note?.created_by || note.created_by === profile?.id || profile?.role === 'Admin'
 
   return (
     <div style={{ maxWidth:760, margin:'0 auto' }}>
       {/* toolbar */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, flexWrap:'wrap', gap:10 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {floating && onClose ? (
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0, fontWeight:500 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Close
+            </button>
+          ) : (
           <button onClick={onBack} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0, fontWeight:500 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Notes
           </button>
+          )}
           {lastSaved && <span style={{ fontSize:11, color:'#9CA3AF' }}>Saved {lastSaved.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}</span>}
           {saving && <span style={{ fontSize:11, color:'#9CA3AF' }}>Saving…</span>}
         </div>
@@ -729,12 +780,14 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
             <span>{isPublic ? '🌐' : '🔒'}</span>
             <span>{isPublic ? 'Public' : 'Private'}</span>
           </div>
-          {/* link to job */}
-          <select value={jobId} onChange={e=>{setJobId(e.target.value);markDirty()}}
-            style={{ fontSize:12, padding:'5px 10px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color: jobId?'#2A3042':'#9CA3AF', cursor:'pointer', outline:'none' }}>
-            <option value="">No job linked</option>
-            {jobs.map(j => <option key={j.id} value={j.id}>🔗 {j.name}</option>)}
-          </select>
+          {/* link to job — hidden in floating mode since always linked */}
+          {!floating && (
+            <select value={jobId} onChange={e=>{setJobId(e.target.value);markDirty()}}
+              style={{ fontSize:12, padding:'5px 10px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color: jobId?'#2A3042':'#9CA3AF', cursor:'pointer', outline:'none' }}>
+              <option value="">No job linked</option>
+              {jobs.map(j => <option key={j.id} value={j.id}>🔗 {j.name}</option>)}
+            </select>
+          )}
           {canEdit && (
             <button onClick={() => saveNote(false)} disabled={saving}
               style={{ fontSize:12, fontWeight:700, padding:'6px 16px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:saving?'not-allowed':'pointer', opacity:saving?0.7:1 }}>
@@ -774,6 +827,7 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
                   onFocus={setFocusedIdx}
                   focused={focusedIdx === idx}
                   dragHandlers={{}}
+                  registerRef={(el) => { if (el) blockRefsMap.current[block.id] = el; else delete blockRefsMap.current[block.id] }}
                 />
               </div>
             </div>
@@ -914,20 +968,19 @@ export default function Notes() {
     Promise.all([
       supabase.from('notes').select('*').order('updated_at', { ascending:false }),
       supabase.from('jobs').select('id,name,status').order('created_at', { ascending:false }),
-    ]).then(([{ data:n }, { data:j }]) => {
+    ]).then(async ([{ data:n }, { data:j }]) => {
       setNotes(n||[])
       setJobs(j||[])
       setLoading(false)
       const preJobId   = searchParams.get('job')
       const isStartup  = searchParams.get('startup') === '1'
-      if (noteId) {
+      const isValidId = noteId && noteId !== 'new' && noteId.length > 10
+      if (isValidId) {
         const found = (n||[]).find(x => x.id === noteId)
         if (found) setActive(found)
       } else if (preJobId && isStartup) {
-        // Look for existing startup note for this job
         const existing = (n||[]).find(x => x.job_id === preJobId && x.is_startup)
-        if (existing) { setActive(existing); setLoading(false); return }
-        // Build a rich pre-populated startup note from job data
+        if (existing) { setActive(existing); return }
         try {
           const [
             { data: jobData },
@@ -946,7 +999,7 @@ export default function Notes() {
         setActive({ _preJobId: preJobId })
       }
     })
-  }, [noteId])
+  }, [noteId, searchParams.get('job'), searchParams.get('startup')])
 
   function onSaveNote(saved) {
     setNotes(prev => {
