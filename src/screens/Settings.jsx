@@ -29,6 +29,7 @@ export default function Settings() {
         <Row icon={<><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></>}       iconBg="#ECFDF5" iconColor="#1D9E75" label="Materials library" sub="Manage panels, colours and suppliers" to="/settings/materials" />
         <Row icon={<><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></>}              iconBg="#EEF2FF" iconColor="#5B8AF0" label="Customers"          sub="Manage customer database"             to="/settings/customers" />
         <Row icon={<><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4"/><path d="M16 11l2 2 4-4"/></>} iconBg="#FEF3C7" iconColor="#D97706" label="Team" sub="Manage who has access" to="/settings/team" />
+        <Row icon={<><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></>} iconBg="#F5F3FF" iconColor="#7F77DD" label="File types" sub="Document types and approval settings" to="/settings/file-types" />
       </div>
     </div>
   )

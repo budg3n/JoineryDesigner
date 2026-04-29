@@ -62,7 +62,8 @@ export default function Layout() {
 
   const isDash = location.pathname === '/'
   const isJob  = location.pathname.startsWith('/job/') && !location.pathname.includes('/sketch')
-  const [jobActions, setJobActions] = useState(null) // { dirty, saving, onSave, onSketch }
+  const [jobActions, setJobActions] = useState(null)
+  const [pendingCount, setPendingCount] = useState(0) // { dirty, saving, onSave, onSketch }
 
   useEffect(() => {
     const handler = e => setJobActions(e.detail)
@@ -73,6 +74,17 @@ export default function Layout() {
 
   // clear job actions when route changes away from job
   useEffect(() => { if (!isJob) setJobActions(null) }, [isJob])
+
+  // Load pending approval count for PM/Admin
+  useEffect(() => {
+    if (!profile?.id) return
+    if (!['Admin','Project Manager'].includes(profile?.role)) return
+    import('../lib/supabase').then(({ supabase }) => {
+      supabase.from('approval_requests').select('id',{count:'exact',head:true})
+        .eq('status','pending').eq('reviewed_by', profile.id)
+        .then(({ count }) => setPendingCount(count||0))
+    })
+  }, [profile?.id, location.pathname])
   const role   = profile?.role || 'Production Team'
   const avatarColor = ROLE_COLORS[role] || '#6B7280'
 
@@ -192,8 +204,14 @@ export default function Layout() {
               )}
             </>)}
             {/* notification bell */}
-            <div style={{ width:36, height:36, borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+            <div style={{ width:36, height:36, borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative' }}
+              onClick={() => navigate('/approvals')}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              {pendingCount > 0 && (
+                <div style={{ position:'absolute', top:4, right:4, width:16, height:16, borderRadius:'50%', background:'#E24B4A', color:'#fff', fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>
+                  {pendingCount > 9 ? '9+' : pendingCount}
+                </div>
+              )}
             </div>
             {isDash && can('createJob') && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('open-new-job'))} className="btn-primary" style={{ height:36, fontSize:13, padding:'0 16px', borderRadius:9 }}>

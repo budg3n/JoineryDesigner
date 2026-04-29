@@ -992,6 +992,76 @@ function JobAppliancesSection({ jobId, jobAppliances, allAppliances, setJobAppli
   )
 }
 
+// ── Approval bar shown below each file attachment ────────────────
+function ApprovalBar({ att, ft, approval, onRequest, onReview, profile }) {
+  const [showReview, setShowReview] = useState(false)
+  const [notes, setNotes] = useState('')
+
+  if (!ft?.requires_approval) return null
+
+  const isReviewer = profile?.role === 'Admin' || profile?.role === 'Project Manager'
+  const canRequest = !approval
+  const isPending  = approval?.status === 'pending'
+  const isApproved = approval?.status === 'approved'
+  const isDeclined = approval?.status === 'declined'
+
+  return (
+    <div style={{ marginTop:4 }}>
+      {!approval && (
+        <button onClick={onRequest}
+          style={{ width:'100%', fontSize:11, fontWeight:700, padding:'5px 10px', borderRadius:8, border:'1px dashed #C4D4F8', background:'#F0F4FF', color:'#3730A3', cursor:'pointer', transition:'all .1s' }}
+          onMouseEnter={e=>{e.currentTarget.style.background='#EEF2FF'}} onMouseLeave={e=>{e.currentTarget.style.background='#F0F4FF'}}>
+          Request approval →
+        </button>
+      )}
+      {isPending && (
+        <div style={{ padding:'6px 10px', borderRadius:8, background:'#FEF9C3', border:'1px solid #FDE68A', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+          <div>
+            <span style={{ fontSize:11, fontWeight:700, color:'#92400E' }}>⏳ Pending approval</span>
+            <span style={{ fontSize:10, color:'#9CA3AF', marginLeft:6 }}>from {approval.reviewer?.full_name || approval.reviewer?.email || 'PM'}</span>
+          </div>
+          {isReviewer && !showReview && (
+            <button onClick={() => setShowReview(true)}
+              style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:7, border:'none', background:'#F59E0B', color:'#fff', cursor:'pointer' }}>
+              Review
+            </button>
+          )}
+        </div>
+      )}
+      {isPending && isReviewer && showReview && (
+        <div style={{ padding:'10px 12px', borderRadius:10, background:'#fff', border:'1px solid #E8ECF0', marginTop:4 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:'#2A3042', marginBottom:8 }}>Review: {att.name}</div>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes for requester…"
+            style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', marginBottom:8, resize:'vertical', minHeight:50, fontFamily:'inherit' }} />
+          <div style={{ display:'flex', gap:7 }}>
+            <button onClick={() => { onReview(approval.id,'approved',notes); setShowReview(false) }}
+              style={{ flex:1, fontSize:12, fontWeight:700, padding:'7px', borderRadius:8, border:'none', background:'#1D9E75', color:'#fff', cursor:'pointer' }}>✓ Approve</button>
+            <button onClick={() => { onReview(approval.id,'declined',notes); setShowReview(false) }}
+              style={{ flex:1, fontSize:12, fontWeight:700, padding:'7px', borderRadius:8, border:'none', background:'#E24B4A', color:'#fff', cursor:'pointer' }}>✕ Decline</button>
+            <button onClick={() => setShowReview(false)}
+              style={{ fontSize:12, padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {isApproved && (
+        <div style={{ padding:'5px 10px', borderRadius:8, background:'#ECFDF5', border:'1px solid #6EE7B7', display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:'#065F46' }}>✓ Approved</span>
+          <span style={{ fontSize:10, color:'#9CA3AF' }}>by {approval.reviewer?.full_name || 'PM'} · {new Date(approval.reviewed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</span>
+          {approval.review_notes && <span style={{ fontSize:10, color:'#6B7280', fontStyle:'italic' }}>"{approval.review_notes}"</span>}
+        </div>
+      )}
+      {isDeclined && (
+        <div style={{ padding:'5px 10px', borderRadius:8, background:'#FEF2F2', border:'1px solid #FCA5A5', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+          <span style={{ fontSize:11, fontWeight:700, color:'#991B1B' }}>✕ Declined</span>
+          <span style={{ fontSize:10, color:'#9CA3AF' }}>by {approval.reviewer?.full_name || 'PM'}</span>
+          {approval.review_notes && <span style={{ fontSize:10, color:'#6B7280', fontStyle:'italic' }}>"{approval.review_notes}"</span>}
+          <button onClick={onRequest} style={{ fontSize:10, fontWeight:600, marginLeft:'auto', padding:'2px 8px', borderRadius:6, border:'1px solid #FCA5A5', background:'#fff', color:'#991B1B', cursor:'pointer' }}>Re-request</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
@@ -1011,7 +1081,11 @@ export default function JobDetail() {
   const [newTask, setNewTask]     = useState({ title:'', date:'', time:'09:00' })
   const [matPickerOpen, setMatPickerOpen] = useState(false)
   const [lbIdx, setLbIdx]         = useState(null)
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading]   = useState(false)
+  const [fileTypes, setFileTypes]   = useState([])
+  const [approvals, setApprovals]   = useState([])
+  const [pendingType, setPendingType] = useState('') // file_type_id for next upload
+  const [showTypeModal, setShowTypeModal] = useState(false) // pending files waiting for type
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [timeRefresh, setTimeRefresh] = useState(0)
   const [jobNotes, setJobNotes] = useState([])
@@ -1026,7 +1100,7 @@ export default function JobDetail() {
   const loadAll = useCallback(async () => {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
-    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }] = await Promise.all([
+    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
@@ -1034,6 +1108,8 @@ export default function JobDetail() {
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       supabase.from('appliances').select('*').order('brand'),
       supabase.from('notes').select('id,title,is_public,created_by,updated_at').eq('job_id', id).order('updated_at',{ascending:false}),
+      supabase.from('file_types').select('*').order('name'),
+      supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
     const panelCats = []
@@ -1042,6 +1118,8 @@ export default function JobDetail() {
     setJobAppliances(ja||[])
     setAllAppliances(appLib||[])
     setJobNotes(jNotes||[])
+    setFileTypes(fTypes||[])
+    setApprovals(approvs||[])
     setLoading(false)
     setDirty(false)
 
@@ -1193,16 +1271,59 @@ export default function JobDetail() {
   const imgAtts  = atts.filter(a => a.type?.startsWith('image/'))
   const fileAtts = atts.filter(a => !a.type?.startsWith('image/'))
 
-  async function handleFiles(e) {
+  const pendingFiles = React.useRef([])
+
+  function handleFiles(e) {
+    const files = Array.from(e.target.files)
+    if (!files.length) return
+    if (fileTypes.length === 0) {
+      // no file types configured — upload directly
+      uploadFiles(files, '')
+    } else {
+      pendingFiles.current = files
+      setShowTypeModal(true)
+    }
+  }
+
+  async function uploadFiles(files, typeId) {
     setUploading(true)
-    for (const file of Array.from(e.target.files)) {
+    setShowTypeModal(false)
+    for (const file of files) {
       const path = `${id}/${Date.now()}_${file.name}`
       await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type })
-      const { data } = await supabase.from('attachments').insert({ job_id: id, name: file.name, type: file.type, size: file.size, storage_path: path }).select().single()
+      const { data } = await supabase.from('attachments')
+        .insert({ job_id: id, name: file.name, type: file.type, size: file.size, storage_path: path, file_type_id: typeId||null })
+        .select().single()
       if (data) setAtts(prev => [...prev, data])
     }
     setUploading(false)
+    pendingFiles.current = []
     toast('Uploaded ✓')
+  }
+
+  async function requestApproval(att) {
+    // Find the PM assigned to this job, or any Admin
+    const { data: pms } = await supabase.from('profiles')
+      .select('id,full_name,email').in('role',['Admin','Project Manager']).limit(5)
+    const pm = pms?.[0]
+    if (!pm) { toast('No Project Manager found','error'); return }
+    const { data, error } = await supabase.from('approval_requests').insert({
+      job_id: id, attachment_id: att.id, attachment_name: att.name,
+      requested_by: profile?.id, reviewed_by: pm.id,
+      status: 'pending', created_at: new Date().toISOString()
+    }).select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').single()
+    if (error) { toast(error.message,'error'); return }
+    setApprovals(prev => [...prev, data])
+    toast(`Approval requested from ${pm.full_name || pm.email}`)
+  }
+
+  async function reviewApproval(approvalId, status, notes='') {
+    const { data } = await supabase.from('approval_requests')
+      .update({ status, review_notes: notes, reviewed_at: new Date().toISOString(), reviewed_by: profile?.id })
+      .eq('id', approvalId)
+      .select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').single()
+    if (data) setApprovals(prev => prev.map(a => a.id===approvalId ? data : a))
+    toast(status === 'approved' ? 'Approved ✓' : 'Declined')
   }
 
   async function deleteAtt(att) {
@@ -1494,9 +1615,41 @@ export default function JobDetail() {
         </div>
       </div>
 
+      {/* file type selection modal */}
+      {showTypeModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+          onClick={e => e.target===e.currentTarget && setShowTypeModal(false)}>
+          <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6' }}>
+              <h2 style={{ fontSize:15, fontWeight:700, color:'#2A3042', margin:0 }}>Select file type</h2>
+              <p style={{ fontSize:12, color:'#9CA3AF', margin:'4px 0 0' }}>{pendingFiles.current.length} file{pendingFiles.current.length!==1?'s':''} ready to upload</p>
+            </div>
+            <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+              {fileTypes.map(ft => (
+                <div key={ft.id} onClick={() => uploadFiles(pendingFiles.current, ft.id)}
+                  style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:10, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .1s' }}
+                  onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor=ft.color||'#9CA3AF'}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
+                  <div style={{ width:12, height:12, borderRadius:'50%', background:ft.color||'#9CA3AF', flexShrink:0 }} />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:600, color:'#2A3042' }}>{ft.name}</div>
+                    {ft.requires_approval && <div style={{ fontSize:11, color:'#5B8AF0' }}>Requires PM approval</div>}
+                  </div>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              ))}
+              <button onClick={() => uploadFiles(pendingFiles.current, '')}
+                style={{ padding:'11px', borderRadius:10, border:'1px dashed #E8ECF0', background:'transparent', color:'#9CA3AF', cursor:'pointer', fontSize:13 }}>
+                Upload without a type
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* drawings */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Drawings &amp; sketches</div>
+        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Drawings &amp; files</div>
         {lbIdx !== null && (
           <div className="bg-black/90 rounded-xl p-3 mb-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -1522,23 +1675,42 @@ export default function JobDetail() {
         </div>
         {imgAtts.length > 0 && (
           <div className="grid grid-cols-3 gap-2 mb-2">
-            {imgAtts.map((a, i) => (
-              <div key={a.id} onClick={() => setLbIdx(i)} className="relative aspect-square rounded-lg overflow-hidden border border-[#E8ECF0] cursor-pointer hover:border-gray-300">
-                <img src={pubUrl(a.storage_path)} alt={a.name} className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-0.5 text-[9px] text-white truncate">{a.name}</div>
-                <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center text-xs border-none cursor-pointer">×</button>
-              </div>
-            ))}
+            {imgAtts.map((a, i) => {
+              const ft = fileTypes.find(f => f.id === a.file_type_id)
+              const approval = approvals.find(ap => ap.attachment_id === a.id)
+              return (
+                <div key={a.id} style={{ position:'relative' }}>
+                  <div onClick={() => setLbIdx(i)} className="relative aspect-square rounded-lg overflow-hidden border border-[#E8ECF0] cursor-pointer hover:border-gray-300">
+                    <img src={pubUrl(a.storage_path)} alt={a.name} className="w-full h-full object-cover" loading="lazy" />
+                    {ft && <div style={{ position:'absolute', top:4, left:4, fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:8, background:ft.color+'ee', color:'#fff' }}>{ft.name}</div>}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-0.5 text-[9px] text-white truncate">{a.name}</div>
+                    <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center text-xs border-none cursor-pointer">×</button>
+                  </div>
+                  <ApprovalBar att={a} ft={ft} approval={approval} onRequest={() => requestApproval(a)} onReview={reviewApproval} profile={profile} />
+                </div>
+              )
+            })}
           </div>
         )}
-        {fileAtts.map(a => (
-          <div key={a.id} onClick={() => window.open(pubUrl(a.storage_path),'_blank')}
-            className="flex items-center gap-2 px-3 py-2.5 bg-[#F9FAFB] border border-[#E8ECF0] rounded-lg cursor-pointer hover:border-gray-300 mb-2">
-            <span className="text-base">📄</span>
-            <span className="text-sm text-[#6B7280] flex-1 truncate">{a.name}</span>
-            <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="text-[#D1D5DB] hover:text-red-400 text-base leading-none bg-transparent border-none cursor-pointer">×</button>
-          </div>
-        ))}
+        {fileAtts.map(a => {
+          const ft = fileTypes.find(f => f.id === a.file_type_id)
+          const approval = approvals.find(ap => ap.attachment_id === a.id)
+          return (
+            <div key={a.id} style={{ marginBottom:8 }}>
+              <div onClick={() => window.open(pubUrl(a.storage_path),'_blank')}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10, cursor:'pointer', transition:'all .1s' }}
+                onMouseEnter={e=>{e.currentTarget.style.background='#F3F4F6'}} onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB'}}>
+                <span style={{ fontSize:18 }}>📄</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:500, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.name}</div>
+                  {ft && <div style={{ fontSize:11, fontWeight:600, color:ft.color||'#9CA3AF', marginTop:1 }}>{ft.name}</div>}
+                </div>
+                <button onClick={e=>{e.stopPropagation();deleteAtt(a)}} style={{ color:'#D1D5DB', background:'none', border:'none', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
+              </div>
+              <ApprovalBar att={a} ft={ft} approval={approval} onRequest={() => requestApproval(a)} onReview={reviewApproval} profile={profile} />
+            </div>
+          )
+        })}
       </div>
 
       {/* archive + delete */}
