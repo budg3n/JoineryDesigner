@@ -1089,6 +1089,7 @@ export default function JobDetail() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [timeRefresh, setTimeRefresh] = useState(0)
   const [jobNotes, setJobNotes] = useState([])
+  const [startupNote, setStartupNote] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [jobAppliances, setJobAppliances] = useState([])
   const [allAppliances, setAllAppliances] = useState([])
@@ -1107,7 +1108,7 @@ export default function JobDetail() {
       supabase.from('materials').select('*').order('name'),
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       supabase.from('appliances').select('*').order('brand'),
-      supabase.from('notes').select('id,title,is_public,created_by,updated_at').eq('job_id', id).order('updated_at',{ascending:false}),
+      supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
       supabase.from('file_types').select('*').order('name'),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
@@ -1117,7 +1118,9 @@ export default function JobDetail() {
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setJobAppliances(ja||[])
     setAllAppliances(appLib||[])
-    setJobNotes(jNotes||[])
+    const allNotes = jNotes||[]
+    setJobNotes(allNotes.filter(n => !n.is_startup))
+    setStartupNote(allNotes.find(n => n.is_startup) || null)
     setFileTypes(fTypes||[])
     setApprovals(approvs||[])
     setLoading(false)
@@ -1154,6 +1157,7 @@ export default function JobDetail() {
       saving,
       onSave: saveJob,
       onSketch: () => navigate(`/job/${id}/sketch`),
+      onStartup: () => navigate(`/notes/${startupNote?.id || 'new'}?job=${id}&startup=1`),
     }}))
   }, [dirty, saving, id])
 
@@ -1568,15 +1572,36 @@ export default function JobDetail() {
       />
 
       {/* linked notes */}
-      {(jobNotes.length > 0 || true) && (
-        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: jobNotes.length>0 ? 12 : 0 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Notes</div>
-            <button onClick={() => navigate(`/notes/new?job=${id}`)}
-              style={{ fontSize:12, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
-              + New note
-            </button>
+      <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Notes</div>
+          <button onClick={() => navigate(`/notes/new?job=${id}`)}
+            style={{ fontSize:12, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
+            + New note
+          </button>
+        </div>
+        {/* startup note card */}
+        <div onClick={() => navigate(`/notes/${startupNote?.id || 'new'}?job=${id}&startup=1`)}
+          style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background: startupNote ? '#FFF7ED' : '#FAFAFA', borderRadius:9, border:`1px solid ${startupNote ? '#FED7AA' : '#E8ECF0'}`, cursor:'pointer', marginBottom: jobNotes.length > 0 ? 8 : 0, transition:'all .12s' }}
+          onMouseEnter={e=>{e.currentTarget.style.background=startupNote?'#FEF3C7':'#F3F4F6'}}
+          onMouseLeave={e=>{e.currentTarget.style.background=startupNote?'#FFF7ED':'#FAFAFA'}}>
+          <div style={{ width:32, height:32, borderRadius:8, background: startupNote ? '#F97316' : '#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <span style={{ fontSize:16 }}>🚀</span>
           </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>Startup meeting</div>
+            <div style={{ fontSize:11, color:'#9CA3AF' }}>
+              {startupNote ? `Last updated ${new Date(startupNote.updated_at||startupNote.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}` : 'No startup note yet — tap to create'}
+            </div>
+          </div>
+          {startupNote && (
+            <span style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'#ECFDF5', color:'#065F46', fontWeight:600, border:'1px solid #6EE7B7' }}>Ready</span>
+          )}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        {(jobNotes.length === 0) ? (
+          <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
+        ) : (
           {jobNotes.length === 0 ? (
             <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
           ) : (

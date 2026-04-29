@@ -34,6 +34,7 @@ const BLOCK_TYPES = [
   { type:'link_note',  label:'Link to note',  icon:'🔗', desc:'Link another note' },
   { type:'code',       label:'Code',          icon:'<>', desc:'Code block' },
   { type:'spec_field', label:'Kitchen spec',  icon:'📐', desc:'Live kitchen measurement' },
+  { type:'startup',    label:'Startup summary', icon:'🚀', desc:'Job startup meeting info' },
 ]
 
 function makeBlock(type='paragraph', content='') {
@@ -115,6 +116,95 @@ function SlashMenu({ filter, onSelect, onClose }) {
 }
 
 // ── Single Block ──────────────────────────────────────────────────
+// ── Startup fields config ────────────────────────────────────────
+const STARTUP_FIELDS = [
+  { key:'site_contact',      label:'Site contact',         placeholder:'Name and phone' },
+  { key:'access_details',    label:'Access details',       placeholder:'Keys, codes, entry instructions' },
+  { key:'key_dates',         label:'Key dates',            placeholder:'Delivery, installation, handover' },
+  { key:'special_req',       label:'Special requirements', placeholder:'Any site or client requirements' },
+  { key:'material_notes',    label:'Material notes',       placeholder:'Board specs, finishes, suppliers' },
+  { key:'appliance_notes',   label:'Appliance notes',      placeholder:'Models, cutouts, delivery' },
+  { key:'sign_off',          label:'Sign-off required',    placeholder:'Who needs to approve the work' },
+  { key:'agenda',            label:'Meeting agenda / notes', placeholder:'Topics to cover, decisions made…', multiline: true },
+]
+
+function StartupBlock({ jobId, onDelete }) {
+  const toast = useToast()
+  const [data, setData] = useState({})
+  const [jobName, setJobName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [noteId, setNoteId] = useState(null)
+
+  useEffect(() => {
+    if (!jobId) return
+    // Load job name
+    supabase.from('jobs').select('name').eq('id', jobId).single()
+      .then(({ data: j }) => setJobName(j?.name || 'Job'))
+    // Load existing startup note content
+    supabase.from('notes').select('id,content').eq('job_id', jobId).eq('is_startup', true).maybeSingle()
+      .then(({ data: n }) => {
+        if (n) {
+          setNoteId(n.id)
+          const startup = n.content?.startup || {}
+          setData(startup)
+        }
+      })
+  }, [jobId])
+
+  async function saveField(key, val) {
+    const updated = { ...data, [key]: val }
+    setData(updated)
+    if (!jobId) return
+    // Upsert startup note
+    if (noteId) {
+      await supabase.from('notes').update({
+        content: { startup: updated },
+        updated_at: new Date().toISOString()
+      }).eq('id', noteId)
+    }
+  }
+
+  if (!jobId) return (
+    <div style={{ padding:'12px 14px', borderRadius:12, border:'2px dashed #E8ECF0', background:'#FAFAFA', color:'#9CA3AF', fontSize:13, textAlign:'center' }}>
+      Link this note to a job to use the startup block
+    </div>
+  )
+
+  return (
+    <div style={{ borderRadius:14, border:'2px solid #FED7AA', background:'#FFFBF5', overflow:'hidden', marginBottom:4 }}>
+      {/* header */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', background:'#F97316', borderBottom:'1px solid #FED7AA' }}>
+        <span style={{ fontSize:18 }}>🚀</span>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:13, fontWeight:800, color:'#fff' }}>Startup Meeting</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.8)' }}>{jobName}</div>
+        </div>
+        <button onClick={onDelete} style={{ background:'rgba(255,255,255,0.2)', border:'none', cursor:'pointer', color:'#fff', fontSize:13, width:24, height:24, borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+      </div>
+      {/* fields */}
+      <div style={{ padding:'14px 16px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+        {STARTUP_FIELDS.map(f => (
+          <div key={f.key} style={{ gridColumn: f.multiline ? 'span 2' : 'span 1' }}>
+            <label style={{ fontSize:10, fontWeight:700, color:'#C2410C', textTransform:'uppercase', letterSpacing:'.06em', display:'block', marginBottom:4 }}>{f.label}</label>
+            {f.multiline ? (
+              <textarea
+                value={data[f.key]||''} onChange={e => saveField(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                style={{ width:'100%', minHeight:80, padding:'8px 10px', border:'1px solid #FED7AA', borderRadius:8, fontSize:13, outline:'none', resize:'vertical', fontFamily:'inherit', background:'#fff', lineHeight:1.5, WebkitUserSelect:'text', userSelect:'text' }} />
+            ) : (
+              <input
+                value={data[f.key]||''} onChange={e => saveField(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                style={{ width:'100%', padding:'7px 10px', border:'1px solid #FED7AA', borderRadius:8, fontSize:13, outline:'none', background:'#fff', WebkitUserSelect:'text', userSelect:'text' }} />
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ padding:'0 16px 12px', fontSize:11, color:'#9CA3AF' }}>Changes save automatically · Viewable from the job card</div>
+    </div>
+  )
+}
+
 function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers }) {
   const ref = useRef()
   const [showSlash, setShowSlash] = useState(false)
@@ -187,6 +277,11 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     const newContent = lastSlash >= 0 ? text.slice(0, lastSlash) : text
     setShowSlash(false); setSlashFilter('')
     // Kitchen spec field — type is 'spec_field:key_name'
+    if (type === 'startup') {
+      if (ref.current) ref.current.innerHTML = ''
+      onChange(block.id, { type: 'startup', content: '', job_id: null })
+      return
+    }
     if (type.startsWith('spec_field:')) {
       const specKey = type.split(':')[1]
       // Clear the div content so no leftover /spec text shows
@@ -258,6 +353,13 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
           <button onClick={e=>{e.stopPropagation();onDelete(block.id)}} style={{ fontSize:14, color:'#A5B4FC', background:'none', border:'none', cursor:'pointer', lineHeight:1 }}>×</button>
         </div>
       </div>
+    )
+  }
+
+  // ── Startup summary block ──
+  if (block.type === 'startup') {
+    return (
+      <StartupBlock jobId={block.job_id} onDelete={() => onDelete(block.id)} />
     )
   }
 
@@ -520,7 +622,8 @@ function NoteEditor({ note, allNotes, jobs, onSave, onBack }) {
 
     // Save the note first so we have an ID for new notes
     const noteContent = { blocks }
-    const row = { title: title||'Untitled', content: noteContent, is_public: isPublic, job_id: jobId||null, updated_at: new Date().toISOString() }
+    const isStartup = note?.is_startup || false
+    const row = { title: title||'Untitled', content: noteContent, is_public: isPublic, job_id: jobId||null, is_startup: isStartup, updated_at: new Date().toISOString() }
     let saved
     if (note?.id) {
       const { data } = await supabase.from('notes').update(row).eq('id', note.id).select().single()
@@ -815,10 +918,16 @@ export default function Notes() {
       setNotes(n||[])
       setJobs(j||[])
       setLoading(false)
-      const preJobId = searchParams.get('job')
+      const preJobId   = searchParams.get('job')
+      const isStartup  = searchParams.get('startup') === '1'
       if (noteId) {
         const found = (n||[]).find(x => x.id === noteId)
         if (found) setActive(found)
+      } else if (preJobId && isStartup) {
+        // Look for existing startup note for this job
+        const existing = (n||[]).find(x => x.job_id === preJobId && x.is_startup)
+        if (existing) setActive(existing)
+        else setActive({ _preJobId: preJobId, _isStartup: true })
       } else if (preJobId) {
         setActive({ _preJobId: preJobId })
       }
@@ -864,9 +973,17 @@ export default function Notes() {
   }
 
   if (active === 'new' || active?._preJobId) {
+    const isStartup = active?._isStartup || false
+    const preNote   = active?._preJobId
+      ? { job_id: active._preJobId, is_startup: isStartup,
+          title: isStartup ? 'Startup Meeting' : '',
+          content: isStartup
+            ? { blocks: [{ id:'startup-1', type:'startup', content:'', job_id: active._preJobId }] }
+            : null }
+      : null
     return (
       <NoteEditor
-        note={active?._preJobId ? { job_id: active._preJobId } : null} allNotes={notes} jobs={jobs}
+        note={preNote} allNotes={notes} jobs={jobs}
         onSave={onSaveNote}
         onBack={() => { setActive(null); navigate('/notes') }} />
     )
