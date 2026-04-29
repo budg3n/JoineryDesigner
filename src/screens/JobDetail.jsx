@@ -1393,7 +1393,7 @@ export default function JobDetail() {
   const isKitchen = (job.type||'').toLowerCase() === 'kitchen'
 
   return (
-    <div style={{ display: isKitchen ? 'grid' : 'block', gridTemplateColumns: isKitchen ? '1fr 380px' : undefined, gap: isKitchen ? 20 : undefined, alignItems:'start' }}>
+    <div className={isKitchen ? 'job-detail-grid' : ''} style={{ alignItems:'start' }}>
       {/* LEFT COLUMN — always shown */}
       <div>
       <BackButton to="/" label="Jobs" />

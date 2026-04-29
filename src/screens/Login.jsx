@@ -21,7 +21,7 @@ export default function Login() {
 
   return (
     <div style={{ minHeight:'100vh', background:'#2A3042', display:'flex', alignItems:'center', justifyContent:'center', padding:'2rem 1rem' }}>
-      <div style={{ width:'100%', maxWidth:400 }}>
+      <div style={{ width:'100%', maxWidth:400, padding:'0 4px' }}>
         {/* logo card */}
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <div style={{ width:52, height:52, background:'#5B8AF0', borderRadius:14, display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:16 }}>

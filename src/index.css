@@ -57,3 +57,85 @@ canvas { cursor: crosshair; touch-action: none; }
 
 .spinner { width: 24px; height: 24px; border: 2.5px solid #E8ECF0; border-top-color: #5B8AF0; border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Stack two-column job detail layout */
+  [style*="gridTemplateColumns: isKitchen"],
+  [style*="grid-template-columns: 1fr 380px"] {
+    display: block !important;
+  }
+
+  /* Reduce padding on mobile */
+  main { padding: 12px !important; }
+
+  /* Kitchen specs panel not sticky on mobile */
+  [style*="position:'sticky'"] {
+    position: static !important;
+  }
+
+  /* Stat cards 2 col */
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Full width modals */
+  [style*="maxWidth:540"],
+  [style*="maxWidth: 540"],
+  [style*="maxWidth:480"],
+  [style*="maxWidth:400"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  /* Hide desktop sidebar label in topbar */
+  .topbar-title { font-size: 14px !important; }
+
+  /* Task pill wraps */
+  .task-pill-row { flex-wrap: wrap !important; }
+
+  /* Material grid — 2 cols on phone */
+  [style*="minmax(170px"] {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)) !important;
+  }
+
+  /* Category tiles 2 col */
+  [style*="minmax(200px"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Image lightbox full screen */
+  [style*="max-h-[60vh]"] { max-height: 55vw !important; }
+
+  /* Search bar full width */
+  [style*="width:180"] { width: 100% !important; }
+
+  /* Kitchen specs 2 col already, reduce font */
+  [style*="fontSize:28"] { font-size: 22px !important; }
+  [style*="fontSize:34"] { font-size: 26px !important; }
+}
+
+@media (max-width: 480px) {
+  /* Single column grids on very small screens */
+  [style*="minmax(150px"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  [style*="repeat(3,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Prevent horizontal overflow globally */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+
+/* Job detail two-column layout */
+.job-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .job-detail-grid {
+    display: block;
+  }
+  .job-detail-grid > div:last-child {
+    margin-top: 16px;
+  }
+}

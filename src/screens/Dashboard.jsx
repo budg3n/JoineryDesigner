@@ -291,7 +291,7 @@ export default function Dashboard() {
   return (
     <>
       {/* stat row */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginBottom:16 }}>
         <StatCard label="Active jobs"  value={stats.active}        sub={`${stats.review} in review`}        subColor="#6B7280" iconBg="#EEF2FF" iconColor="#5B8AF0" icon={<><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></>} />
         <StatCard label="Tasks open"   value={stats.tasks}         sub={stats.overdue > 0 ? `⚠ ${stats.overdue} overdue` : 'All on track'} subColor={stats.overdue > 0 ? '#991B1B' : '#065F46'} iconBg="#FEF3C7" iconColor="#D97706" icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>} />
         <StatCard label="Hours logged" value={stats.hours + 'h'}   sub="total across jobs"                  subColor="#6B7280" iconBg="#ECFDF5" iconColor="#1D9E75" icon={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />
@@ -299,7 +299,7 @@ export default function Dashboard() {
       </div>
 
       {/* jobs header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, flexWrap:'wrap', gap:10 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <span style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Jobs</span>
           {/* search */}
@@ -311,7 +311,7 @@ export default function Dashboard() {
           </div>
         </div>
         {/* tabs */}
-        <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3 }}>
+        <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', flexShrink:0 }}>
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               style={{ fontSize:12, fontWeight: tab===t.key ? 600 : 500, padding:'5px 14px', borderRadius:8, border:'none', cursor:'pointer', background: tab===t.key ? '#fff' : 'transparent', color: tab===t.key ? '#2A3042' : '#9CA3AF', boxShadow: tab===t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition:'all .12s' }}>
@@ -325,7 +325,7 @@ export default function Dashboard() {
       {loading ? (
         <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))', gap:14 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,240px),1fr))', gap:12 }}>
           {filtered.length === 0 && (
             <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
               {search ? `No jobs match "${search}"` : 'No jobs in this category'}

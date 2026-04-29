@@ -193,7 +193,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
 
       {/* job details */}
       <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-[#F3F4F6]">Job details</div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="col-span-2"><label className="label">Job name *</label><input className="input text-sm" placeholder="e.g. Hampden Kitchen" value={form.name} onChange={set('name')} /></div>
         <div><label className="label">Job type</label>
           <select className="input text-sm" value={form.type} onChange={set('type')}>
