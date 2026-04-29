@@ -4,6 +4,7 @@ import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import StatusBadge from '../components/StatusBadge'
+import { BudgetBar, fmtHours, useLiveTimer } from '../screens/ClockIn'
 import NewJobModal from '../components/NewJobModal'
 
 const PALETTE = ['#5B8AF0','#1D9E75','#EF9F27','#7F77DD','#E24B4A','#D4537E','#5DCAA5']
@@ -35,9 +36,30 @@ function StatCard({ label, value, sub, subColor, iconBg, iconColor, icon }) {
 
 function TaskPill({ job }) {
   const s = taskStats(job)
-  if (s.over > 0) return <span style={{ fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20, background:'#FEF2F2', color:'#991B1B' }}>⚠ {s.over} overdue</span>
-  if (s.open > 0) return <span style={{ fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20, background:'#ECFDF5', color:'#065F46' }}>{s.open} left</span>
-  if (s.total > 0) return <span style={{ fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20, background:'#ECFDF5', color:'#065F46' }}>✓ Done</span>
+  // Overdue — red with warning icon
+  if (s.over > 0) return (
+    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+      <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:20, background:'#FEF2F2', color:'#991B1B', border:'1px solid #FCA5A5' }}>
+        ⚠ {s.over} overdue
+      </span>
+      {s.open > s.over && (
+        <span style={{ fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20, background:'#FEF9C3', color:'#92400E', border:'1px solid #FDE68A' }}>
+          {s.open - s.over} pending
+        </span>
+      )}
+    </div>
+  )
+  // Pending tasks — amber counter badge
+  if (s.open > 0) return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, background:'#FFF7ED', color:'#C2410C', border:'1px solid #FED7AA' }}>
+      <span style={{ width:16, height:16, borderRadius:'50%', background:'#F97316', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800, lineHeight:1, flexShrink:0 }}>{s.open}</span>
+      task{s.open !== 1 ? 's' : ''} to do
+    </span>
+  )
+  // All done
+  if (s.total > 0) return (
+    <span style={{ fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>✓ All done</span>
+  )
   return <span style={{ fontSize:11, padding:'3px 9px', borderRadius:20, background:'#F3F4F6', color:'#9CA3AF' }}>No tasks</span>
 }
 
@@ -92,15 +114,66 @@ function MatHoverPanel({ colors, visible }) {
   )
 }
 
-function JobCard({ job, index, onClick }) {
+function JobTimeStatus({ job, activeEntries, accent }) {
+  const active = activeEntries.find(e => e.job_id === job.id)
+  const elapsed = useLiveTimer(active?.clocked_in_at) // minutes
+  const budget  = parseFloat(job.budget_hours) || 0
+  const logged  = parseFloat(job.time_logged)  || 0
+  const total   = logged + (elapsed / 60)
+  const noBudget = budget === 0
+
+  // Status determination
+  const isLive  = !!active
+  const isOver  = !noBudget && total > budget
+  const started = logged > 0 || isLive
+  const pct     = noBudget ? 0 : Math.min((total / budget) * 100, 100)
+  const remaining = budget - total
+  const overBy    = total - budget
+
+  const barColor = isOver ? '#E24B4A' : pct > 85 ? '#EF9F27' : '#1D9E75'
+
+  return (
+    <div style={{ marginTop:10 }}>
+      {/* status pill */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: (!noBudget || isLive) ? 6 : 0 }}>
+        {isLive ? (
+          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block', animation:'ping 1.5s cubic-bezier(0,0,0.2,1) infinite' }} />
+            {fmtHours(elapsed/60)} live
+          </span>
+        ) : !started && budget > 0 ? (
+          <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F3F4F6', color:'#9CA3AF' }}>Yet to start</span>
+        ) : isOver ? (
+          <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#FEF2F2', color:'#991B1B', border:'1px solid #FCA5A5' }}>
+            ⚠ {fmtHours(overBy)} over
+          </span>
+        ) : budget > 0 ? (
+          <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F0FDF4', color:'#065F46' }}>
+            {fmtHours(remaining)} left
+          </span>
+        ) : started ? (
+          <span style={{ fontSize:10, color:'#9CA3AF' }}>{fmtHours(total)} logged</span>
+        ) : null}
+        {!noBudget && started && (
+          <span style={{ fontSize:10, color:'#9CA3AF' }}>{Math.round(pct)}%</span>
+        )}
+      </div>
+      {/* progress bar */}
+      {!noBudget && started && (
+        <div style={{ height:4, background:'#F3F4F6', borderRadius:2, overflow:'hidden' }}>
+          <div style={{ height:'100%', width:`${pct}%`, background: barColor, borderRadius:2, transition:'width .3s' }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function JobCard({ job, index, onClick, activeEntries = [] }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors   = job.mat_colors ? JSON.parse(job.mat_colors) : []
   const accent   = PALETTE[index % PALETTE.length]
-  const logged   = parseFloat(job.time_logged) || 0
-  const budget   = parseFloat(job.budget_hours) || 0
-  const pct      = budget > 0 ? Math.min(100, Math.round((logged/budget)*100)) : 0
-  const isOver   = budget > 0 && logged > budget
+
 
   const STATUS_BADGE = {
     'In progress': { bg:'#EEF2FF', color:'#3730A3' },
@@ -144,17 +217,7 @@ function JobCard({ job, index, onClick }) {
               </div>
             )}
           </div>
-          {budget > 0 && (
-            <div style={{ marginTop:12 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                <span style={{ fontSize:10, color:'#9CA3AF' }}>{logged}h / {budget}h</span>
-                <span style={{ fontSize:10, fontWeight:700, color: isOver ? '#991B1B' : '#6B7280' }}>{pct}%</span>
-              </div>
-              <div style={{ height:4, background:'#F3F4F6', borderRadius:2, overflow:'hidden' }}>
-                <div style={{ height:'100%', width:`${pct}%`, background: isOver ? '#E24B4A' : accent, borderRadius:2, transition:'width .3s' }} />
-              </div>
-            </div>
-          )}
+          <JobTimeStatus job={job} activeEntries={activeEntries} accent={accent} />
         </div>
       </div>
       {colors.length > 0 && <MatHoverPanel colors={colors} visible={hovered} />}
@@ -178,12 +241,14 @@ export default function Dashboard() {
   const [tab, setTab]         = useState('active')
   const [search, setSearch]   = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [activeEntries, setActiveEntries] = useState([]) // currently clocked-in sessions
 
   const loadJobs = useCallback(async () => {
+    if (profile === undefined) return // context not ready yet
     setLoading(true)
     let q = supabase.from('jobs').select('*').order('created_at', { ascending:false })
     if (!can('seeAllJobs') && profile?.id) {
-      const { data: a } = await supabase.from('job_assignments').select('job_id').eq('user_id', profile.id)
+      const { data: a } = await supabase.from('job_assignments').select('job_id').eq('user_id', profile?.id)
       const ids = (a||[]).map(x => x.job_id)
       if (ids.length) q = q.in('id', ids)
       else { setJobs([]); setLoading(false); return }
@@ -218,6 +283,10 @@ export default function Dashboard() {
     hours:    jobs.reduce((a, j) => a + (parseFloat(j.time_logged)||0), 0).toFixed(1),
     onSched:  jobs.length > 0 ? Math.round(jobs.filter(j => { const b=parseFloat(j.budget_hours)||0; const l=parseFloat(j.time_logged)||0; return b===0||l<=b }).length / jobs.length * 100) : 100,
   }
+
+  if (!profile && !can('seeAllJobs')) return (
+    <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
+  )
 
   return (
     <>
@@ -263,7 +332,7 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} />
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} />
           ))}
           {can('createJob') && tab !== 'done' && (
             <div onClick={() => setShowModal(true)}

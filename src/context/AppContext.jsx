@@ -34,7 +34,7 @@ export function AppProvider({ children }) {
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
-      if (session?.user) loadProfile(session.user.id)
+      if (session?.user) { setLoading(true); loadProfile(session.user.id) }
       else { setProfile(null); setLoading(false) }
     })
     return () => subscription.unsubscribe()
@@ -42,7 +42,7 @@ export function AppProvider({ children }) {
 
   async function loadProfile(uid) {
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
-    setProfile(data)
+    setProfile(data || { id: uid, role: 'Production Team' }) // never leave profile null for authed users
     setLoading(false)
     // Keep Supabase warm — ping every 4 minutes to avoid cold starts
     if (!window._sbKeepAlive) {

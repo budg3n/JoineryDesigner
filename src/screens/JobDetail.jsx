@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
+import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import StatusBadge from '../components/StatusBadge'
@@ -1012,6 +1013,7 @@ export default function JobDetail() {
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [timeRefresh, setTimeRefresh] = useState(0)
   const [jobNotes, setJobNotes] = useState([])
   const [dirty, setDirty] = useState(false)
   const [jobAppliances, setJobAppliances] = useState([])
@@ -1169,7 +1171,18 @@ export default function JobDetail() {
   }
 
   async function toggleTask(tid) {
-    await saveTasks(tasks.map(t => t.id === tid ? { ...t, done: !t.done } : t))
+    const now = new Date().toISOString()
+    await saveTasks(tasks.map(t => {
+      if (t.id !== tid) return t
+      const completing = !t.done
+      return {
+        ...t,
+        done: completing,
+        completed_by:   completing ? (profile?.full_name || profile?.email || 'Unknown') : null,
+        completed_by_id: completing ? profile?.id : null,
+        completed_at:   completing ? now : null,
+      }
+    }))
   }
 
   async function deleteTask(tid) {
@@ -1318,7 +1331,20 @@ export default function JobDetail() {
                       </span>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-1.5 mt-1"><DueBadge t={t} /></div>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    <DueBadge t={t} />
+                    {t.done && t.completed_by && (
+                      <span style={{ fontSize:10, color:'#9CA3AF', display:'flex', alignItems:'center', gap:3 }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                        {t.completed_by}
+                        {t.completed_at && (
+                          <span style={{ color:'#C4C9D4' }}>
+                            · {new Date(t.completed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})} {new Date(t.completed_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none bg-transparent border-none cursor-pointer flex-shrink-0">×</button>
               </div>
@@ -1454,6 +1480,19 @@ export default function JobDetail() {
           )}
         </div>
       )}
+
+      {/* time tracking */}
+      <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Time tracking</div>
+          <ClockInButton jobId={id} onUpdate={() => setTimeRefresh(r => r+1)} />
+        </div>
+        <BudgetBar budgetHours={job.budget_hours} loggedHours={job.time_logged} />
+        <div style={{ marginTop:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>History</div>
+          <TimeHistory jobId={id} refreshKey={timeRefresh} />
+        </div>
+      </div>
 
       {/* drawings */}
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
