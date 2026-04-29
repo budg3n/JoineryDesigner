@@ -239,8 +239,24 @@ function CabinetIllustration({ specs, materials }) {
 
 // ── Material Selector ─────────────────────────────────────────────
 function MaterialSelector({ panelMaterials, specs, onChange }) {
-  const parsed = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
-  const set = (key, val) => onChange(JSON.stringify({ ...parsed, [key]: val }))
+  // Keep local state so multiple selectors don't overwrite each other
+  const [local, setLocal] = React.useState(() =>
+    specs ? (typeof specs === 'string' ? JSON.parse(specs) : { ...specs }) : {}
+  )
+
+  // Sync inbound specs changes (e.g. on load) into local state
+  React.useEffect(() => {
+    const incoming = specs ? (typeof specs === 'string' ? JSON.parse(specs) : specs) : {}
+    setLocal(prev => ({ ...incoming, ...prev }))
+  }, []) // only on mount — after that local state is the source of truth
+
+  const parsed = local
+
+  const set = (key, val) => {
+    const updated = { ...local, [key]: val }
+    setLocal(updated)
+    onChange(JSON.stringify(updated))
+  }
 
   return (
     <div style={{ marginBottom:20 }}>
@@ -1542,7 +1558,7 @@ export default function JobDetail() {
         <div style={{ position:'sticky', top:80 }}>
           <KitchenSpecs
             specs={job.kitchen_specs}
-            panelMaterials={panelMaterials}
+            panelMaterials={jobMats.filter(jm => jm.materials).map(jm => jm.materials)}
             onChange={specs => { setJob(j => ({ ...j, kitchen_specs: specs })); setDirty(true) }}
           />
         </div>
