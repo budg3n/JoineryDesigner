@@ -13,6 +13,7 @@ import Team from './screens/Team'
 import Appliances from './screens/Appliances'
 import Notes from './screens/Notes'
 import FileTypes from './screens/FileTypes'
+import OrderSheet from './screens/OrderSheet'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="notes" element={<Notes />} />
         <Route path="notes/:noteId" element={<Notes />} />
         <Route path="settings/file-types" element={<FileTypes />} />
+        <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>
   )

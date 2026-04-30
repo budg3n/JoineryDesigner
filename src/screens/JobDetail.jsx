@@ -9,7 +9,7 @@ import BackButton from '../components/BackButton'
 import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
-const STATUSES = ['In progress','Review','Complete','On hold']
+const STATUSES = ['In progress','Submitted for approval','Review','Complete','On hold']
 
 // Module-level cache — persists across navigations within the session
 // so re-opening a job doesn't re-fetch the materials library
@@ -1268,6 +1268,7 @@ export default function JobDetail() {
       saving,
       onSave: saveJob,
       onSketch: () => navigate(`/job/${id}/sketch`),
+      onOrders: () => navigate(`/job/${id}/orders`),
       onStartup: async () => {
         // Load startup note — try is_startup flag first, then title pattern
         let sNote = null
@@ -1522,6 +1523,7 @@ export default function JobDetail() {
 
   const statusStyle = {
     'In progress': 'bg-blue-50 text-blue-700 border-blue-200',
+  'Submitted for approval': 'bg-purple-50 text-purple-700 border-purple-200',
     'Review':      'bg-amber-50 text-amber-700 border-amber-200',
     'Complete':    'bg-teal-50 text-teal-700 border-teal-200',
     'On hold':     'bg-[#F3F4F6] text-[#6B7280] border-[#E8ECF0]',
@@ -1731,6 +1733,21 @@ export default function JobDetail() {
       />
 
       {/* linked notes */}
+      {/* order sheet quick link */}
+      <div onClick={() => navigate(`/job/${id}/orders`)}
+        style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', marginBottom:14, cursor:'pointer', transition:'all .12s' }}
+        onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#C4D4F8'}}
+        onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
+        <div style={{ width:36, height:36, borderRadius:9, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>To be ordered</div>
+          <div style={{ fontSize:11, color:'#9CA3AF' }}>Manage materials and items to order</div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+
       <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
           <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Notes</div>

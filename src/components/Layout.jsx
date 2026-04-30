@@ -179,6 +179,10 @@ export default function Layout() {
                 style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:'1px solid #FED7AA', background:'#FFF7ED', color:'#C2410C', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
                 🚀 Startup
               </button>
+              <button onClick={jobActions.onOrders}
+                style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                📋 Orders
+              </button>
               <button onClick={jobActions.onSketch}
                 style={{ height:34, fontSize:12, fontWeight:600, padding:'0 10px', borderRadius:8, border:'1px solid #6EE7B7', background:'#ECFDF5', color:'#065F46', cursor:'pointer' }}>
                 ✏️ Sketch

@@ -663,16 +663,133 @@ function SubCatView({ cat, allCats, fields, onDrillIn, onBack, onCatUpdated }) {
 
 // ── MATERIAL LIST VIEW ────────────────────────────────────────────
 // Shows materials within a subcategory with field-based filters
+// ── Spreadsheet cell ─────────────────────────────────────────────
+function MCell({ value='', onChange, type='text', options=[], placeholder='', w=120, readOnly=false }) {
+  const [editing, setEditing] = React.useState(false)
+  const [val, setVal] = React.useState(value)
+  const ref = React.useRef()
+  React.useEffect(()=>{ setVal(value) }, [value])
+  React.useEffect(()=>{ if(editing && ref.current) ref.current.focus() }, [editing])
+  const commit = v => { setEditing(false); if(v!==value && !readOnly) onChange(v) }
+
+  const base = { width:w, minWidth:w, maxWidth:w, height:36, padding:'0 8px',
+    display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0',
+    fontSize:12, flexShrink:0, boxSizing:'border-box', overflow:'hidden' }
+
+  if (type==='select') return (
+    <div style={base}>
+      <select value={val} onChange={e=>{ setVal(e.target.value); commit(e.target.value) }}
+        disabled={readOnly}
+        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color:'#374151' }}>
+        {options.map(o=><option key={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+
+  if (type==='colour') return (
+    <div style={{...base, gap:6, cursor:'text'}} onClick={()=>!readOnly&&setEditing(true)}>
+      {val && <div style={{ width:18, height:18, borderRadius:4, background:val, flexShrink:0, border:'1px solid rgba(0,0,0,0.1)' }} />}
+      {editing
+        ? <input ref={ref} value={val} onChange={e=>setVal(e.target.value)}
+            onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')commit(val)}}
+            style={{ flex:1, border:'none', outline:'none', background:'transparent', fontSize:12 }} />
+        : <span style={{ color:val?'#374151':'#C4C9D4', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{val||placeholder}</span>
+      }
+    </div>
+  )
+
+  if (type==='checkbox') return (
+    <div style={{...base, justifyContent:'center', cursor:'pointer'}} onClick={()=>!readOnly&&onChange(!value)}>
+      <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${value?'#5B8AF0':'#C4C9D4'}`, background:value?'#5B8AF0':'#fff', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .12s' }}>
+        {value && <span style={{ color:'#fff', fontSize:11, fontWeight:700, lineHeight:1 }}>✓</span>}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{...base, cursor:readOnly?'default':'text', color:val?'#374151':'#C4C9D4'}} onClick={()=>!readOnly&&setEditing(true)}>
+      {editing
+        ? <input ref={ref} value={val} onChange={e=>setVal(e.target.value)}
+            onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'||e.key==='Tab')commit(val)}}
+            placeholder={placeholder}
+            style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12 }} />
+        : <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%' }}>{val||placeholder}</span>
+      }
+    </div>
+  )
+}
+
+// ── Image upload cell ─────────────────────────────────────────────
+function ImageCell({ storagePath, matId, onUpdated, w=60 }) {
+  const toast = useToast()
+  const fileRef = React.useRef()
+  const [uploading, setUploading] = React.useState(false)
+  const url = storagePath ? pubUrl(storagePath) : null
+
+  async function handleFile(e) {
+    const file = e.target.files[0]; if (!file) return
+    setUploading(true)
+    const path = `materials/${matId}_${Date.now()}.jpg`
+    const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert:true })
+    if (error) { toast(error.message,'error'); setUploading(false); return }
+    await supabase.from('materials').update({ storage_path: path }).eq('id', matId)
+    onUpdated(path)
+    setUploading(false)
+    toast('Image uploaded ✓')
+  }
+
+  return (
+    <div style={{ width:w, minWidth:w, maxWidth:w, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, cursor:'pointer', position:'relative' }}
+      onClick={()=>fileRef.current?.click()} title="Click to upload image">
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }} />
+      {uploading
+        ? <div style={{ width:24, height:24, borderRadius:4, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}><div className="spinner" style={{ width:12, height:12, borderWidth:2 }} /></div>
+        : url
+        ? <img src={url} style={{ width:28, height:28, borderRadius:5, objectFit:'cover', border:'1px solid #E8ECF0' }} alt="" />
+        : <div style={{ width:28, height:28, borderRadius:5, background:'#F3F4F6', border:'1px dashed #DDE3EC', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, color:'#C4C9D4' }}>+</div>
+      }
+    </div>
+  )
+}
+
 function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdated }) {
   const toast = useToast()
   const targetCat = subCat || topCat
-  const [materials, setMaterials] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null)
-  const [showFieldMgr, setShowFieldMgr] = useState(false)
-  const [catFields, setCatFields] = useState(fields || [])
-  const [filters, setFilters] = useState({}) // { fieldId: value }
-  const [search, setSearch] = useState('')
+  const [materials, setMaterials] = React.useState([])
+  const [loading, setLoading]     = React.useState(true)
+  const [catFields, setCatFields] = React.useState(fields || [])
+  const [search, setSearch]       = React.useState('')
+  const [saving, setSaving]       = React.useState(false)
+  const [lastSaved, setLastSaved] = React.useState(null)
+  const [showFieldMgr, setShowFieldMgr] = React.useState(false)
+  const saveTimer = React.useRef()
+  const dragColIdx = React.useRef(null)
+
+  // Column definitions — core fields + custom fields from category
+  const coreCols = React.useMemo(() => [
+    { key:'img',          label:'Image',      w:60,  type:'image' },
+    { key:'name',         label:'Name',       w:180, type:'text',   required:true },
+    { key:'supplier',     label:'Supplier',   w:130, type:'text' },
+    { key:'panel_type',   label:'Panel type', w:110, type:'text' },
+    { key:'thickness',    label:'Thickness',  w:90,  type:'text',  placeholder:'mm' },
+    { key:'dimensions',   label:'Dimensions', w:130, type:'text',  placeholder:'e.g. 2400×1220' },
+    { key:'colour_code',  label:'Colour',     w:110, type:'text' },
+    { key:'finish',       label:'Finish',     w:110, type:'text' },
+    { key:'notes',        label:'Notes',      w:160, type:'text' },
+  ], [])
+
+  const customCols = React.useMemo(() =>
+    catFields.map(f => ({
+      key: `custom_${f.id}`, label: f.label, w: 110,
+      type: f.field_type === 'checkbox' ? 'checkbox' :
+            f.field_type === 'select'   ? 'select' : 'text',
+      options: f.options ? f.options.split(',').map(o=>o.trim()) : [],
+      fieldId: f.id,
+    }))
+  , [catFields])
+
+  const [cols, setCols] = React.useState([...coreCols, ...customCols])
+  React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
 
   useEffect(() => {
     Promise.all([
@@ -685,60 +802,58 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     })
   }, [targetCat.id])
 
-  // Build filter options from actual field values in materials
-  function filterOptions(field) {
-    const vals = new Set()
-    materials.forEach(m => {
-      const cv = safeJSON(m.custom_fields)
-      const v = cv[field.id]
-      if (v && v !== '' && v !== false) vals.add(String(v))
-    })
-    return [...vals].sort()
+  const filtered = materials.filter(m =>
+    !search || (m.name||'').toLowerCase().includes(search.toLowerCase()) ||
+    (m.supplier||'').toLowerCase().includes(search.toLowerCase())
+  )
+
+  function triggerSave(updated) {
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => doSave(updated), 1500)
   }
 
-  // filterable fields — text, number, select + grain
-  const filterableFields = catFields.filter(f => ['text','number','select'].includes(f.field_type))
+  async function doSave(mats) {
+    setSaving(true)
+    const toUpsert = mats.map(m => ({ ...m, category_id: targetCat.id }))
+    const { error } = await supabase.from('materials').upsert(toUpsert, { onConflict:'id' })
+    if (error) toast(error.message, 'error')
+    else setLastSaved(new Date())
+    setSaving(false)
+  }
 
-  // Build grain filter values from actual materials
-  const hasGrainVariants = materials.some(m => {
-    const cv = safeJSON(m.custom_fields)
-    return typeof cv['grained'] === 'boolean'
-  })
-
-  // Apply filters + search
-  const filtered = materials.filter(m => {
-    const cv = safeJSON(m.custom_fields)
-    // search
-    if (search && !(m.name||'').toLowerCase().includes(search.toLowerCase()) &&
-        !(m.supplier||'').toLowerCase().includes(search.toLowerCase())) return false
-    // grain filter
-    if (filters['_grain'] === 'true'  && cv['grained'] !== true)  return false
-    if (filters['_grain'] === 'false' && cv['grained'] !== false) return false
-    // field filters
-    return Object.entries(filters).every(([fid, fval]) => {
-      if (!fval || fid === '_grain') return true
-      const mval = String(cv[fid]||'').toLowerCase()
-      return mval === fval.toLowerCase()
-    })
-  })
-
-  const activeFilterCount = Object.values(filters).filter(Boolean).length
-
-  function onMatSaved(m) {
+  function updateMat(id, patch) {
     setMaterials(prev => {
-      const i = prev.findIndex(x => x.id === m.id)
-      return i>=0 ? prev.map((x,j)=>j===i?m:x) : [...prev,m].sort((a,b)=>a.name.localeCompare(b.name))
+      const updated = prev.map(m => {
+        if (m.id !== id) return m
+        // Handle custom field updates
+        if (patch._customFieldId) {
+          const cf = safeJSON(m.custom_fields)
+          return { ...m, custom_fields: JSON.stringify({ ...cf, [patch._customFieldId]: patch._value }) }
+        }
+        return { ...m, ...patch }
+      })
+      triggerSave(updated)
+      return updated
     })
-    setEditing(null)
   }
 
-  async function deleteMat(m) {
-    if (!confirm(`Delete "${m.name}"?`)) return
-    if (m.storage_path) await supabase.storage.from(BUCKET).remove([m.storage_path])
-    await supabase.from('materials').delete().eq('id', m.id)
-    setMaterials(prev => prev.filter(x => x.id !== m.id))
+  async function addRow() {
+    const tmp = { id: 'new_' + Date.now(), name:'', supplier:'', panel_type:'', thickness:'', colour_code:'', finish:'', notes:'', custom_fields:'{}', category_id: targetCat.id }
+    // Insert immediately so we have a real id for image upload
+    const { data, error } = await supabase.from('materials').insert({ name:'New material', category_id: targetCat.id, custom_fields:'{}' }).select().single()
+    if (error) { toast(error.message,'error'); return }
+    setMaterials(prev => [...prev, data])
+    toast('Row added — click cells to edit')
+  }
+
+  async function deleteRow(id) {
+    if (!confirm('Delete this material?')) return
+    await supabase.from('materials').delete().eq('id', id)
+    setMaterials(prev => prev.filter(m => m.id !== id))
     toast('Deleted')
   }
+
+  const totalW = cols.reduce((a,c)=>a+c.w, 0) + 36 + 40 // + drag + actions
 
   return (
     <div>
@@ -748,317 +863,232 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
           onChanged={updated => setCatFields(updated)} />
       )}
 
-      {/* breadcrumb */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, flexWrap:'wrap', gap:10 }}>
+      {/* breadcrumb + actions */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-          <button onClick={() => onBack('top')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0, fontWeight:500 }}>
+          <button onClick={() => onBack('top')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             Materials
           </button>
-          <span style={{ color:'#C4C9D4' }}>›</span>
           {subCat && <>
-            <button onClick={() => onBack('sub')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', padding:0, fontWeight:500 }}>{topCat.name}</button>
             <span style={{ color:'#C4C9D4' }}>›</span>
+            <button onClick={() => onBack('sub')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', padding:0 }}>{topCat.name}</button>
           </>}
+          <span style={{ color:'#C4C9D4' }}>›</span>
           <span style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>{targetCat.name}</span>
-          <span style={{ fontSize:12, color:'#9CA3AF', background:'#F3F4F6', padding:'2px 8px', borderRadius:10 }}>{filtered.length}{filtered.length!==materials.length?` / ${materials.length}`:''}</span>
+          <span style={{ fontSize:12, color:'#9CA3AF', background:'#F3F4F6', padding:'2px 8px', borderRadius:10 }}>{filtered.length}{filtered.length!==materials.length?`/${materials.length}`:''}</span>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          {saving ? <span style={{ fontSize:11, color:'#9CA3AF' }}>Saving…</span>
+            : lastSaved ? <span style={{ fontSize:11, color:'#9CA3AF' }}>Saved {lastSaved.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+            : null}
+          <Btn onClick={()=>doSave(materials)} style={{ fontSize:12, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>💾 Save</Btn>
           <Btn onClick={() => setShowFieldMgr(true)} style={{ fontSize:12 }}>⚙ Fields</Btn>
-          <Btn onClick={() => setEditing('new')} variant="green">+ Add material</Btn>
+          <Btn onClick={addRow} variant="green">+ Add material</Btn>
         </div>
       </div>
 
-      {editing && (
-        <MaterialForm
-          material={editing==='new' ? null : editing}
-          category={targetCat}
-          topCategory={subCat ? topCat : null}
-          fields={catFields}
-          allCats={allCats}
-          onSave={onMatSaved}
-          onCancel={() => setEditing(null)} />
-      )}
-
-      {/* search + filters */}
-      {!loading && materials.length > 0 && (
-        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:14, marginBottom:16 }}>
-          {/* search */}
-          <div style={{ position:'relative', marginBottom: filterableFields.length > 0 ? 12 : 0 }}>
-            <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF', fontSize:14, pointerEvents:'none' }}>⌕</span>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${targetCat.name}…`}
-              style={{ width:'100%', padding:'8px 10px 8px 32px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none' }} />
-          </div>
-          {/* field filters */}
-          {(filterableFields.length > 0 || hasGrainVariants) && (
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'flex-end' }}>
-              {/* grain filter */}
-              {hasGrainVariants && (
-                <div>
-                  <div style={{ fontSize:11, fontWeight:600, color:'#9CA3AF', marginBottom:4 }}>Grain</div>
-                  <div style={{ display:'flex', gap:4 }}>
-                    {['All','Grained','No grain'].map(opt => {
-                      const fval = opt==='All' ? '' : opt==='Grained' ? 'true' : 'false'
-                      const active = (filters['_grain']||'') === fval
-                      return (
-                        <button key={opt} onClick={() => setFilters(p => ({ ...p, _grain: fval }))}
-                          style={{ fontSize:11, padding:'4px 10px', borderRadius:16, border:`1.5px solid ${active?'#5B8AF0':'#E8ECF0'}`, background:active?'#5B8AF0':'#fff', color:active?'#fff':'#6B7280', cursor:'pointer', fontWeight:600, transition:'all .1s' }}>
-                          {opt}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-              {filterableFields.map(f => {
-                const opts = filterOptions(f)
-                if (!opts.length) return null
-                const active = filters[f.id]
-                return (
-                  <div key={f.id}>
-                    <div style={{ fontSize:11, fontWeight:600, color:'#9CA3AF', marginBottom:4 }}>{f.label}</div>
-                    <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                      <button onClick={() => setFilters(p => ({ ...p, [f.id]: '' }))}
-                        style={{ fontSize:11, padding:'4px 10px', borderRadius:16, border:`1.5px solid ${!active?'#5B8AF0':'#E8ECF0'}`, background:!active?'#5B8AF0':'#fff', color:!active?'#fff':'#6B7280', cursor:'pointer', fontWeight:600, transition:'all .1s' }}>
-                        All
-                      </button>
-                      {opts.map(o => (
-                        <button key={o} onClick={() => setFilters(p => ({ ...p, [f.id]: p[f.id]===o ? '' : o }))}
-                          style={{ fontSize:11, padding:'4px 10px', borderRadius:16, border:`1.5px solid ${active===o?'#5B8AF0':'#E8ECF0'}`, background:active===o?'#EEF2FF':'#fff', color:active===o?'#3730A3':'#6B7280', cursor:'pointer', fontWeight:600, transition:'all .1s' }}>
-                          {o}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-              {activeFilterCount > 0 && (
-                <button onClick={() => setFilters({})}
-                  style={{ fontSize:11, padding:'4px 10px', borderRadius:16, border:'1.5px solid #FCA5A5', background:'#FEF2F2', color:'#991B1B', cursor:'pointer', fontWeight:600, alignSelf:'flex-end', marginBottom:0 }}>
-                  Clear filters ×
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* search */}
+      <div style={{ position:'relative', marginBottom:12, maxWidth:300 }}>
+        <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF', fontSize:14, pointerEvents:'none' }}>⌕</span>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${targetCat.name}…`}
+          style={{ width:'100%', padding:'8px 10px 8px 32px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+      </div>
 
       {loading ? (
         <div style={{ display:'flex', justifyContent:'center', padding:'40px 0' }}><div className="spinner" /></div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'40px 0', color:'#9CA3AF', fontSize:14 }}>
-          {materials.length > 0 ? 'No materials match the current filters' : `No materials yet — click "+ Add material" to get started`}
-        </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:12 }}>
-          {filtered.map(m => {
-            const cv = safeJSON(m.custom_fields)
-            // show grain + first 3 field values as tags
-            const tags = (() => { const grainTag = cv['grained'] === true ? 'Grained' : cv['grained'] === false ? 'No grain' : null; return [grainTag, ...catFields.slice(0,3).map(f => cv[f.id])].filter(v => v && v !== false && v !== '') })()
-            return (
-              <div key={m.id} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'box-shadow .12s' }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.09)'}
-                onMouseLeave={e => e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)'}>
-                {m.storage_path
-                  ? <img src={pubUrl(m.storage_path)} style={{ width:'100%', height:90, objectFit:'cover', display:'block' }} loading="lazy" alt="" />
-                  : <div style={{ width:'100%', height:90, background:m.color||'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26 }}>
-                      {m.color ? '' : '🎨'}
-                    </div>
-                }
-                <div style={{ padding:'10px 12px' }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', marginBottom:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
-                  {m.supplier && <div style={{ fontSize:11, color:'#9CA3AF', marginBottom:7 }}>{m.supplier}</div>}
-                  {tags.length > 0 && (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:9 }}>
-                      {tags.map((tag,i) => (
-                        <span key={i} style={{ fontSize:10, padding:'2px 6px', borderRadius:6, background:'#F3F4F6', color:'#6B7280', fontWeight:500 }}>{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ display:'flex', gap:5 }}>
-                    <button onClick={() => setEditing(m)} style={{ flex:1, fontSize:12, padding:'5px 0', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#374151', cursor:'pointer', fontWeight:500 }}
-                      onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>Edit</button>
-                    <button onClick={() => deleteMat(m)} style={{ fontSize:12, padding:'5px 10px', borderRadius:8, border:'1px solid #FCA5A5', background:'#FEF2F2', color:'#991B1B', cursor:'pointer', fontWeight:600 }}>×</button>
+        <div style={{ overflowX:'auto', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ minWidth: totalW }}>
+
+            {/* header */}
+            <div style={{ display:'flex', background:'#F9FAFB', borderBottom:'2px solid #E8ECF0', position:'sticky', top:0, zIndex:10 }}>
+              <div style={{ width:36, flexShrink:0, borderRight:'1px solid #E8ECF0' }} />
+              {cols.map((c,ci) => (
+                <div key={c.key}
+                  draggable={c.key!=='img'}
+                  onDragStart={()=>{ dragColIdx.current=ci }}
+                  onDragOver={e=>e.preventDefault()}
+                  onDrop={()=>{
+                    const from=dragColIdx.current; if(from===null||from===ci) return
+                    setCols(prev=>{ const n=[...prev]; const [m]=n.splice(from,1); n.splice(ci,0,m); return n })
+                    dragColIdx.current=null
+                  }}
+                  style={{ width:c.w, minWidth:c.w, padding:'9px 8px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', cursor:c.key==='img'?'default':'grab', userSelect:'none', display:'flex', alignItems:'center', gap:4 }}>
+                  {c.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>}
+                  {c.label}
+                </div>
+              ))}
+              <div style={{ width:40, flexShrink:0 }} />
+            </div>
+
+            {/* rows */}
+            {filtered.length === 0 ? (
+              <div style={{ padding:'40px 0', textAlign:'center', color:'#9CA3AF', fontSize:13 }}>
+                {materials.length===0 ? 'No materials yet — click + Add material' : 'No results'}
+              </div>
+            ) : filtered.map((m, idx) => {
+              const cf = safeJSON(m.custom_fields)
+              return (
+                <div key={m.id} style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                  onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?'#fff':'#FAFAFA'}>
+                  <div style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', color:'#D1D5DB', fontSize:12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>⠿</div>
+                  {cols.map(col => {
+                    if (col.type === 'image') return (
+                      <ImageCell key={col.key} storagePath={m.storage_path} matId={m.id} w={col.w}
+                        onUpdated={path => setMaterials(prev=>prev.map(x=>x.id===m.id?{...x,storage_path:path}:x))} />
+                    )
+                    if (col.fieldId) {
+                      // Custom field
+                      return (
+                        <MCell key={col.key} value={cf[col.fieldId]??''} w={col.w}
+                          type={col.type} options={col.options} placeholder={col.label}
+                          onChange={v=>updateMat(m.id,{_customFieldId:col.fieldId,_value:v})} />
+                      )
+                    }
+                    return (
+                      <MCell key={col.key} value={m[col.key]??''} w={col.w}
+                        type={col.type} placeholder={col.placeholder||col.label}
+                        onChange={v=>updateMat(m.id,{[col.key]:v})} />
+                    )
+                  })}
+                  <div style={{ width:40, display:'flex', alignItems:'center', justifyContent:'center', height:36, flexShrink:0 }}>
+                    <button onClick={()=>deleteRow(m.id)}
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, padding:'2px 4px', borderRadius:4 }}
+                      onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                      onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
                   </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+
+            {/* add row */}
+            <div onClick={addRow}
+              style={{ padding:'8px 16px', fontSize:12, color:'#9CA3AF', cursor:'pointer', borderTop:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, background:'#FAFAFA' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
+              onMouseLeave={e=>e.currentTarget.style.background='#FAFAFA'}>
+              <span style={{ fontSize:16 }}>+</span> Add material
+            </div>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ── CATEGORY DETAIL VIEW (entry point — decides which level to show) ─
-function CategoryDetail({ cat, allCats, onBack, onCatUpdated }) {
-  // nav stack: null = subcategory tiles, { sub } = material list
-  const [drillSub, setDrillSub] = useState(null)
-  const [drillFields, setDrillFields] = useState([])
-
-  const subs = allCats.filter(c => c.parent_id === cat.id)
-
-  // If no subcategories, go straight to material list for the cat itself
-  if (!subs.length) {
-    return (
-      <MaterialListView
-        topCat={cat} subCat={null} fields={[]} allCats={allCats}
-        onBack={() => onBack()}
-        onCatUpdated={onCatUpdated} />
-    )
-  }
-
-  if (drillSub !== undefined && drillSub !== null) {
-    return (
-      <MaterialListView
-        topCat={cat} subCat={drillSub} fields={drillFields} allCats={allCats}
-        onBack={(level) => { if (level==='top') onBack(); else setDrillSub(null) }}
-        onCatUpdated={onCatUpdated} />
-    )
-  }
-
-  return (
-    <SubCatView
-      cat={cat} allCats={allCats} fields={drillFields}
-      onDrillIn={(parentCat, sub, flds) => {
-        setDrillSub(sub || { ...parentCat, _noSub: true })
-        setDrillFields(flds || [])
-      }}
-      onBack={onBack}
-      onCatUpdated={onCatUpdated} />
-  )
-}
 
 
-// ── Error boundary ───────────────────────────────────────────────
-class CatErrorBoundary extends React.Component {
-  state = { error: null }
-  static getDerivedStateFromError(e) { return { error: e } }
-  render() {
-    if (this.state.error) return (
-      <div style={{ padding:40, textAlign:'center' }}>
-        <div style={{ fontSize:24, marginBottom:12 }}>⚠️</div>
-        <div style={{ fontSize:14, fontWeight:600, color:'#2A3042', marginBottom:8 }}>Something went wrong loading this category</div>
-        <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:20, fontFamily:'monospace' }}>{this.state.error.message}</div>
-        <button onClick={() => this.setState({ error:null })} style={{ padding:'8px 20px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:13, fontWeight:600 }}>Try again</button>
-      </div>
-    )
-    return this.props.children
-  }
-}
-
-// ── MAIN SCREEN ───────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────
 export default function Materials() {
+  const [view,    setView]    = useState('top')   // top | sub | list
+  const [topCat,  setTopCat]  = useState(null)
+  const [subCat,  setSubCat]  = useState(null)
+  const [allCats, setAllCats] = useState([])
+  const [loading, setLoading] = useState(true)
   const toast = useToast()
-  const [cats, setCats]             = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [activeCat, setActiveCat]   = useState(null)
-  const [showCatForm, setShowCatForm] = useState(false)
-  const [editCat, setEditCat]       = useState(null)
 
   useEffect(() => {
-    supabase.from('material_categories').select('*').order('name').then(({ data }) => {
-      setCats(data || [])
-      setLoading(false)
-    })
+    supabase.from('material_categories').select('*').order('name')
+      .then(({ data }) => { setAllCats(data || []); setLoading(false) })
   }, [])
 
-  const topCats = cats.filter(c => !c.parent_id)
+  // Top-level categories
+  const topCats = allCats.filter(c => !c.parent_id)
 
-  async function deleteCat(cat) {
-    const hasSubs = cats.some(c => c.parent_id === cat.id)
-    if (hasSubs) { toast('Remove subcategories first', 'error'); return }
-    const { count } = await supabase.from('materials').select('*',{count:'exact',head:true}).eq('category_id', cat.id)
-    if (count > 0) { toast(`${count} material(s) use this — reassign first`, 'error'); return }
-    if (!confirm(`Delete "${cat.name}"?`)) return
-    if (cat.image_path) await supabase.storage.from(BUCKET).remove([cat.image_path])
-    await supabase.from('material_categories').delete().eq('id', cat.id)
-    setCats(p => p.filter(c => c.id !== cat.id))
-    toast('Category deleted')
+  function openTop(cat) { setTopCat(cat); setSubCat(null); setView('sub') }
+  function openSub(cat) { setSubCat(cat); setView('list') }
+  function goBack(to) {
+    if (to === 'top') { setView('top'); setTopCat(null); setSubCat(null) }
+    if (to === 'sub') { setView('sub'); setSubCat(null) }
   }
 
-  // Drill into category
-  if (activeCat) {
+  if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
+
+  // Show list view (materials spreadsheet)
+  if (view === 'list') {
     return (
-      <CatErrorBoundary>
-      <CategoryDetail
-        cat={activeCat}
-        allCats={cats}
-        onBack={() => setActiveCat(null)}
-        onCatUpdated={updated => setCats(updated)} />
-      </CatErrorBoundary>
+      <MaterialListView
+        topCat={topCat} subCat={subCat}
+        fields={[]} allCats={allCats}
+        onBack={goBack}
+        onCatUpdated={updated => setAllCats(prev => prev.map(c => c.id===updated.id ? updated : c))} />
     )
   }
 
+  // Show subcategories of a top-level category
+  if (view === 'sub' && topCat) {
+    const subs = allCats.filter(c => c.parent_id === topCat.id)
+    return (
+      <div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
+          <button onClick={() => goBack('top')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Materials
+          </button>
+          <span style={{ color:'#C4C9D4' }}>›</span>
+          <span style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>{topCat.name}</span>
+        </div>
+        {subs.length === 0 ? (
+          // No subcategories — go straight to list
+          <MaterialListView topCat={topCat} subCat={null} fields={[]} allCats={allCats} onBack={goBack} onCatUpdated={()=>{}} />
+        ) : (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
+            {subs.map(cat => (
+              <div key={cat.id} onClick={() => openSub(cat)}
+                style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+                {cat.image_path
+                  ? <img src={pubUrl(cat.image_path)} style={{ width:60, height:60, borderRadius:10, objectFit:'cover', marginBottom:10 }} alt="" />
+                  : <div style={{ width:60, height:60, borderRadius:10, background:'#F3F4F6', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>📦</div>
+                }
+                <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+              </div>
+            ))}
+            {/* Also allow viewing all in top cat directly */}
+            <div onClick={() => { setSubCat(null); setView('list') }}
+              style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', transition:'all .15s' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+              onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+              <div style={{ width:60, height:60, borderRadius:10, background:'#EEF2FF', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>📋</div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {topCat.name}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Top-level category tiles
   return (
     <div>
-      {(showCatForm || editCat) && (
-        <CategoryForm
-          category={editCat}
-          allCats={cats}
-          onClose={() => { setShowCatForm(false); setEditCat(null) }}
-          onSave={saved => {
-            setCats(prev => {
-              const i = prev.findIndex(c => c.id === saved.id)
-              return i>=0 ? prev.map((c,j)=>j===i?saved:c) : [...prev, saved]
-            })
-            setShowCatForm(false); setEditCat(null)
-          }} />
-      )}
-
-      <BackButton to="/settings" label="Settings" />
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
         <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>Materials</h1>
-        <Btn onClick={() => setShowCatForm(true)} variant="green">+ Add category</Btn>
       </div>
-
-      {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
-      ) : topCats.length === 0 ? (
+      {topCats.length === 0 ? (
         <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
-          No categories yet — add one to get started
+          No categories yet — add them in Settings
         </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:16 }}>
-          {topCats.map(cat => {
-            const subCount = cats.filter(c => c.parent_id === cat.id).length
-            return (
-              <div key={cat.id} style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.06)', cursor:'pointer', transition:'all .15s', position:'relative' }}
-                onClick={() => setActiveCat(cat)}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.12)'; e.currentTarget.style.transform='translateY(-2px)' }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'; e.currentTarget.style.transform='none' }}>
-                {/* image or placeholder */}
-                <div style={{ width:'100%', height:130, overflow:'hidden', position:'relative', background: cat.image_path ? 'transparent' : 'linear-gradient(135deg, #EEF2FF 0%, #E8ECF0 100%)' }}>
-                  {cat.image_path
-                    ? <img src={pubUrl(cat.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" alt="" />
-                    : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>🪵</div>
-                  }
-                  {/* edit/delete overlay buttons */}
-                  <div style={{ position:'absolute', top:8, right:8, display:'flex', gap:4 }}
-                    onClick={e => e.stopPropagation()}>
-                    <button onClick={() => setEditCat(cat)}
-                      style={{ width:28, height:28, borderRadius:8, background:'rgba(255,255,255,0.9)', border:'none', cursor:'pointer', fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 4px rgba(0,0,0,0.15)' }}>✎</button>
-                    <button onClick={() => deleteCat(cat)}
-                      style={{ width:28, height:28, borderRadius:8, background:'rgba(255,255,255,0.9)', border:'none', cursor:'pointer', fontSize:13, color:'#E24B4A', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 4px rgba(0,0,0,0.15)' }}>×</button>
-                  </div>
-                </div>
-                <div style={{ padding:'14px 16px' }}>
-                  <div style={{ fontSize:15, fontWeight:700, color:'#2A3042', marginBottom:3 }}>{cat.name}</div>
-                  <div style={{ fontSize:12, color:'#9CA3AF' }}>
-                    {subCount > 0 ? `${subCount} subcategor${subCount===1?'y':'ies'}` : 'No subcategories'}
-                  </div>
-                </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
+          {topCats.map(cat => (
+            <div key={cat.id} onClick={() => openTop(cat)}
+              style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+              onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+              {cat.image_path
+                ? <img src={pubUrl(cat.image_path)} style={{ width:64, height:64, borderRadius:12, objectFit:'cover', marginBottom:10 }} alt="" />
+                : <div style={{ width:64, height:64, borderRadius:12, background:'#F3F4F6', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>📦</div>
+              }
+              <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+              <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                {allCats.filter(c=>c.parent_id===cat.id).length > 0
+                  ? `${allCats.filter(c=>c.parent_id===cat.id).length} subcategories`
+                  : 'Click to browse'}
               </div>
-            )
-          })}
-          {/* add category tile */}
-          <div onClick={() => setShowCatForm(true)}
-            style={{ border:'2px dashed #E8ECF0', borderRadius:16, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, cursor:'pointer', minHeight:200, transition:'all .15s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor='#5B8AF0'; e.currentTarget.style.background='#F9FAFB' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor='#E8ECF0'; e.currentTarget.style.background='transparent' }}>
-            <div style={{ fontSize:28, opacity:0.4 }}>+</div>
-            <span style={{ fontSize:13, color:'#9CA3AF', fontWeight:600 }}>Add category</span>
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

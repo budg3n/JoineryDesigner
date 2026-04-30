@@ -226,10 +226,11 @@ function JobCard({ job, index, onClick, activeEntries = [] }) {
 }
 
 const TABS = [
-  { key:'active', label:'Active',  f: j => j.status === 'In progress' },
-  { key:'review', label:'Review',  f: j => j.status === 'Review' },
-  { key:'hold',   label:'On hold', f: j => j.status === 'On hold' },
-  { key:'done',   label:'Done',    f: j => j.status === 'Complete' },
+  { key:'active',    label:'Active',               f: j => j.status === 'In progress' },
+  { key:'submitted', label:'Submitted for approval',f: j => j.status === 'Submitted for approval' },
+  { key:'review',    label:'Review',               f: j => j.status === 'Review' },
+  { key:'hold',      label:'On hold',              f: j => j.status === 'On hold' },
+  { key:'done',      label:'Done',                 f: j => j.status === 'Complete', hideCount: true },
 ]
 
 export default function Dashboard() {
@@ -312,12 +313,20 @@ export default function Dashboard() {
         </div>
         {/* tabs */}
         <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', flexShrink:0 }}>
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              style={{ fontSize:12, fontWeight: tab===t.key ? 600 : 500, padding:'5px 14px', borderRadius:8, border:'none', cursor:'pointer', background: tab===t.key ? '#fff' : 'transparent', color: tab===t.key ? '#2A3042' : '#9CA3AF', boxShadow: tab===t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition:'all .12s' }}>
-              {t.label}
-            </button>
-          ))}
+          {TABS.map(t => {
+            const count = jobs.filter(t.f).length
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                style={{ fontSize:12, fontWeight: tab===t.key ? 600 : 500, padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', background: tab===t.key ? '#fff' : 'transparent', color: tab===t.key ? '#2A3042' : '#9CA3AF', boxShadow: tab===t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition:'all .12s', display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap' }}>
+                {t.label}
+                {!t.hideCount && (
+                  <span style={{ fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:8, background: tab===t.key ? '#EEF2FF' : '#E8ECF0', color: tab===t.key ? '#5B8AF0' : '#9CA3AF', minWidth:16, textAlign:'center' }}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
