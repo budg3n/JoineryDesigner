@@ -197,7 +197,7 @@ function JobCard({ job, index, onClick, activeEntries = [] }) {
         <div style={{ height:3, background: accent }} />
         <div style={{ padding:16 }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:10 }}>
-            <span style={{ fontSize:10, color:'#9CA3AF', fontFamily:'monospace', fontWeight:500 }}>{job.id}</span>
+            <span style={{ fontSize:10, color:'#9CA3AF', fontFamily:'monospace', fontWeight:500 }}>{job.job_number || job.mvnum || job.id.slice(0,8)}</span>
             <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:20, background:badge.bg, color:badge.color }}>{job.status}</span>
           </div>
           <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:2, lineHeight:1.3 }}>{job.name}</div>

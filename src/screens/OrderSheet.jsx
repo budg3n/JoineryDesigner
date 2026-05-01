@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { useDragColumns } from '../hooks/useDragColumns'
 import { buildDescription } from './CopyFormat'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
@@ -10,7 +10,7 @@ import { useToast } from '../components/Toast'
 const STATUS_OPTIONS   = ['To order', 'Ordered', 'Received']
 const UNIT_OPTIONS     = ['sheets', 'pcs', 'm', 'm²', 'sets', 'rolls', 'boxes', 'kg', 'L']
 const CATEGORY_OPTIONS = ['Board', 'Hardware', 'Appliance', 'Accessory', 'Other']
-const GROUP_OPTIONS    = ['Category', 'Supplier']
+const GROUP_OPTIONS    = ['Category', 'Supplier', 'Room']
 
 const STATUS_STYLES = {
   'To order': { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A' },
@@ -20,6 +20,7 @@ const STATUS_STYLES = {
 
 const DEFAULT_COLS = [
   { key:'item',       label:'Name',        w:190, type:'item' },
+  { key:'room_name',  label:'Room',        w:110, type:'room' },
   { key:'supplier',   label:'Supplier',    w:130, type:'text' },
   { key:'panel_type', label:'Panel type',  w:100, type:'text' },
   { key:'thickness',  label:'Thickness',   w:85,  type:'text',   placeholder:'mm' },
@@ -41,7 +42,7 @@ function makeRow(overrides={}) {
     id:          Date.now().toString(36)+Math.random().toString(36).slice(2),
     item:'', supplier:'', panel_type:'', thickness:'', colour:'', finish:'',
     dimensions:'', qty:'', unit:'sheets', sku:'', price:'', po_number:'', notes:'',
-    category:'Board', status:'To order', needed:'', material_id:null,
+    category:'Board', status:'To order', needed:'', material_id:null, room_id:null,
     ...overrides,
   }
 }
@@ -66,6 +67,16 @@ function Cell({ value='', onChange, col }) {
       <select value={val} onChange={e=>{setVal(e.target.value);commit(e.target.value)}}
         style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color:'#374151' }}>
         {col.options.map(o=><option key={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+
+  if (col.type === 'room') return (
+    <div style={base}>
+      <select value={val||''} onChange={e=>{setVal(e.target.value);commit(e.target.value)}}
+        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color: val?'#374151':'#C4C9D4' }}>
+        <option value=''>No room</option>
+        {(col._rooms||[]).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
       </select>
     </div>
   )
@@ -287,7 +298,7 @@ function CopyBtn({ row, format }) {
   )
 }
 
-function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat }) {
+function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat, rooms }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
   const qty = parseFloat(row.qty); const price = parseFloat(row.price)
   const total = !isNaN(qty) && !isNaN(price) && qty > 0 && price > 0 ? (qty*price).toFixed(2) : null
@@ -299,13 +310,22 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
       {/* drag */}
       <div style={{ width:28, height:36, display:'flex', alignItems:'center', justifyContent:'center', color:'#D1D5DB', fontSize:12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>⠿</div>
 
-      {cols.map(col=>(
-        col.type === 'item'
-          ? <ItemCell key={col.key} value={row.item} width={col.w} materials={materials}
-              onCommit={p=>onUpdate(row.id,p)} />
-          : <Cell key={col.key} col={col} value={row[col.key]||''}
-              onChange={v=>onUpdate(row.id,{[col.key]:v})} />
-      ))}
+      {cols.map(col=>{
+        if (col.type === 'item') return (
+          <ItemCell key={col.key} value={row.item} width={col.w} materials={materials}
+            onCommit={p=>onUpdate(row.id,p)} />
+        )
+        if (col.type === 'room') return (
+          <Cell key={col.key}
+            col={{...col, _rooms: rooms}}
+            value={row.room_id||''}
+            onChange={v=>onUpdate(row.id,{room_id:v||null})} />
+        )
+        return (
+          <Cell key={col.key} col={col} value={row[col.key]||''}
+            onChange={v=>onUpdate(row.id,{[col.key]:v})} />
+        )
+      })}
 
       {/* total */}
       <div style={{ width:80, minWidth:80, height:36, padding:'0 8px', display:'flex', alignItems:'center', justifyContent:'flex-end', borderRight:'1px solid #E8ECF0', flexShrink:0, fontSize:12, fontWeight:600, color: total?'#2A3042':'#C4C9D4' }}>
@@ -333,7 +353,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
 }
 
 // ── Group section ─────────────────────────────────────────────────
-function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat }) {
+function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms }) {
   const [collapsed, setCollapsed] = useState(false)
   const toOrder = rows.filter(r=>r.status==='To order').length
   const subtotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
@@ -383,14 +403,19 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
 export default function OrderSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const toast = useToast()
+  const roomFilter = new URLSearchParams(location.search).get('room') || null
   const [job,       setJob]       = useState(null)
   const [rows,      setRows]      = useState([])
   const [materials, setMaterials] = useState([])
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(null)
+  const [rooms,     setRooms]     = useState([])
   const [addLib,    setAddLib]    = useState(null)
   const [groupBy,   setGroupBy]   = useState('Category')
+  // If opened from a room, switch to Room grouping
+  useEffect(()=>{ if(roomFilter) setGroupBy('Room') },[roomFilter])
   const [filter,    setFilter]    = useState('All')
   const [cols,      setCols]      = useState(DEFAULT_COLS)
   const [copyFormat, setCopyFormat] = useState({ tokens:[], separator:' ' })
@@ -403,9 +428,11 @@ export default function OrderSheet() {
       supabase.from('jobs').select('id,name,client').eq('id',id).single(),
       supabase.from('materials').select('*').order('name'),
       supabase.from('order_items').select('*').eq('job_id',id).order('created_at'),
-    ]).then(([{data:j},{data:m},{data:o}])=>{
+      supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
+    ]).then(([{data:j},{data:m},{data:o},{data:r}])=>{
       setJob(j)
       setMaterials(m||[])
+      setRooms(r||[])
       setRows(o||[])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
@@ -444,7 +471,7 @@ export default function OrderSheet() {
       ? { panel_type: groupTitle!=='Other'?groupTitle:'', category: 'Board' }
       : { supplier: groupTitle==='No supplier'?'':groupTitle }
     setRows(prev=>{
-      const nr = makeRow(defaults)
+      const nr = makeRow({...defaults, room_id: roomFilter||null})
       const updated = [...prev, nr]
       triggerSave(updated)
       return updated
@@ -468,35 +495,49 @@ export default function OrderSheet() {
   }
 
   // Group rows
-  const filtered = filter==='All' ? rows : rows.filter(r=>r.status===filter)
+  const filteredByRoom = roomFilter ? rows.filter(r=>r.room_id===roomFilter) : rows
+  const filtered = filter==='All' ? filteredByRoom : filteredByRoom.filter(r=>r.status===filter)
+  // Enrich rows with room_name for display
+  const rowsWithRoom = useMemo(()=>
+    filtered.map(r => ({
+      ...r,
+      room_name: r.room_id ? (rooms.find(rm=>rm.id===r.room_id)?.name || 'Unknown room') : ''
+    }))
+  , [filtered, rooms])
+
   const groups = useMemo(()=>{
     const map = {}
-    filtered.forEach(r=>{
+    rowsWithRoom.forEach(r=>{
       let key
       if (groupBy==='Category') {
-        // Group by panel_type if set, otherwise category
         key = r.panel_type || r.category || 'Other'
-      } else {
+      } else if (groupBy==='Supplier') {
         key = r.supplier || 'No supplier'
+      } else {
+        // Room grouping
+        key = r.room_name || 'No room'
       }
       if (!map[key]) map[key]=[]
       map[key].push(r)
     })
     if (groupBy==='Category') {
-      // Sort: Board-related first, then alphabetical
       const preferred = ['MDF','Particle Board','Plywood','Hardwood','Board','Hardware','Appliance','Accessory','Other']
-      const keys = Object.keys(map)
-      const sorted = [...keys].sort((a,b) => {
-        const ai = preferred.indexOf(a), bi = preferred.indexOf(b)
-        if (ai>=0 && bi>=0) return ai-bi
-        if (ai>=0) return -1
-        if (bi>=0) return 1
+      return Object.keys(map).sort((a,b)=>{
+        const ai=preferred.indexOf(a),bi=preferred.indexOf(b)
+        if(ai>=0&&bi>=0) return ai-bi; if(ai>=0) return -1; if(bi>=0) return 1
         return a.localeCompare(b)
-      })
-      return sorted.map(k=>([k,map[k]]))
+      }).map(k=>([k,map[k]]))
+    }
+    if (groupBy==='Room') {
+      // Rooms in their sort order, no room last
+      const roomOrder = rooms.map(r=>r.name)
+      return Object.keys(map).sort((a,b)=>{
+        if(a==='No room') return 1; if(b==='No room') return -1
+        return roomOrder.indexOf(a)-roomOrder.indexOf(b)
+      }).map(k=>([k,map[k]]))
     }
     return Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
-  },[filtered, groupBy])
+  },[rowsWithRoom, groupBy, rooms])
 
   const toOrderTotal = rows.filter(r=>r.status==='To order').length
   const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
@@ -552,6 +593,18 @@ export default function OrderSheet() {
         </div>
       </div>
 
+      {/* room filter banner */}
+      {roomFilter && rooms.length > 0 && (()=>{
+        const rm = rooms.find(r=>r.id===roomFilter)
+        return rm ? (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background:'#EEF2FF', borderRadius:10, border:'1px solid #C4D4F8', marginBottom:10 }}>
+            <span style={{ fontSize:14 }}>🏠</span>
+            <span style={{ fontSize:13, fontWeight:600, color:'#3730A3', flex:1 }}>Showing orders for <strong>{rm.name}</strong></span>
+            <button onClick={()=>navigate(`/job/${id}/orders`)} style={{ fontSize:11, color:'#6B7280', background:'none', border:'none', cursor:'pointer' }}>View all</button>
+          </div>
+        ) : null
+      })()}
+
       {/* status filter */}
       <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>
         {['All',...STATUS_OPTIONS].map(f=>{
@@ -595,7 +648,7 @@ export default function OrderSheet() {
           {groups.map(([groupTitle, groupRows])=>(
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
               materials={materials} onUpdate={updateRow} onDelete={deleteRow}
-              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} />
+              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} rooms={rooms} />
           ))}
 
           {groups.length===0 && (

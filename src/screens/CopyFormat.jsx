@@ -50,7 +50,7 @@ function FieldToken({ field, suffix, onRemove, onSuffixChange, onMoveUp, onMoveD
             </span>
           )}
         </div>
-        <span style={{ fontSize:11, color:'#9CA3AF' }}>example: <span style={{ color:'#5B8AF0', fontWeight:600' }}>{field.example}{suffix}</span></span>
+        <span style={{ fontSize:11, color:'#9CA3AF' }}>example: <span style={{ color:'#5B8AF0', fontWeight:600 }}>{field.example}{suffix}</span></span>
       </div>
       {/* move up/down */}
       <div style={{ display:'flex', gap:2, flexShrink:0 }}>

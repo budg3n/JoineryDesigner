@@ -1,5 +1,6 @@
 // RoomDetail — floating panel showing a single room's details
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
@@ -57,9 +58,293 @@ function TaskRow({ task, onToggle, onDelete, profile }) {
   )
 }
 
+
+// ── Room Orders Tab ───────────────────────────────────────────────
+const UNITS = ['sheets','pcs','m','m²','sets','rolls','boxes','kg','L']
+const STATUS_COLOR = {
+  'To order': {bg:'#FEF9C3',color:'#854D0E'},
+  'Ordered':  {bg:'#DBEAFE',color:'#1E40AF'},
+  'Received': {bg:'#DCFCE7',color:'#166534'},
+}
+const EMPTY_FORM = {
+  item:'', supplier:'', panel_type:'', thickness:'', colour:'',
+  finish:'', dimensions:'', qty:'', unit:'sheets', sku:'',
+  price:'', notes:'', material_id:null,
+}
+
+function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
+  const toast = useToast()
+  const [orders,  setOrders]  = useState([])
+  const [loading, setLoading] = useState(true)
+  const [adding,  setAdding]  = useState(false)
+  const [form,    setForm]    = useState(EMPTY_FORM)
+  const [search,  setSearch]  = useState('')
+  const [showDrop,setShowDrop]= useState(false)
+  const searchRef = useRef()
+
+  useEffect(()=>{
+    supabase.from('order_items').select('*').eq('job_id',jobId).eq('room_id',room.id).order('created_at')
+      .then(({data})=>{ setOrders(data||[]); setLoading(false) })
+  },[room.id,jobId])
+
+  // Materials available to search — job materials + full library
+  const [allMats, setAllMats] = useState([])
+  useEffect(()=>{
+    supabase.from('materials').select('*').order('name').then(({data})=>setAllMats(data||[]))
+  },[])
+
+  const matches = search.trim().length > 0
+    ? allMats.filter(m =>
+        (m.name||'').toLowerCase().includes(search.toLowerCase()) ||
+        (m.supplier||'').toLowerCase().includes(search.toLowerCase()) ||
+        (m.colour_code||'').toLowerCase().includes(search.toLowerCase()) ||
+        (m.panel_type||'').toLowerCase().includes(search.toLowerCase())
+      ).slice(0,8)
+    : []
+
+  function pickMaterial(m) {
+    setForm({
+      item:        m.name||'',
+      supplier:    m.supplier||'',
+      panel_type:  m.panel_type||'',
+      thickness:   m.thickness ? String(m.thickness) : '',
+      colour:      m.colour_code||'',
+      finish:      m.finish||'',
+      dimensions:  m.dimensions||'',
+      sku:         m.sku||'',
+      price:       m.price ? String(m.price) : '',
+      notes:       '',
+      qty:         '',
+      unit:        'sheets',
+      material_id: m.id,
+    })
+    setSearch(m.name)
+    setShowDrop(false)
+  }
+
+  function setF(k,v) { setForm(p=>({...p,[k]:v})) }
+
+  async function addItem() {
+    if (!form.item.trim()) { toast('Enter an item name','error'); return }
+    const row = {
+      id: Date.now().toString(36)+Math.random().toString(36).slice(2),
+      job_id:jobId, room_id:room.id, status:'To order',
+      category: form.panel_type ? 'Board' : 'Hardware',
+      updated_at: new Date().toISOString(),
+      ...form,
+    }
+    const {data,error} = await supabase.from('order_items').insert(row).select().single()
+    if (error) { toast(error.message,'error'); return }
+    setOrders(p=>[...p,data])
+    setForm(EMPTY_FORM); setSearch(''); setAdding(false)
+    toast('Added to order sheet ✓')
+  }
+
+  async function removeItem(id) {
+    await supabase.from('order_items').delete().eq('id',id)
+    setOrders(p=>p.filter(o=>o.id!==id))
+  }
+
+  async function toggleStatus(o) {
+    const next = o.status==='To order'?'Ordered':o.status==='Ordered'?'Received':'To order'
+    await supabase.from('order_items').update({status:next}).eq('id',o.id)
+    setOrders(p=>p.map(x=>x.id===o.id?{...x,status:next}:x))
+  }
+
+  const toOrder = orders.filter(o=>o.status==='To order').length
+  const inp = {width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',fontFamily:'inherit'}
+
+  return (
+    <div>
+      {/* header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>Items to order</span>
+          {toOrder>0&&<span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:10,background:'#FEF9C3',color:'#854D0E'}}>{toOrder} to order</span>}
+        </div>
+        <button onClick={onOpenFull}
+          style={{fontSize:11,fontWeight:600,padding:'5px 12px',borderRadius:8,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Full order sheet
+        </button>
+      </div>
+
+      {/* existing items */}
+      {loading ? <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:12}}>Loading…</div>
+      : orders.length > 0 && (
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
+          {orders.map(o=>{
+            const sc = STATUS_COLOR[o.status]||STATUS_COLOR['To order']
+            const spec = [o.panel_type, o.thickness?o.thickness+'mm':null, o.colour, o.finish].filter(Boolean).join(' · ')
+            const qty = parseFloat(o.qty), price = parseFloat(o.price)
+            const total = !isNaN(qty)&&!isNaN(price)&&qty>0&&price>0 ? (qty*price).toFixed(2) : null
+            return (
+              <div key={o.id} style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',overflow:'hidden'}}>
+                {/* top row */}
+                <div style={{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 12px 6px'}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
+                    {spec&&<div style={{fontSize:11,color:'#6B7280',marginTop:2}}>{spec}</div>}
+                    {o.supplier&&<div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>{o.supplier}</div>}
+                  </div>
+                  <button onClick={()=>toggleStatus(o)}
+                    style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:8,border:`1px solid ${sc.bg}`,background:sc.bg,color:sc.color,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                    {o.status}
+                  </button>
+                  <button onClick={()=>removeItem(o.id)}
+                    style={{background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:16,lineHeight:1,flexShrink:0,padding:'0 2px'}}
+                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                    onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                </div>
+                {/* stats row */}
+                <div style={{display:'flex',gap:0,borderTop:'1px solid #F3F4F6'}}>
+                  {o.qty&&<div style={{flex:1,padding:'6px 12px',borderRight:'1px solid #F3F4F6'}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Qty</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.qty} {o.unit}</div>
+                  </div>}
+                  {o.price&&<div style={{flex:1,padding:'6px 12px',borderRight:total?'1px solid #F3F4F6':'none'}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Unit price</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>${parseFloat(o.price).toFixed(2)}</div>
+                  </div>}
+                  {total&&<div style={{flex:1,padding:'6px 12px'}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Total</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#1D9E75'}}>${total}</div>
+                  </div>}
+                  {o.dimensions&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Size</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.dimensions}</div>
+                  </div>}
+                  {o.sku&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>SKU</div>
+                    <div style={{fontSize:12,fontWeight:600,color:'#374151'}}>{o.sku}</div>
+                  </div>}
+                </div>
+                {o.notes&&<div style={{padding:'4px 12px 8px',fontSize:11,color:'#9CA3AF',fontStyle:'italic'}}>{o.notes}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {!loading && orders.length===0 && !adding && (
+        <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:13,marginBottom:8}}>
+          No items to order for this room yet
+        </div>
+      )}
+
+      {/* add form */}
+      {adding ? (
+        <div style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:14}}>
+          {/* material search */}
+          <div style={{position:'relative',marginBottom:10}}>
+            <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:4}}>Search materials library</label>
+            <input ref={searchRef} value={search}
+              onChange={e=>{setSearch(e.target.value);setShowDrop(true);if(!e.target.value)setForm(EMPTY_FORM)}}
+              onFocus={()=>setShowDrop(true)}
+              placeholder="Type to search — or fill in manually below…"
+              style={{...inp,fontWeight:form.material_id?600:400,color:form.material_id?'#2A3042':'#374151'}}/>
+            {showDrop && matches.length > 0 && (
+              <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',marginTop:2,overflow:'hidden'}}>
+                {matches.map(m=>(
+                  <div key={m.id} onMouseDown={()=>pickMaterial(m)}
+                    style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                    onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                    {m.storage_path
+                      ? <img src={pubUrl(m.storage_path)} style={{width:32,height:32,borderRadius:6,objectFit:'cover',flexShrink:0}} alt=""/>
+                      : <div style={{width:32,height:32,borderRadius:6,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)'}}/>
+                    }
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:700,color:'#2A3042'}}>{m.name}</div>
+                      <div style={{fontSize:10,color:'#9CA3AF'}}>
+                        {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
+                      </div>
+                    </div>
+                    {m.price&&<div style={{fontSize:11,fontWeight:600,color:'#374151',flexShrink:0}}>${m.price}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* fields — pre-filled if material picked, all editable */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+            {[
+              ['Name *','item','span2'],
+              ['Supplier','supplier',''],
+              ['Panel type','panel_type',''],
+              ['Thickness (mm)','thickness',''],
+              ['Colour','colour',''],
+              ['Finish','finish',''],
+              ['Dimensions','dimensions',''],
+              ['SKU','sku',''],
+            ].map(([label,key,cls])=>(
+              <div key={key} style={{gridColumn:cls==='span2'?'span 2':'auto'}}>
+                <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>{label}</label>
+                <input value={form[key]} onChange={e=>setF(key,e.target.value)}
+                  style={{...inp}} placeholder={label.replace(' *','')}/>
+              </div>
+            ))}
+          </div>
+
+          {/* qty / unit / price row */}
+          <div style={{display:'grid',gridTemplateColumns:'70px 1fr 80px',gap:8,marginBottom:10}}>
+            <div>
+              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Qty</label>
+              <input type="number" min="0" value={form.qty} onChange={e=>setF('qty',e.target.value)}
+                placeholder="0" style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Unit</label>
+              <select value={form.unit} onChange={e=>setF('unit',e.target.value)}
+                style={{...inp,cursor:'pointer',background:'#fff'}}>
+                {UNITS.map(u=><option key={u}>{u}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Unit price</label>
+              <input type="number" min="0" step="0.01" value={form.price} onChange={e=>setF('price',e.target.value)}
+                placeholder="0.00" style={inp}/>
+            </div>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Notes</label>
+            <input value={form.notes} onChange={e=>setF('notes',e.target.value)}
+              placeholder="Any additional notes…" style={inp}/>
+          </div>
+
+          {form.qty&&form.price&&(
+            <div style={{fontSize:12,fontWeight:700,color:'#2A3042',background:'#F9FAFB',borderRadius:8,padding:'6px 10px',marginBottom:10}}>
+              Total: ${(parseFloat(form.qty)*parseFloat(form.price)).toFixed(2)}
+            </div>
+          )}
+
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={addItem}
+              style={{flex:1,padding:'9px',borderRadius:9,border:'none',background:'#5B8AF0',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+              Add to order sheet
+            </button>
+            <button onClick={()=>{setAdding(false);setForm(EMPTY_FORM);setSearch('')}}
+              style={{padding:'9px 14px',borderRadius:9,border:'1px solid #E8ECF0',background:'#fff',color:'#6B7280',fontSize:13,cursor:'pointer'}}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={()=>setAdding(true)}
+          style={{width:'100%',fontSize:13,fontWeight:600,padding:'9px',borderRadius:10,border:'1px dashed #C4D4F8',background:'#F0F4FF',color:'#5B8AF0',cursor:'pointer'}}>
+          + Add item to order
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave }) {
   const toast = useToast()
   const { profile } = useApp()
+  const navigate = useNavigate()
   const [room, setRoom]       = useState(initialRoom)
   const [roomMats, setRoomMats] = useState([])
   const [roomApps, setRoomApps] = useState([])
@@ -161,20 +446,23 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   const specGroups = KITCHEN_SPEC_FIELDS.reduce((acc,f)=>{ (acc[f.group]=acc[f.group]||[]).push(f); return acc },{})
 
   const TABS = [
-    { key:'overview', label:'Overview' },
-    { key:'specs',    label:'Specs' },
-    { key:'tasks',    label:`Tasks${tasks.filter(t=>!t.done).length>0?` (${tasks.filter(t=>!t.done).length})`:''}` },
-    { key:'materials',label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
+    { key:'overview',  label:'Overview' },
+    { key:'specs',     label:'Specs' },
+    { key:'tasks',     label:`Tasks${tasks.filter(t=>!t.done).length>0?` (${tasks.filter(t=>!t.done).length})`:''}` },
+    { key:'materials', label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
     { key:'appliances',label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
+    { key:'orders',    label:'📋 Orders' },
   ]
 
   const filteredApps = allAppliances.filter(a =>
     !appSearch || `${a.brand} ${a.model} ${a.type}`.toLowerCase().includes(appSearch.toLowerCase())
   ).slice(0,8)
   const alreadyAddedAppIds = roomApps.map(ra=>ra.appliance_id)
-  const filteredMats = jobMats.filter(jm =>
-    jm.materials && (!matSearch || jm.materials.name.toLowerCase().includes(matSearch.toLowerCase()))
-  ).filter(jm => !roomMats.some(rm=>rm.material_id===jm.material_id))
+  // All job materials not yet added to this room
+  const filteredMats = jobMats.filter(jm => {
+    if (!jm.materials) return false
+    return !roomMats.some(rm => rm.material_id === jm.material_id)
+  }).filter(jm => !roomMats.some(rm=>rm.material_id===jm.material_id))
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', justifyContent:'flex-end', pointerEvents:'none' }}>
@@ -307,43 +595,62 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {/* ── MATERIALS ── */}
           {tab==='materials' && (
             <div>
-              <div style={{ marginBottom:10 }}>
-                <input value={matSearch} onChange={e=>setMatSearch(e.target.value)}
-                  placeholder="Search job materials to add…"
-                  style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
-                {matSearch && filteredMats.length>0 && (
-                  <div style={{ background:'#fff', border:'1px solid #E8ECF0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.1)', marginTop:4, overflow:'hidden' }}>
+              {/* Available job materials not yet added to this room */}
+              {filteredMats.length > 0 && (
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>
+                    Job materials — tap to add
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                     {filteredMats.map(jm=>(
                       <div key={jm.id} onClick={()=>addMat(jm.materials)}
-                        style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', fontSize:13 }}
-                        onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', fontSize:13, background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', transition:'all .1s' }}
+                        onMouseEnter={e=>{e.currentTarget.style.background='#F0F4FF';e.currentTarget.style.borderColor='#C4D4F8'}}
+                        onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
                         {jm.materials.storage_path
-                          ? <img src={pubUrl(jm.materials.storage_path)} style={{ width:28,height:28,borderRadius:6,objectFit:'cover' }} alt="" />
-                          : <div style={{ width:28,height:28,borderRadius:6,background:jm.materials.color||'#E8ECF0' }} />
+                          ? <img src={pubUrl(jm.materials.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                          : <div style={{ width:36,height:36,borderRadius:8,background:jm.materials.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
                         }
-                        <div>
-                          <div style={{ fontWeight:600,color:'#2A3042' }}>{jm.materials.name}</div>
-                          <div style={{ fontSize:11,color:'#9CA3AF' }}>{jm.materials.supplier}</div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight:700, color:'#2A3042', fontSize:13 }}>{jm.materials.name}</div>
+                          <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                            {[jm.materials.supplier, jm.materials.panel_type,
+                              jm.materials.thickness ? jm.materials.thickness+'mm' : null,
+                              jm.materials.colour_code, jm.materials.finish
+                            ].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                        <div style={{ width:22, height:22, borderRadius:'50%', border:'1.5px solid #C4D4F8', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <span style={{ fontSize:14, color:'#5B8AF0', lineHeight:1 }}>+</span>
                         </div>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-              {roomMats.length===0
-                ? <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>No materials — search above to add from the job's materials</div>
-                : roomMats.map(rm=>{
+                </div>
+              )}
+              {filteredMats.length === 0 && roomMats.length === 0 && (
+                <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>
+                  No materials assigned to this job yet — add materials from the job card first
+                </div>
+              )}
+              {roomMats.length > 0 && (
+                <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>
+                  In this room
+                </div>
+              )}
+              {roomMats.map(rm=>{
                     const m=rm.materials; if(!m) return null
                     return (
                       <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', marginBottom:7 }}>
                         {m.storage_path
-                          ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" />
-                          : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#E8ECF0',flexShrink:0 }} />
+                          ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                          : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
                         }
                         <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:13,fontWeight:600,color:'#2A3042' }}>{m.name}</div>
-                          <div style={{ fontSize:11,color:'#9CA3AF' }}>{[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
+                          <div style={{ fontSize:13,fontWeight:700,color:'#2A3042' }}>{m.name}</div>
+                          <div style={{ fontSize:11,color:'#9CA3AF',marginTop:2 }}>
+                            {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
+                          </div>
                         </div>
                         <button onClick={()=>removeMat(rm.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:18 }}
                           onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -403,6 +710,12 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
               }
             </div>
           )}
+        {/* ── ORDERS ── */}
+          {tab==='orders' && (
+            <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats}
+              onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
+          )}
+
         </div>
       </div>
     </div>

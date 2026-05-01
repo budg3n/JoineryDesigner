@@ -986,6 +986,155 @@ function JobAppliancesSection({ jobId, jobAppliances, allAppliances, setJobAppli
   )
 }
 
+// ── Rooms Panel (right column) ───────────────────────────────────
+const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
+
+function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange }) {
+  const [adding, setAdding] = React.useState(false)
+  const [newName, setNewName] = React.useState('')
+  const [newType, setNewType] = React.useState('Kitchen')
+  const inputRef = React.useRef()
+
+  React.useEffect(() => { if (adding && inputRef.current) inputRef.current.focus() }, [adding])
+
+  async function addRoom() {
+    const name = newName.trim() || newType
+    const { data, error } = await supabase.from('rooms').insert({
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]',
+    }).select().single()
+    if (error) { toast(error.message, 'error'); return }
+    onAddRoom(data)
+    setNewName(''); setNewType('Kitchen'); setAdding(false)
+    toast(`${name} added ✓`)
+  }
+
+  async function deleteRoom(e, roomId) {
+    e.stopPropagation()
+    if (!confirm('Delete this room and all its data?')) return
+    await supabase.from('rooms').delete().eq('id', roomId)
+    onRoomsChange(prev => prev.filter(r => r.id !== roomId))
+    toast('Room deleted')
+  }
+
+  const totalTasks = rooms.reduce((a, r) => {
+    const tasks = r.tasks ? (typeof r.tasks==='string'?JSON.parse(r.tasks):r.tasks) : []
+    return a + tasks.filter(t=>!t.done).length
+  }, 0)
+
+  return (
+    <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', overflow:'hidden' }}>
+      {/* header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', borderBottom:'1px solid #F3F4F6' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ fontSize:16 }}>🏠</span>
+          <span style={{ fontSize:13, fontWeight:800, color:'#2A3042' }}>Rooms</span>
+          {rooms.length > 0 && <span style={{ fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:10, background:'#EEF2FF', color:'#5B8AF0' }}>{rooms.length}</span>}
+          {totalTasks > 0 && <span style={{ fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:10, background:'#FEF9C3', color:'#854D0E' }}>{totalTasks} task{totalTasks!==1?'s':''}</span>}
+        </div>
+        <button onClick={() => setAdding(a=>!a)}
+          style={{ fontSize:12, fontWeight:700, padding:'5px 12px', borderRadius:8, border:'none', background:adding?'#F3F4F6':'#5B8AF0', color:adding?'#6B7280':'#fff', cursor:'pointer', transition:'all .15s' }}>
+          {adding ? 'Cancel' : '+ Add room'}
+        </button>
+      </div>
+
+      {/* add form */}
+      {adding && (
+        <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', background:'#F9FAFB' }}>
+          <select value={newType} onChange={e=>setNewType(e.target.value)}
+            style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, background:'#fff' }}>
+            {ROOM_TYPES_LIST.map(t=><option key={t}>{t}</option>)}
+          </select>
+          <input ref={inputRef} value={newName} onChange={e=>setNewName(e.target.value)}
+            placeholder={`Room name (default: ${newType})`}
+            onKeyDown={e=>e.key==='Enter'&&addRoom()}
+            style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, boxSizing:'border-box' }} />
+          <button onClick={addRoom}
+            style={{ width:'100%', padding:'8px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            Create room
+          </button>
+        </div>
+      )}
+
+      {/* rooms list */}
+      {rooms.length === 0 && !adding ? (
+        <div style={{ padding:'32px 16px', textAlign:'center' }}>
+          <div style={{ fontSize:28, marginBottom:8 }}>🏠</div>
+          <div style={{ fontSize:13, fontWeight:600, color:'#374151', marginBottom:4 }}>No rooms yet</div>
+          <div style={{ fontSize:12, color:'#9CA3AF', lineHeight:1.5 }}>Add rooms to track specs, materials and tasks per area of the job</div>
+          <button onClick={()=>setAdding(true)}
+            style={{ marginTop:14, fontSize:12, fontWeight:700, padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
+            + Add first room
+          </button>
+        </div>
+      ) : (
+        <div>
+          {rooms.map((room, idx) => {
+            const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
+            const open   = tasks.filter(t=>!t.done).length
+            const done   = tasks.filter(t=>t.done).length
+            const specs  = room.kitchen_specs
+              ? (typeof room.kitchen_specs==='string'?JSON.parse(room.kitchen_specs):room.kitchen_specs) : {}
+            const specCount = Object.keys(specs).filter(k=>specs[k]).length
+            const pct = tasks.length > 0 ? Math.round((done/tasks.length)*100) : 0
+
+            return (
+              <div key={room.id} onClick={() => onOpenRoom(room)}
+                style={{ padding:'12px 16px', borderBottom: idx<rooms.length-1?'1px solid #F3F4F6':'none', cursor:'pointer', transition:'background .1s' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F8FAFF'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+                  {/* room icon */}
+                  <div style={{ width:36, height:36, borderRadius:9, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                    {room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
+                      <button onClick={e=>deleteRoom(e,room.id)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'#E8ECF0', fontSize:14, lineHeight:1, flexShrink:0, padding:'0 2px' }}
+                        onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
+                        onMouseLeave={e=>e.currentTarget.style.color='#E8ECF0'}>×</button>
+                    </div>
+                    <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>{room.type}</div>
+                    {/* stats row */}
+                    <div style={{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' }}>
+                      {tasks.length > 0 && (
+                        <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:8, background: open>0?'#FEF9C3':'#ECFDF5', color: open>0?'#854D0E':'#065F46' }}>
+                          {open > 0 ? `${open} task${open!==1?'s':''} open` : '✓ All done'}
+                        </span>
+                      )}
+                      {specCount > 0 && (
+                        <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3' }}>
+                          {specCount} spec{specCount!==1?'s':''}
+                        </span>
+                      )}
+                    </div>
+                    {/* task progress bar */}
+                    {tasks.length > 0 && (
+                      <div style={{ marginTop:7, height:3, background:'#F3F4F6', borderRadius:2, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${pct}%`, background: pct===100?'#1D9E75':'#5B8AF0', borderRadius:2, transition:'width .3s' }}/>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          {/* add another */}
+          {!adding && (
+            <div onClick={()=>setAdding(true)}
+              style={{ padding:'10px 16px', borderTop:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, cursor:'pointer', color:'#9CA3AF', fontSize:12, background:'#FAFAFA' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
+              onMouseLeave={e=>e.currentTarget.style.background='#FAFAFA'}>
+              <span style={{ fontSize:16, lineHeight:1 }}>+</span> Add another room
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Startup Floating Panel ───────────────────────────────────────
 function StartupPanel({ job, jobMats, jobApps, startupNote, allNotes, allJobs, onClose, onSaved }) {
   // Build a simple startup note with just a title and blank meeting notes
@@ -1181,6 +1330,7 @@ export default function JobDetail() {
   const [taskForm, setTaskForm]   = useState(false)
   const [newTask, setNewTask]     = useState({ title:'', date:'', time:'09:00' })
   const [matPickerOpen, setMatPickerOpen] = useState(false)
+  const [matSearch, setMatSearch] = useState('')
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading]   = useState(false)
   const [fileTypes, setFileTypes]   = useState([])
@@ -1269,7 +1419,8 @@ export default function JobDetail() {
   useEffect(() => { loadAll() }, [loadAll])
 
   // Broadcast current state to Layout topbar
-  useEffect(() => {
+  // Use a ref for stable callbacks so the event always fires with current handlers
+  const broadcastActions = React.useCallback(() => {
     window.dispatchEvent(new CustomEvent('job-actions', { detail: {
       dirty,
       saving,
@@ -1278,7 +1429,6 @@ export default function JobDetail() {
       onOrders: () => navigate(`/job/${id}/orders`),
       onProcesses: () => setShowProcesses(true),
       onStartup: async () => {
-        // Load startup note — try is_startup flag first, then title pattern
         let sNote = null
         const { data: d1 } = await supabase.from('notes')
           .select('id,title,is_public,created_by,updated_at,content,is_startup')
@@ -1286,22 +1436,27 @@ export default function JobDetail() {
         if (d1) {
           sNote = d1
         } else {
-          // Fallback: find by title starting with 'Startup'
           const { data: d2 } = await supabase.from('notes')
             .select('id,title,is_public,created_by,updated_at,content,is_startup')
             .eq('job_id', id).ilike('title', 'Startup%').order('created_at',{ascending:false}).limit(1).maybeSingle()
-          if (d2) {
-            sNote = d2
-            // Fix is_startup flag in DB
-            await supabase.from('notes').update({ is_startup: true }).eq('id', d2.id)
-          }
+          if (d2) { sNote = d2; await supabase.from('notes').update({ is_startup: true }).eq('id', d2.id) }
         }
         setStartupNote(sNote)
         setShowStartup(true)
         setStartupOpenKey(k => k+1)
       },
     }}))
-  }, [dirty, saving, id, showStartup])
+  }, [dirty, saving, id]) // eslint-disable-line
+
+  useEffect(() => {
+    broadcastActions()
+  }, [broadcastActions])
+
+  // Also re-broadcast after a short delay on mount to beat listener setup timing
+  useEffect(() => {
+    const t = setTimeout(broadcastActions, 50)
+    return () => clearTimeout(t)
+  }, [id]) // eslint-disable-line
 
   // Clean up on unmount
   useEffect(() => {
@@ -1329,7 +1484,7 @@ export default function JobDetail() {
     setSaving(true)
     const { error } = await supabase.from('jobs').update({
       name: job.name, client: job.client, type: job.type, status: job.status,
-      notes: job.notes, mvnum: job.mvnum, start_date: job.start_date,
+      notes: job.notes, mvnum: job.mvnum, job_number: job.job_number ? String(job.job_number) : null, start_date: job.start_date,
       due_date: job.due_date, budget_hours: job.budget_hours, delivery_address: job.delivery_address,
       kitchen_specs: specsRef.current && Object.keys(specsRef.current).length > 0 ? JSON.stringify(specsRef.current) : (job.kitchen_specs || null),
     }).eq('id', id)
@@ -1537,7 +1692,6 @@ export default function JobDetail() {
     'On hold':     'bg-[#F3F4F6] text-[#6B7280] border-[#E8ECF0]',
   }
 
-  const isKitchen = (job.type||'').toLowerCase() === 'kitchen'
 
   return (
     <>
@@ -1565,7 +1719,7 @@ export default function JobDetail() {
         onSaved={() => {}}
       />
     )}
-    <div className={isKitchen ? 'job-detail-grid' : ''} style={{ alignItems:'start' }}>
+    <div className='job-detail-grid' style={{ alignItems:'start' }}>
       {/* LEFT COLUMN — always shown */}
       <div>
 
@@ -1668,7 +1822,7 @@ export default function JobDetail() {
       <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
         <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Job details</div>
         <div className="grid grid-cols-2 gap-3">
-          {[['Job name','name','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
+          {[['Job name','name','text'],['Job number','job_number','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
             <div key={k}><label className="label">{l}</label>
               <input className="input text-sm" type={t} value={job[k]||''} onChange={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }} />
             </div>
@@ -1698,35 +1852,62 @@ export default function JobDetail() {
           {jobMats.map(jm => {
             const m = jm.materials; if (!m) return null
             return (
-              <div key={jm.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F9FAFB] border border-[#E8ECF0] rounded-lg text-xs">
+              <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
                 {m.storage_path
-                  ? <img src={pubUrl(m.storage_path)} style={{ width:18, height:18, borderRadius:4, objectFit:'cover', flexShrink:0, border:'1px solid #E8ECF0' }} alt="" loading="lazy" />
-                  : <div style={{ width:18, height:18, borderRadius:4, background:m.color||'#D1D5DB', flexShrink:0, border:'1px solid rgba(0,0,0,0.08)' }} />
+                  ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0, border:'1px solid #E8ECF0' }} alt="" loading="lazy" />
+                  : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0, border:'1px solid rgba(0,0,0,0.08)' }} />
                 }
-                <span className="font-medium text-[#374151]">{m.name}</span>
-                <span className="text-[#9CA3AF]">{m.panel_type}{m.thickness ? ' · '+m.thickness+'mm' : ''}</span>
-                <button onClick={() => removeMat(jm.id)} className="text-[#D1D5DB] hover:text-red-400 leading-none bg-transparent border-none cursor-pointer ml-1">×</button>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.name}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                    {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4, flexShrink:0, padding:'0 2px' }}
+                  onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
               </div>
             )
           })}
         </div>
         <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
         {matPickerOpen && (
-          <div className="mt-3 grid grid-cols-2 gap-2 max-h-52 overflow-y-auto border-t border-[#F3F4F6] pt-3">
-            {availMats.length === 0 ? <div className="col-span-2 text-sm text-[#9CA3AF] text-center py-3">All materials added</div> :
-              availMats.map(m => (
-                <div key={m.id} onClick={() => addMat(m.id)}
-                  className="flex items-center gap-2 p-2 rounded-lg border border-[#E8ECF0] cursor-pointer hover:border-gray-300 bg-white">
-                  {m.storage_path
-                    ? <img src={pubUrl(m.storage_path)} className="w-7 h-7 rounded object-cover flex-shrink-0" alt="" loading="lazy" />
-                    : <div className="w-7 h-7 rounded flex-shrink-0 bg-[#F3F4F6]" />
-                  }
-                  <div><div className="text-xs font-medium text-[#2A3042] leading-tight">{m.name}</div>
-                    <div className="text-[10px] text-[#9CA3AF]">{m.panel_type} {m.thickness ? '· '+m.thickness+'mm' : ''}</div>
+          <div style={{ marginTop:10 }}>
+            <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)}
+              placeholder="Search materials…"
+              style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:6 }} />
+            {matSearch.trim() === '' ? (
+              <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>Start typing to search…</div>
+            ) : (() => {
+              const q = matSearch.toLowerCase()
+              const results = availMats.filter(m =>
+                (m.name||'').toLowerCase().includes(q) ||
+                (m.supplier||'').toLowerCase().includes(q) ||
+                (m.colour_code||'').toLowerCase().includes(q) ||
+                (m.finish||'').toLowerCase().includes(q) ||
+                (m.panel_type||'').toLowerCase().includes(q)
+              )
+              return results.length === 0
+                ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches found</div>
+                : <div style={{ maxHeight:220, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
+                    {results.map(m => (
+                      <div key={m.id} onClick={() => { addMat(m.id); setMatSearch(''); setMatPickerOpen(false) }}
+                        style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', background:'#fff' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                        onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                        {m.storage_path
+                          ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                          : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />
+                        }
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
+                          <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                            {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))
-            }
+            })()}
           </div>
         )}
       </div>
@@ -1984,19 +2165,26 @@ export default function JobDetail() {
       )}
       </div>{/* end left column */}
 
-      {/* RIGHT COLUMN — kitchen specs panel, sticky alongside content */}
-      {isKitchen && (
-        <div style={{ position:'sticky', top:80 }}>
-          <KitchenSpecs
-            specs={job.kitchen_specs}
-            specsRef={specsRef}
-            panelMaterials={jobMats.filter(jm => jm.materials).map(jm => jm.materials)}
-            onChange={specs => {
-              setJob(j => ({ ...j, kitchen_specs: specs }))
-              setDirty(true)
-            }}
-          />
-        </div>
+      {/* RIGHT COLUMN — Rooms hub */}
+      <div style={{ position:'sticky', top:80 }}>
+        <RoomsPanel
+          rooms={rooms} jobId={id} toast={toast}
+          onAddRoom={room => { setRooms(p=>[...p,room]); setActiveRoom(room) }}
+          onOpenRoom={room => setActiveRoom(room)}
+          onRoomsChange={setRooms}
+        />
+      </div>
+
+      {/* Room detail overlay */}
+      {activeRoom && (
+        <RoomDetail
+          room={activeRoom}
+          jobId={id}
+          jobMats={jobMats}
+          allAppliances={allAppliances}
+          onClose={() => setActiveRoom(null)}
+          onSave={saved => setRooms(p=>p.map(r=>r.id===saved.id?saved:r))}
+        />
       )}
     </div>
     </>

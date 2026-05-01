@@ -128,14 +128,15 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 /* Job detail two-column layout */
 .job-detail-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr 340px;
   gap: 20px;
+  align-items: start;
 }
 @media (max-width: 900px) {
   .job-detail-grid {
-    display: block;
+    grid-template-columns: 1fr;
   }
   .job-detail-grid > div:last-child {
-    margin-top: 16px;
+    margin-top: 0;
   }
 }
