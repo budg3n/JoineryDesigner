@@ -1029,7 +1029,9 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     }).select().single()
     if(error){toast(error.message,'error');return}
     setActiveEntries({[proc.id]:data})
-    update(proc.id,{status:'In progress',assigned_to:profile.id})
+    // Write status immediately
+    onProcessesChange(p=>p.map(x=>x.id===proc.id?{...x,status:'In progress',assigned_to:profile.id}:x))
+    await supabase.from('job_processes').update({status:'In progress',assigned_to:profile.id}).eq('id',proc.id)
     toast(`▶ ${proc.name} started`)
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
   }
@@ -1039,7 +1041,10 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
     await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
     const newLogged=parseFloat(((proc.time_logged||0)+mins/60).toFixed(2))
-    update(proc.id,{time_logged:newLogged,...(newStatus?{status:newStatus,assigned_to:profile.id}:{})})
+    const patch = {time_logged:newLogged,...(newStatus?{status:newStatus,assigned_to:profile.id}:{})}
+    // Write directly to DB immediately — don't debounce status changes
+    onProcessesChange(p=>p.map(x=>x.id===proc.id?{...x,...patch}:x))
+    await supabase.from('job_processes').update(patch).eq('id',proc.id)
     const {[proc.id]:_,...rest}=activeEntries; setActiveEntries(rest)
     toast(`${newStatus==='Complete'?'✓':newStatus==='On hold'?'⏸':'■'} ${proc.name} — ${(mins/60).toFixed(1)}h logged`)
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
@@ -1087,19 +1092,28 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
             const logged=proc.time_logged||0
             const pct=allocated>0?Math.min((logged/allocated)*100,100):0
             const remaining=allocated>0?Math.max(0,allocated-logged):null
+            const isDone = proc.status==='Complete'
             return (
-              <div key={proc.id} style={{background:isActive?'#F0FDF4':'#F9FAFB',borderRadius:10,border:`1px solid ${isActive?'#86EFAC':'#E8ECF0'}`,padding:'10px 12px',transition:'all .2s'}}>
+              <div key={proc.id} style={{
+                background: isActive?'#F0FDF4' : isDone?'#F9FAFB':'#F9FAFB',
+                borderRadius:10,
+                border:`1px solid ${isActive?'#86EFAC':isDone?'#E8ECF0':'#E8ECF0'}`,
+                padding:'10px 12px',transition:'all .2s',
+                opacity: isDone ? 0.55 : 1,
+              }}>
                 {/* name + status */}
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                  <div style={{width:10,height:10,borderRadius:'50%',background:proc.color||'#9CA3AF',flexShrink:0,
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:isDone?0:6}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',
+                    background: isDone ? '#C4C9D4' : (proc.color||'#9CA3AF'),
+                    flexShrink:0,
                     boxShadow:isActive?`0 0 0 3px ${proc.color||'#9CA3AF'}33`:undefined}} />
-                  <span style={{fontSize:13,fontWeight:700,color:'#2A3042',flex:1}}>{proc.name}</span>
+                  <span style={{fontSize:13,fontWeight:isDone?500:700,color:isDone?'#9CA3AF':'#2A3042',flex:1,textDecoration:isDone?'line-through':'none'}}>{proc.name}</span>
                   <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8,background:ss.bg,color:ss.color,border:`1px solid ${ss.border}`}}>
                     {isActive?'● Active':proc.status}
                   </span>
                 </div>
                 {/* progress */}
-                {(allocated>0||logged>0) && (
+                {!isDone && (allocated>0||logged>0) && (
                   <div style={{marginBottom:8}}>
                     <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#9CA3AF',marginBottom:3}}>
                       <span>{logged.toFixed(1)}h logged{allocated>0?` / ${allocated}h`:''}</span>
@@ -1175,7 +1189,16 @@ function HistoryPanel({ timeHistory }) {
   )
 
   function fmt(dt) {
-    return new Date(dt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Pacific/Auckland'})
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Auckland',
+      day: 'numeric', month: 'short',
+      hour: 'numeric', minute: '2-digit', hour12: false
+    }).formatToParts(new Date(dt))
+    const get = t => parts.find(p=>p.type===t)?.value||''
+    const h24 = parseInt(get('hour'), 10)
+    const h12 = h24 % 12 || 12
+    const ampm = h24 < 12 ? 'am' : 'pm'
+    return `${get('day')} ${get('month')}, ${h12}:${get('minute')} ${ampm}`
   }
   function dur(entry) {
     // Active entries: always calculate live from clocked_in_at
