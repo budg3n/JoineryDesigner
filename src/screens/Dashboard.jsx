@@ -141,7 +141,7 @@ function JobTimeStatus({ job, activeEntries, accent }) {
             <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block', animation:'ping 1.5s cubic-bezier(0,0,0.2,1) infinite' }} />
             {fmtHours(elapsed/60)} live
           </span>
-        ) : !started && budget > 0 ? (
+        ) : !started ? (
           <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F3F4F6', color:'#9CA3AF' }}>Yet to start</span>
         ) : isOver ? (
           <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#FEF2F2', color:'#991B1B', border:'1px solid #FCA5A5' }}>

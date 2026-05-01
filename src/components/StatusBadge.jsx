@@ -3,6 +3,7 @@ const MAP = {
   'Review':      { bg:'#FEF3C7', color:'#92400E' },
   'Complete':    { bg:'#ECFDF5', color:'#065F46' },
   'On hold':     { bg:'#F3F4F6', color:'#6B7280' },
+  'Submitted for approval': { bg:'#FDF4FF', color:'#7E22CE' },
 }
 export default function StatusBadge({ status }) {
   const s = MAP[status] || MAP['On hold']

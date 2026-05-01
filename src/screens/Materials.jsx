@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useDragColumns } from '../hooks/useDragColumns'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -763,7 +764,6 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const [lastSaved, setLastSaved] = React.useState(null)
   const [showFieldMgr, setShowFieldMgr] = React.useState(false)
   const saveTimer = React.useRef()
-  const dragColIdx = React.useRef(null)
 
   // Column definitions — core fields + custom fields from category
   const coreCols = React.useMemo(() => [
@@ -775,6 +775,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     { key:'dimensions',   label:'Dimensions', w:130, type:'text',  placeholder:'e.g. 2400×1220' },
     { key:'colour_code',  label:'Colour',     w:110, type:'text' },
     { key:'finish',       label:'Finish',     w:110, type:'text' },
+    { key:'price',        label:'Price',      w:90,  type:'text',  placeholder:'0.00' },
     { key:'notes',        label:'Notes',      w:160, type:'text' },
   ], [])
 
@@ -790,6 +791,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   const [cols, setCols] = React.useState([...coreCols, ...customCols])
   React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
+  const { getHeaderProps } = useDragColumns(cols, setCols)
 
   useEffect(() => {
     Promise.all([
@@ -904,19 +906,22 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
             {/* header */}
             <div style={{ display:'flex', background:'#F9FAFB', borderBottom:'2px solid #E8ECF0', position:'sticky', top:0, zIndex:10 }}>
               <div style={{ width:36, flexShrink:0, borderRight:'1px solid #E8ECF0' }} />
-              {cols.map((c,ci) => (
-                <div key={c.key}
-                  draggable={c.key!=='img'}
-                  onDragStart={()=>{ dragColIdx.current=ci }}
-                  onDragOver={e=>e.preventDefault()}
-                  onDrop={()=>{
-                    const from=dragColIdx.current; if(from===null||from===ci) return
-                    setCols(prev=>{ const n=[...prev]; const [m]=n.splice(from,1); n.splice(ci,0,m); return n })
-                    dragColIdx.current=null
-                  }}
-                  style={{ width:c.w, minWidth:c.w, padding:'9px 8px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', cursor:c.key==='img'?'default':'grab', userSelect:'none', display:'flex', alignItems:'center', gap:4 }}>
-                  {c.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>}
-                  {c.label}
+              {cols.map((col,ci) => (
+                <div key={col.key}
+                  {...(col.key !== 'img' ? getHeaderProps(ci, col.label, {
+                    width:col.w, minWidth:col.w, padding:'9px 8px',
+                    fontSize:10, fontWeight:700, color:'#9CA3AF',
+                    textTransform:'uppercase', letterSpacing:'.06em',
+                    borderRight:'1px solid #E8ECF0', flexShrink:0,
+                    boxSizing:'border-box', display:'flex', alignItems:'center', gap:4,
+                  }) : {
+                    style:{ width:col.w, minWidth:col.w, padding:'9px 8px',
+                      fontSize:10, fontWeight:700, color:'#9CA3AF',
+                      textTransform:'uppercase', letterSpacing:'.06em',
+                      borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box' }
+                  })}>
+                  {col.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>}
+                  {col.label}
                 </div>
               ))}
               <div style={{ width:40, flexShrink:0 }} />

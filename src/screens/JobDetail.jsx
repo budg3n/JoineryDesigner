@@ -4,6 +4,8 @@ import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
+import RoomDetail from './RoomDetail'
+import JobProcesses from './JobProcesses'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import StatusBadge from '../components/StatusBadge'
@@ -1191,6 +1193,9 @@ export default function JobDetail() {
   const [jobNotes, setJobNotes] = useState([])
   const [startupNote, setStartupNote] = useState(null)
   const [showStartup, setShowStartup] = useState(false)
+  const [rooms, setRooms]             = useState([])
+  const [activeRoom, setActiveRoom]   = useState(null)
+  const [showProcesses, setShowProcesses] = useState(false)
   const [startupOpenKey, setStartupOpenKey] = useState(0)
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
@@ -1232,6 +1237,8 @@ export default function JobDetail() {
     setFileTypes(fTypes||[])
     setApprovals(approvs||[])
     setLoading(false)
+    // Load rooms
+    supabase.from('rooms').select('*').eq('job_id', id).order('sort_order').then(({data})=>setRooms(data||[]))
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
@@ -1269,6 +1276,7 @@ export default function JobDetail() {
       onSave: saveJob,
       onSketch: () => navigate(`/job/${id}/sketch`),
       onOrders: () => navigate(`/job/${id}/orders`),
+      onProcesses: () => setShowProcesses(true),
       onStartup: async () => {
         // Load startup note — try is_startup flag first, then title pattern
         let sNote = null

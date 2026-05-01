@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom'
+import { useDragColumns } from '../hooks/useDragColumns'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -159,6 +160,7 @@ function ItemCell({ value, onCommit, materials, width }) {
       finish:      m.finish||'',
       dimensions:  m.dimensions||'',
       sku:         m.sku||'',
+      price:       m.price ? String(m.price) : '',
       material_id: m.id,
       category:    m.panel_type ? 'Board' : 'Hardware',
     })
@@ -261,7 +263,8 @@ function AddToLibraryModal({ row, onSave, onClose }) {
 // ── Row component ─────────────────────────────────────────────────
 function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
-  const total = row.qty && row.price ? (parseFloat(row.qty)*parseFloat(row.price)).toFixed(2) : null
+  const qty = parseFloat(row.qty); const price = parseFloat(row.price)
+  const total = !isNaN(qty) && !isNaN(price) && qty > 0 && price > 0 ? (qty*price).toFixed(2) : null
 
   return (
     <div style={{ display:'flex', alignItems:'center', background:'#fff', borderBottom:'1px solid #F3F4F6' }}
@@ -304,7 +307,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols }) {
 function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols }) {
   const [collapsed, setCollapsed] = useState(false)
   const toOrder = rows.filter(r=>r.status==='To order').length
-  const subtotal = rows.reduce((a,r)=>a+(r.qty&&r.price?parseFloat(r.qty)*parseFloat(r.price):0),0)
+  const subtotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
 
   return (
     <div style={{ marginBottom:2 }}>
@@ -361,9 +364,9 @@ export default function OrderSheet() {
   const [groupBy,   setGroupBy]   = useState('Category')
   const [filter,    setFilter]    = useState('All')
   const [cols,      setCols]      = useState(DEFAULT_COLS)
+  const { getHeaderProps } = useDragColumns(cols, setCols)
   const [showColMenu, setShowColMenu] = useState(false)
   const saveTimer = useRef()
-  const dragColIdx = useRef(null)
 
   useEffect(()=>{
     Promise.all([
@@ -463,7 +466,7 @@ export default function OrderSheet() {
   },[filtered, groupBy])
 
   const toOrderTotal = rows.filter(r=>r.status==='To order').length
-  const grandTotal   = rows.reduce((a,r)=>a+(r.qty&&r.price?parseFloat(r.qty)*parseFloat(r.price):0),0)
+  const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
   const totalW = 28 + cols.reduce((a,c)=>a+c.w,0) + 80 + 50
 
   if (!job) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner"/></div>
@@ -536,19 +539,19 @@ export default function OrderSheet() {
           {/* header — draggable columns */}
           <div style={{ display:'flex', background:'#F9FAFB', borderBottom:'2px solid #E8ECF0', position:'sticky', top:0, zIndex:10 }}>
             <div style={{ width:28, flexShrink:0, borderRight:'1px solid #E8ECF0' }} />
-            {cols.map((c,ci)=>(
-              <div key={c.key}
-                draggable
-                onDragStart={()=>{ dragColIdx.current=ci }}
-                onDragOver={e=>e.preventDefault()}
-                onDrop={()=>{
-                  const from=dragColIdx.current; if(from===null||from===ci) return
-                  setCols(prev=>{ const n=[...prev]; const [moved]=n.splice(from,1); n.splice(ci,0,moved); return n })
-                  dragColIdx.current=null
-                }}
-                style={{ width:c.w, minWidth:c.w, padding:'9px 8px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', textAlign: c.type==='number'||c.type==='price'?'right':'left', cursor:'grab', userSelect:'none', display:'flex', alignItems:'center', gap:4 }}>
+            {cols.map((col,ci)=>(
+              <div key={col.key}
+                {...getHeaderProps(ci, col.label, {
+                  width:col.w, minWidth:col.w, padding:'9px 8px',
+                  fontSize:10, fontWeight:700, color:'#9CA3AF',
+                  textTransform:'uppercase', letterSpacing:'.06em',
+                  borderRight:'1px solid #E8ECF0', flexShrink:0,
+                  boxSizing:'border-box',
+                  textAlign: col.type==='number'||col.type==='price'?'right':'left',
+                  display:'flex', alignItems:'center', gap:4,
+                })}>
                 <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>
-                {c.label}
+                {col.label}
               </div>
             ))}
             <div style={{ width:80, minWidth:80, padding:'9px 8px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderRight:'1px solid #E8ECF0', flexShrink:0, textAlign:'right' }}>Total</div>

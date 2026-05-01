@@ -14,6 +14,7 @@ import Appliances from './screens/Appliances'
 import Notes from './screens/Notes'
 import FileTypes from './screens/FileTypes'
 import OrderSheet from './screens/OrderSheet'
+import ProcessTemplates from './screens/ProcessTemplates'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="notes" element={<Notes />} />
         <Route path="notes/:noteId" element={<Notes />} />
         <Route path="settings/file-types" element={<FileTypes />} />
+        <Route path="settings/processes" element={<ProcessTemplates />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>
