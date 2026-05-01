@@ -56,7 +56,7 @@ export function ActiveProcessBanner({ jobId }) {
 
   async function clockOut() {
     if (!active) return
-    const mins = elapsed / 60
+    const mins = elapsed // elapsed is already in minutes from useLiveTimer
     await supabase.from('time_entries').update({
       clocked_out_at: new Date().toISOString(),
       duration_minutes: Math.round(mins)
@@ -74,7 +74,7 @@ export function ActiveProcessBanner({ jobId }) {
   const proc = active.process
   const allocated = parseFloat(proc?.allocated_hours) || 0
   const logged = parseFloat(proc?.time_logged) || 0
-  const totalH = logged + elapsed / 3600
+  const totalH = logged + elapsed / 60  // elapsed is minutes, /60 = hours
   const remaining = allocated > 0 ? Math.max(0, allocated - totalH) : null
 
   return (
@@ -83,8 +83,8 @@ export function ActiveProcessBanner({ jobId }) {
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{proc?.name || 'Process'} — in progress</div>
         <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)', marginTop:2, display:'flex', gap:12, flexWrap:'wrap' }}>
-          <span>⏱ {fmtHours(elapsed / 3600)} this session</span>
-          {remaining !== null && <span>⏳ {fmtHours(remaining)} remaining</span>}
+          <span>⏱ {fmtHours(elapsed / 60)} this session</span>
+          {remaining !== null && remaining > 0 && <span>⏳ {fmtHours(remaining)} remaining</span>}
           {remaining === null && <span>🕐 {fmtHours(totalH)} total logged</span>}
         </div>
       </div>

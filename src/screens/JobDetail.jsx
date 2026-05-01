@@ -1029,7 +1029,7 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     }).select().single()
     if(error){toast(error.message,'error');return}
     setActiveEntries({[proc.id]:data})
-    update(proc.id,{status:'In progress'})
+    update(proc.id,{status:'In progress',assigned_to:profile.id})
     toast(`▶ ${proc.name} started`)
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
   }
@@ -1039,7 +1039,7 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
     await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
     const newLogged=parseFloat(((proc.time_logged||0)+mins/60).toFixed(2))
-    update(proc.id,{time_logged:newLogged,...(newStatus?{status:newStatus}:{})})
+    update(proc.id,{time_logged:newLogged,...(newStatus?{status:newStatus,assigned_to:profile.id}:{})})
     const {[proc.id]:_,...rest}=activeEntries; setActiveEntries(rest)
     toast(`${newStatus==='Complete'?'✓':newStatus==='On hold'?'⏸':'■'} ${proc.name} — ${(mins/60).toFixed(1)}h logged`)
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
@@ -1175,19 +1175,28 @@ function HistoryPanel({ timeHistory }) {
   )
 
   function fmt(dt) {
-    return new Date(dt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+    return new Date(dt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Pacific/Auckland'})
   }
   function dur(entry) {
-    if (entry.duration_minutes) {
-      const h=Math.floor(entry.duration_minutes/60), m=entry.duration_minutes%60
-      return h>0?`${h}h ${m}m`:`${m}m`
-    }
+    // Active entries: always calculate live from clocked_in_at
     if (!entry.clocked_out_at) {
       const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
       const h=Math.floor(mins/60), m=Math.round(mins%60)
       return h>0?`${h}h ${m}m`:`${m}m`
     }
-    return '—'
+    // Completed: use stored duration if valid (>0 and reasonable)
+    if (entry.duration_minutes && entry.duration_minutes > 0) {
+      // Sanity check: duration shouldn't exceed actual clock time by >10%
+      const actualMins=(new Date(entry.clocked_out_at)-new Date(entry.clocked_in_at))/60000
+      const stored=entry.duration_minutes
+      const use = stored > actualMins * 10 ? actualMins : stored // fallback if wildly wrong
+      const h=Math.floor(use/60), m=Math.round(use%60)
+      return h>0?`${h}h ${m}m`:`${m}m`
+    }
+    // Calculate from timestamps
+    const mins=(new Date(entry.clocked_out_at)-new Date(entry.clocked_in_at))/60000
+    const h=Math.floor(mins/60), m=Math.round(mins%60)
+    return h>0?`${h}h ${m}m`:`${m}m`
   }
 
   return (
@@ -1234,6 +1243,33 @@ function SectionHeader({ title, badge, badgeBg, badgeColor, action }) {
   )
 }
 
+function HistorySectionWithToggle({ timeHistory }) {
+  const [show, setShow] = React.useState(false)
+  const active = timeHistory.filter(e=>!e.clocked_out_at).length
+  const total  = timeHistory.length
+
+  return (
+    <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderBottom:show?'1px solid #F3F4F6':'none'}}>
+        <div style={{display:'flex',alignItems:'center',gap:7}}>
+          <span style={{fontSize:12,fontWeight:800,color:'#2A3042',textTransform:'uppercase',letterSpacing:'.05em'}}>Time history</span>
+          {active>0&&<span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:8,background:'#DCFCE7',color:'#166534'}}>{active} active</span>}
+          {total>0&&<span style={{fontSize:10,color:'#9CA3AF'}}>{total} entries</span>}
+        </div>
+        <button onClick={()=>setShow(s=>!s)}
+          style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:8,border:'1px solid #E8ECF0',background:show?'#EEF2FF':'#F9FAFB',color:show?'#3730A3':'#6B7280',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+          {show?'Hide':'Show'}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            style={{transform:show?'rotate(180deg)':'rotate(0)',transition:'transform .15s'}}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+      </div>
+      {show && <HistoryPanel timeHistory={timeHistory} />}
+    </div>
+  )
+}
+
 function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
   processes, onProcessesChange, timeHistory, onHistoryChange, profile }) {
 
@@ -1266,10 +1302,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
       </div>
 
       {/* ── HISTORY ── */}
-      <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
-        <SectionHeader title="Time history" />
-        <HistoryPanel timeHistory={timeHistory} />
-      </div>
+      <HistorySectionWithToggle timeHistory={timeHistory} />
     </div>
   )
 }
@@ -2091,7 +2124,7 @@ export default function JobDetail() {
                         {t.completed_by}
                         {t.completed_at && (
                           <span style={{ color:'#C4C9D4' }}>
-                            · {new Date(t.completed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})} {new Date(t.completed_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+                            · {new Date(t.completed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})} {new Date(t.completed_at).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',timeZone:'Pacific/Auckland',hour12:true})}
                           </span>
                         )}
                       </span>
@@ -2487,7 +2520,7 @@ export default function JobDetail() {
       </div>{/* end left column */}
 
       {/* RIGHT COLUMN — Rooms / Processes / History */}
-      <div style={{ position:'sticky', top:80 }}>
+      <div style={{ position:'sticky', top:80, maxHeight:'calc(100vh - 96px)', overflowY:'auto', overflowX:'hidden', paddingRight:2 }}>
         <RightPanel
           jobId={id} toast={toast}
           rooms={rooms} onAddRoom={room=>{setRooms(p=>[...p,room]);setActiveRoom(room)}}

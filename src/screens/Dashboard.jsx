@@ -154,6 +154,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
               id: p.id, name: p.name, status: entry ? 'In progress' : p.status,
               color: p.color, allocated: p.allocated_hours, logged: p.time_logged,
               user: entry?.profiles || null,
+              assignedProfile: p.profiles || null,
               clockedIn: entry?.clocked_in_at || null,
               isLive: !!entry,
             }
@@ -166,8 +167,10 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
               const ps = PROC_STYLE[p.status] || PROC_STYLE['Not started']
               const elapsed = p.isLive ? (Date.now()-new Date(p.clockedIn).getTime())/3600000 : 0
               const remaining = p.allocated>0 ? Math.max(0,(p.allocated||0)-(p.logged||0)-elapsed) : null
-              const label = p.status==='On hold' ? '⏸ On hold'
-                          : p.status==='In progress' ? (p.user?.full_name ? p.user.full_name.split(' ')[0] : '● Active')
+              const assignedName = p.assignedProfile?.full_name || p.user?.full_name || null
+              const label = p.isLive && assignedName ? assignedName
+                          : p.status==='On hold' ? (assignedName ? `⏸ ${assignedName.split(' ')[0]}` : '⏸ On hold')
+                          : p.status==='In progress' ? (assignedName ? `● ${assignedName.split(' ')[0]}` : '● In progress')
                           : p.status
               return (
                 <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 7px', borderRadius:8, background:ps.bg, border:`1px solid ${p.isLive?'#6EE7B7':ps.dot+'55'}` }}>
@@ -260,7 +263,7 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
           <div style={{ fontSize:12, color:'#9CA3AF', marginBottom: job.due_date ? 4 : 12 }}>{job.client || '—'}</div>
           {job.due_date && (
             <div style={{ fontSize:11, color:'#6B7280', marginBottom:12 }}>
-              Due {new Date(job.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'short' })}
+              Due {new Date(job.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'short', timeZone:'Pacific/Auckland' })}
             </div>
           )}
           <div style={{ height:1, background:'#F3F4F6', marginBottom:12 }} />
@@ -335,8 +338,7 @@ export default function Dashboard() {
     return () => window.removeEventListener('open-new-job', handler)
   }, [])
 
-  // Load active time entries, process data, and unordered counts
-  useEffect(() => {
+  function loadLiveData() {
     supabase.from('time_entries').select('*').is('clocked_out_at', null)
       .then(({ data }) => setActiveEntries(data || []))
     supabase.from('time_entries')
@@ -347,8 +349,7 @@ export default function Dashboard() {
         ;(ae||[]).forEach(e => { if (!map[e.job_id]) map[e.job_id]=[]; map[e.job_id].push(e) })
         setJobProcessData(map)
       })
-    // Load all non-complete processes to show status even when not clocked in
-    supabase.from('job_processes').select('job_id,name,status,color,allocated_hours,time_logged')
+    supabase.from('job_processes').select('job_id,name,status,color,allocated_hours,time_logged,assigned_to,profiles(id,full_name,email)')
       .neq('status','Complete').order('sort_order')
       .then(({ data: jp }) => {
         const map = {}
@@ -361,6 +362,13 @@ export default function Dashboard() {
         ;(oi||[]).forEach(o => { counts[o.job_id]=(counts[o.job_id]||0)+1 })
         setUnorderedCounts(counts)
       })
+  }
+
+  // Load live data on mount and every 30s so process status stays current
+  useEffect(() => {
+    loadLiveData()
+    const interval = setInterval(loadLiveData, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   const filtered = jobs.filter(j => {
