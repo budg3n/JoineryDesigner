@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
 import RoomDetail from './RoomDetail'
-import JobProcesses from './JobProcesses'
+import { ActiveProcessBanner } from './JobProcesses'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import StatusBadge from '../components/StatusBadge'
@@ -986,6 +986,294 @@ function JobAppliancesSection({ jobId, jobAppliances, allAppliances, setJobAppli
   )
 }
 
+
+// ── Right Panel — Rooms / Processes / History ────────────────────
+const PROC_STATUS_STYLE = {
+  'Not started': { bg:'#F3F4F6', color:'#6B7280', border:'#E8ECF0' },
+  'In progress':  { bg:'#DBEAFE', color:'#1E40AF', border:'#BFDBFE' },
+  'Complete':     { bg:'#DCFCE7', color:'#166534', border:'#86EFAC' },
+  'On hold':      { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A' },
+}
+
+function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, onHistoryRefresh }) {
+  const [templates, setTemplates]     = React.useState([])
+  const [activeEntries, setActiveEntries] = React.useState({}) // processId->entry
+  const [showAdd, setShowAdd]         = React.useState(false)
+  const [newProc, setNewProc]         = React.useState({ name:'', hours:'' })
+  const saveTimer = React.useRef()
+
+  React.useEffect(() => {
+    supabase.from('process_templates').select('*').order('sort_order').then(({data})=>setTemplates(data||[]))
+    supabase.from('time_entries').select('*').eq('job_id',jobId).is('clocked_out_at',null)
+      .then(({data})=>{
+        const map={}; (data||[]).forEach(e=>{ if(e.process_id) map[e.process_id]=e }); setActiveEntries(map)
+      })
+  },[jobId])
+
+  function update(id, patch) {
+    onProcessesChange(p=>p.map(x=>x.id===id?{...x,...patch}:x))
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(()=>supabase.from('job_processes').update(patch).eq('id',id),500)
+  }
+
+  async function clockIn(proc) {
+    // Clock out any active first
+    for (const [pid,entry] of Object.entries(activeEntries)) {
+      const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+      await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
+      const p=processes.find(x=>x.id===pid)
+      if(p) update(p.id,{time_logged:parseFloat(((p.time_logged||0)+mins/60).toFixed(2))})
+    }
+    const {data,error}=await supabase.from('time_entries').insert({
+      job_id:jobId,user_id:profile.id,process_id:proc.id,clocked_in_at:new Date().toISOString()
+    }).select().single()
+    if(error){toast(error.message,'error');return}
+    setActiveEntries({[proc.id]:data})
+    update(proc.id,{status:'In progress'})
+    toast(`▶ ${proc.name} started`)
+    if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
+  }
+
+  async function clockOut(proc, newStatus) {
+    const entry=activeEntries[proc.id]; if(!entry) return
+    const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+    await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
+    const newLogged=parseFloat(((proc.time_logged||0)+mins/60).toFixed(2))
+    update(proc.id,{time_logged:newLogged,...(newStatus?{status:newStatus}:{})})
+    const {[proc.id]:_,...rest}=activeEntries; setActiveEntries(rest)
+    toast(`${newStatus==='Complete'?'✓':newStatus==='On hold'?'⏸':'■'} ${proc.name} — ${(mins/60).toFixed(1)}h logged`)
+    if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
+  }
+
+  async function addFromTemplate(t) {
+    const {data,error}=await supabase.from('job_processes').insert({
+      job_id:jobId,template_id:t.id,name:t.name,
+      allocated_hours:t.default_hours||0,color:t.color||'#9CA3AF',
+      status:'Not started',time_logged:0,sort_order:processes.length
+    }).select().single()
+    if(error){toast(error.message,'error');return}
+    onProcessesChange(p=>[...p,data]); toast(`${t.name} added ✓`)
+  }
+
+  async function addCustom() {
+    if(!newProc.name.trim()) return
+    const {data,error}=await supabase.from('job_processes').insert({
+      job_id:jobId,name:newProc.name,allocated_hours:parseFloat(newProc.hours)||0,
+      color:'#9CA3AF',status:'Not started',time_logged:0,sort_order:processes.length
+    }).select().single()
+    if(error){toast(error.message,'error');return}
+    onProcessesChange(p=>[...p,data]); setNewProc({name:'',hours:''}); setShowAdd(false)
+    toast(`${data.name} added ✓`)
+  }
+
+  const already = processes.map(p=>p.template_id)
+  const availTemplates = templates.filter(t=>!already.includes(t.id))
+
+  return (
+    <div>
+      {processes.length===0&&!showAdd ? (
+        <div style={{textAlign:'center',padding:'24px 16px',color:'#9CA3AF'}}>
+          <div style={{fontSize:24,marginBottom:8}}>⚙️</div>
+          <div style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:4}}>No processes yet</div>
+          <div style={{fontSize:12,marginBottom:12}}>Add production stages to track time per phase</div>
+          <button onClick={()=>setShowAdd(true)} style={{fontSize:12,fontWeight:700,padding:'7px 18px',borderRadius:9,border:'none',background:'#5B8AF0',color:'#fff',cursor:'pointer'}}>+ Add process</button>
+        </div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:6,padding:'8px 0'}}>
+          {processes.map(proc=>{
+            const isActive=!!activeEntries[proc.id]
+            const ss=PROC_STATUS_STYLE[proc.status]||PROC_STATUS_STYLE['Not started']
+            const allocated=proc.allocated_hours||0
+            const logged=proc.time_logged||0
+            const pct=allocated>0?Math.min((logged/allocated)*100,100):0
+            const remaining=allocated>0?Math.max(0,allocated-logged):null
+            return (
+              <div key={proc.id} style={{background:isActive?'#F0FDF4':'#F9FAFB',borderRadius:10,border:`1px solid ${isActive?'#86EFAC':'#E8ECF0'}`,padding:'10px 12px',transition:'all .2s'}}>
+                {/* name + status */}
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:proc.color||'#9CA3AF',flexShrink:0,
+                    boxShadow:isActive?`0 0 0 3px ${proc.color||'#9CA3AF'}33`:undefined}} />
+                  <span style={{fontSize:13,fontWeight:700,color:'#2A3042',flex:1}}>{proc.name}</span>
+                  <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8,background:ss.bg,color:ss.color,border:`1px solid ${ss.border}`}}>
+                    {isActive?'● Active':proc.status}
+                  </span>
+                </div>
+                {/* progress */}
+                {(allocated>0||logged>0) && (
+                  <div style={{marginBottom:8}}>
+                    <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#9CA3AF',marginBottom:3}}>
+                      <span>{logged.toFixed(1)}h logged{allocated>0?` / ${allocated}h`:''}</span>
+                      {remaining!==null&&<span style={{color:remaining<1?'#E24B4A':'#9CA3AF'}}>{remaining.toFixed(1)}h left</span>}
+                    </div>
+                    {allocated>0&&<div style={{height:3,background:'#E8ECF0',borderRadius:2,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:`${pct}%`,background:pct>90?'#E24B4A':pct>70?'#EF9F27':'#1D9E75',borderRadius:2,transition:'width .3s'}}/>
+                    </div>}
+                  </div>
+                )}
+                {/* action buttons */}
+                <div style={{display:'flex',gap:6}}>
+                  {isActive ? (<>
+                    <button onClick={()=>clockOut(proc,'On hold')}
+                      style={{flex:1,fontSize:11,fontWeight:700,padding:'5px 6px',borderRadius:7,border:'1px solid #FDE68A',background:'#FEF9C3',color:'#854D0E',cursor:'pointer'}}>⏸ Hold</button>
+                    <button onClick={()=>clockOut(proc,'Complete')}
+                      style={{flex:1,fontSize:11,fontWeight:700,padding:'5px 6px',borderRadius:7,border:'1px solid #86EFAC',background:'#DCFCE7',color:'#166534',cursor:'pointer'}}>✓ Done</button>
+                    <button onClick={()=>clockOut(proc)}
+                      style={{flex:1,fontSize:11,fontWeight:700,padding:'5px 6px',borderRadius:7,border:'none',background:'#374151',color:'#fff',cursor:'pointer'}}>■ Stop</button>
+                  </>) : proc.status==='Complete' ? (
+                    <div style={{fontSize:11,color:'#9CA3AF',textAlign:'center',width:'100%',padding:'4px 0'}}>Completed ✓</div>
+                  ) : (
+                    <button onClick={()=>clockIn(proc)} style={{width:'100%',fontSize:12,fontWeight:700,padding:'6px',borderRadius:7,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer'}}>
+                      {proc.status==='On hold'?'▶ Resume':'▶ Start'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          <button onClick={()=>setShowAdd(s=>!s)}
+            style={{fontSize:12,fontWeight:600,padding:'7px',borderRadius:9,border:'1px dashed #C4D4F8',background:'#F0F4FF',color:'#5B8AF0',cursor:'pointer',marginTop:2}}>
+            {showAdd?'Cancel':'+ Add process'}
+          </button>
+        </div>
+      )}
+
+      {showAdd&&(
+        <div style={{background:'#F9FAFB',borderRadius:10,border:'1px solid #E8ECF0',padding:12,marginTop:6}}>
+          {availTemplates.length>0&&(
+            <>
+              <div style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:7}}>From templates</div>
+              {availTemplates.map(t=>(
+                <div key={t.id} onClick={()=>{addFromTemplate(t);setShowAdd(false)}}
+                  style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:8,border:'1px solid #E8ECF0',background:'#fff',cursor:'pointer',marginBottom:5}}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                  onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                  <div style={{width:9,height:9,borderRadius:'50%',background:t.color||'#9CA3AF',flexShrink:0}}/>
+                  <span style={{fontSize:12,fontWeight:600,color:'#2A3042',flex:1}}>{t.name}</span>
+                  {t.default_hours>0&&<span style={{fontSize:10,color:'#9CA3AF'}}>{t.default_hours}h</span>}
+                </div>
+              ))}
+              <div style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',margin:'8px 0 6px'}}>Custom</div>
+            </>
+          )}
+          <div style={{display:'flex',gap:6}}>
+            <input value={newProc.name} onChange={e=>setNewProc(p=>({...p,name:e.target.value}))}
+              onKeyDown={e=>e.key==='Enter'&&addCustom()} placeholder="Process name" autoFocus
+              style={{flex:1,padding:'6px 9px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none'}}/>
+            <input type="number" value={newProc.hours} onChange={e=>setNewProc(p=>({...p,hours:e.target.value}))}
+              placeholder="hrs" style={{width:50,padding:'6px 8px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none',textAlign:'center'}}/>
+            <button onClick={addCustom} style={{padding:'6px 12px',borderRadius:7,border:'none',background:'#5B8AF0',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>Add</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function HistoryPanel({ timeHistory }) {
+  if (timeHistory.length===0) return (
+    <div style={{textAlign:'center',padding:'32px 16px',color:'#9CA3AF',fontSize:13}}>No time entries yet</div>
+  )
+
+  function fmt(dt) {
+    return new Date(dt).toLocaleString('en-NZ',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+  }
+  function dur(entry) {
+    if (entry.duration_minutes) {
+      const h=Math.floor(entry.duration_minutes/60), m=entry.duration_minutes%60
+      return h>0?`${h}h ${m}m`:`${m}m`
+    }
+    if (!entry.clocked_out_at) {
+      const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+      const h=Math.floor(mins/60), m=Math.round(mins%60)
+      return h>0?`${h}h ${m}m`:`${m}m`
+    }
+    return '—'
+  }
+
+  return (
+    <div style={{padding:'4px 0'}}>
+      {timeHistory.map(entry=>{
+        const isActive=!entry.clocked_out_at
+        const proc=entry.job_processes
+        const user=entry.profiles
+        return (
+          <div key={entry.id} style={{padding:'9px 12px',borderBottom:'1px solid #F3F4F6',background:isActive?'#F0FDF4':'#fff'}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+              <div style={{width:9,height:9,borderRadius:'50%',background:proc?.color||'#9CA3AF',flexShrink:0,marginTop:3,
+                boxShadow:isActive?`0 0 0 3px ${proc?.color||'#9CA3AF'}33`:undefined}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#2A3042'}}>{proc?.name||'General'}</span>
+                  {isActive&&<span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:6,background:'#DCFCE7',color:'#166534',border:'1px solid #86EFAC'}}>● Active</span>}
+                </div>
+                <div style={{fontSize:11,color:'#9CA3AF',marginTop:2}}>
+                  {user?.full_name||user?.email||'Unknown'} · {fmt(entry.clocked_in_at)}
+                </div>
+              </div>
+              <div style={{fontSize:12,fontWeight:700,color:isActive?'#1D9E75':'#374151',flexShrink:0,textAlign:'right'}}>
+                {dur(entry)}
+                {isActive&&<div style={{fontSize:9,color:'#1D9E75',fontWeight:400}}>ongoing</div>}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SectionHeader({ title, badge, badgeBg, badgeColor, action }) {
+  return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px 8px',borderBottom:'1px solid #F3F4F6'}}>
+      <div style={{display:'flex',alignItems:'center',gap:7}}>
+        <span style={{fontSize:12,fontWeight:800,color:'#2A3042',textTransform:'uppercase',letterSpacing:'.05em'}}>{title}</span>
+        {badge!=null&&<span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:8,background:badgeBg,color:badgeColor}}>{badge}</span>}
+      </div>
+      {action}
+    </div>
+  )
+}
+
+function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
+  processes, onProcessesChange, timeHistory, onHistoryChange, profile }) {
+
+  const openTasks  = rooms.reduce((a,r)=>{
+    const t=r.tasks?(typeof r.tasks==='string'?JSON.parse(r.tasks):r.tasks):[]
+    return a+t.filter(x=>!x.done).length
+  },0)
+  const activeProcs = processes.filter(p=>p.status==='In progress').length
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {/* ── ROOMS ── */}
+      <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+        <SectionHeader title="Rooms" badge={openTasks>0?`${openTasks} tasks`:null} badgeBg='#FEF9C3' badgeColor='#854D0E' />
+        <RoomsPanel rooms={rooms} jobId={jobId} toast={toast}
+          onAddRoom={onAddRoom} onOpenRoom={onOpenRoom} onRoomsChange={onRoomsChange} />
+      </div>
+
+      {/* ── PROCESSES ── */}
+      <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+        <SectionHeader title="Processes"
+          badge={activeProcs>0?`${activeProcs} active`:processes.length>0?`${processes.length}`:null}
+          badgeBg={activeProcs>0?'#DCFCE7':'#F3F4F6'} badgeColor={activeProcs>0?'#166534':'#6B7280'} />
+        <ProcessesPanel jobId={jobId} processes={processes}
+          onProcessesChange={onProcessesChange} profile={profile} toast={toast}
+          onHistoryRefresh={()=>supabase.from('time_entries')
+            .select('*,profiles(id,full_name,email),job_processes(id,name,color)')
+            .eq('job_id',jobId).order('clocked_in_at',{ascending:false}).limit(30)
+            .then(({data})=>onHistoryChange(data||[]))} />
+      </div>
+
+      {/* ── HISTORY ── */}
+      <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+        <SectionHeader title="Time history" />
+        <HistoryPanel timeHistory={timeHistory} />
+      </div>
+    </div>
+  )
+}
+
 // ── Rooms Panel (right column) ───────────────────────────────────
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
@@ -1345,6 +1633,10 @@ export default function JobDetail() {
   const [showStartup, setShowStartup] = useState(false)
   const [rooms, setRooms]             = useState([])
   const [activeRoom, setActiveRoom]   = useState(null)
+  const [processes, setProcesses]     = useState([])
+  const [timeHistory, setTimeHistory] = useState([])
+  const [rightTab, setRightTab]       = useState('rooms')
+  const [unorderedCount, setUnorderedCount] = useState(0)
   const [showProcesses, setShowProcesses] = useState(false)
   const [startupOpenKey, setStartupOpenKey] = useState(0)
   const [allNotes, setAllNotes] = useState([])
@@ -1389,6 +1681,14 @@ export default function JobDetail() {
     setLoading(false)
     // Load rooms
     supabase.from('rooms').select('*').eq('job_id', id).order('sort_order').then(({data})=>setRooms(data||[]))
+    // Load processes
+    supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
+    // Load time history
+    supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
+      .eq('job_id', id).order('clocked_in_at',{ascending:false}).limit(30)
+      .then(({data})=>setTimeHistory(data||[]))
+    // Unordered items count
+    supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
@@ -1427,7 +1727,8 @@ export default function JobDetail() {
       onSave: saveJob,
       onSketch: () => navigate(`/job/${id}/sketch`),
       onOrders: () => navigate(`/job/${id}/orders`),
-      onProcesses: () => setShowProcesses(true),
+      jobId: id,
+      onProcesses: () => {}, // handled by Layout now
       onStartup: async () => {
         let sNote = null
         const { data: d1 } = await supabase.from('notes')
@@ -1725,6 +2026,9 @@ export default function JobDetail() {
 
       <BackButton to="/" label="Jobs" />
 
+      {/* Active process banner */}
+      <ActiveProcessBanner jobId={id} />
+
       {/* header */}
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
@@ -1824,7 +2128,9 @@ export default function JobDetail() {
         <div className="grid grid-cols-2 gap-3">
           {[['Job name','name','text'],['Job number','job_number','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
             <div key={k}><label className="label">{l}</label>
-              <input className="input text-sm" type={t} value={job[k]||''} onChange={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }} />
+              <input className="input text-sm" type={t==='number'?'number':'text'} value={job[k]||''}
+                onChange={e => setJob(j => ({ ...j, [k]: e.target.value }))}
+                onBlur={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }} />
             </div>
           ))}
           <div><label className="label">Job type</label>
@@ -1922,6 +2228,21 @@ export default function JobDetail() {
       />
 
       {/* linked notes */}
+      {/* unordered items banner */}
+      {unorderedCount > 0 && (
+        <div onClick={() => navigate(`/job/${id}/orders`)}
+          style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#FEF9C3', borderRadius:10, border:'1px solid #FDE68A', marginBottom:10, cursor:'pointer', transition:'all .1s' }}
+          onMouseEnter={e=>e.currentTarget.style.background='#FEF3C7'}
+          onMouseLeave={e=>e.currentTarget.style.background='#FEF9C3'}>
+          <span style={{ fontSize:18 }}>📦</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#854D0E' }}>{unorderedCount} item{unorderedCount!==1?'s':''} need to be ordered</div>
+            <div style={{ fontSize:11, color:'#92400E' }}>Tap to open order sheet</div>
+          </div>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      )}
+
       {/* order sheet quick link */}
       <div onClick={() => navigate(`/job/${id}/orders`)}
         style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', marginBottom:14, cursor:'pointer', transition:'all .12s' }}
@@ -2165,13 +2486,15 @@ export default function JobDetail() {
       )}
       </div>{/* end left column */}
 
-      {/* RIGHT COLUMN — Rooms hub */}
+      {/* RIGHT COLUMN — Rooms / Processes / History */}
       <div style={{ position:'sticky', top:80 }}>
-        <RoomsPanel
-          rooms={rooms} jobId={id} toast={toast}
-          onAddRoom={room => { setRooms(p=>[...p,room]); setActiveRoom(room) }}
-          onOpenRoom={room => setActiveRoom(room)}
-          onRoomsChange={setRooms}
+        <RightPanel
+          jobId={id} toast={toast}
+          rooms={rooms} onAddRoom={room=>{setRooms(p=>[...p,room]);setActiveRoom(room)}}
+          onOpenRoom={room=>setActiveRoom(room)} onRoomsChange={setRooms}
+          processes={processes} onProcessesChange={setProcesses}
+          timeHistory={timeHistory} onHistoryChange={setTimeHistory}
+          profile={profile}
         />
       </div>
 

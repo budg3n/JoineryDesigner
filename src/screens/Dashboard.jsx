@@ -114,53 +114,109 @@ function MatHoverPanel({ colors, visible }) {
   )
 }
 
-function JobTimeStatus({ job, activeEntries, accent }) {
-  const active = activeEntries.find(e => e.job_id === job.id)
-  const elapsed = useLiveTimer(active?.clocked_in_at) // minutes
+function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = [], accent }) {
+  const active  = activeEntries.find(e => e.job_id === job.id)
+  const elapsed = useLiveTimer(active?.clocked_in_at) // seconds
   const budget  = parseFloat(job.budget_hours) || 0
   const logged  = parseFloat(job.time_logged)  || 0
-  const total   = logged + (elapsed / 60)
+  const total   = logged + (elapsed / 3600)
   const noBudget = budget === 0
-
-  // Status determination
-  const isLive  = !!active
-  const isOver  = !noBudget && total > budget
-  const started = logged > 0 || isLive
-  const pct     = noBudget ? 0 : Math.min((total / budget) * 100, 100)
-  const remaining = budget - total
-  const overBy    = total - budget
-
+  const isOver   = !noBudget && total > budget
+  const pct      = noBudget ? 0 : Math.min((total / budget) * 100, 100)
   const barColor = isOver ? '#E24B4A' : pct > 85 ? '#EF9F27' : '#1D9E75'
 
+  // Process status pills — show each process with its status
+  const PROC_STYLE = {
+    'Not started': { bg:'#F3F4F6', color:'#6B7280', dot:'#C4C9D4' },
+    'In progress':  { bg:'#ECFDF5', color:'#065F46', dot:'#1D9E75', live:true },
+    'On hold':      { bg:'#FEF9C3', color:'#854D0E', dot:'#EF9F27' },
+    'Complete':     { bg:'#DCFCE7', color:'#166534', dot:'#1D9E75' },
+  }
+
+  // Combine: active clock-ins + process statuses (In progress / On hold)
+  const hasAnyProcess = procEntries.length > 0 || procStatuses.some(p=>p.status!=='Not started')
+  const hasStarted = logged > 0 || !!active || hasAnyProcess
+
   return (
-    <div style={{ marginTop:10 }}>
-      {/* status pill */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: (!noBudget || isLive) ? 6 : 0 }}>
-        {isLive ? (
-          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>
-            <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block', animation:'ping 1.5s cubic-bezier(0,0,0.2,1) infinite' }} />
-            {fmtHours(elapsed/60)} live
-          </span>
-        ) : !started ? (
-          <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F3F4F6', color:'#9CA3AF' }}>Yet to start</span>
-        ) : isOver ? (
-          <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#FEF2F2', color:'#991B1B', border:'1px solid #FCA5A5' }}>
-            ⚠ {fmtHours(overBy)} over
-          </span>
-        ) : budget > 0 ? (
-          <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F0FDF4', color:'#065F46' }}>
-            {fmtHours(remaining)} left
-          </span>
-        ) : started ? (
-          <span style={{ fontSize:10, color:'#9CA3AF' }}>{fmtHours(total)} logged</span>
-        ) : null}
-        {!noBudget && started && (
-          <span style={{ fontSize:10, color:'#9CA3AF' }}>{Math.round(pct)}%</span>
-        )}
-      </div>
-      {/* progress bar */}
-      {!noBudget && started && (
-        <div style={{ height:4, background:'#F3F4F6', borderRadius:2, overflow:'hidden' }}>
+    <div style={{ marginTop:8 }}>
+      {/* Process status pills — one pill per process, no duplicates */}
+      {hasAnyProcess && (() => {
+        // Index active clock-ins by process_id
+        const activeMap = {}
+        procEntries.forEach(e => { activeMap[e.process_id] = e })
+
+        // One entry per non-complete process — use clock-in data if active
+        const showProcs = procStatuses
+          .filter(p => p.status !== 'Not started')
+          .map(p => {
+            const entry = activeMap[p.id]
+            return {
+              id: p.id, name: p.name, status: entry ? 'In progress' : p.status,
+              color: p.color, allocated: p.allocated_hours, logged: p.time_logged,
+              user: entry?.profiles || null,
+              clockedIn: entry?.clocked_in_at || null,
+              isLive: !!entry,
+            }
+          })
+
+        if (showProcs.length === 0) return null
+        return (
+          <div style={{ display:'flex', flexDirection:'column', gap:3, marginBottom:6 }}>
+            {showProcs.slice(0,3).map(p => {
+              const ps = PROC_STYLE[p.status] || PROC_STYLE['Not started']
+              const elapsed = p.isLive ? (Date.now()-new Date(p.clockedIn).getTime())/3600000 : 0
+              const remaining = p.allocated>0 ? Math.max(0,(p.allocated||0)-(p.logged||0)-elapsed) : null
+              const label = p.status==='On hold' ? '⏸ On hold'
+                          : p.status==='In progress' ? (p.user?.full_name ? p.user.full_name.split(' ')[0] : '● Active')
+                          : p.status
+              return (
+                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 7px', borderRadius:8, background:ps.bg, border:`1px solid ${p.isLive?'#6EE7B7':ps.dot+'55'}` }}>
+                  {p.isLive
+                    ? <span style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0, display:'inline-block', animation:'ping 1.5s infinite' }} />
+                    : <span style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0 }} />
+                  }
+                  <span style={{ fontSize:10, fontWeight:700, color:ps.color, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {p.name}
+                  </span>
+                  <span style={{ fontSize:9, fontWeight:600, color:ps.color, opacity:.9, flexShrink:0 }}>{label}</span>
+                  {remaining !== null && p.isLive && (
+                    <span style={{ fontSize:9, color:ps.color, flexShrink:0, marginLeft:2 }}>{remaining.toFixed(1)}h</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+
+      {/* No processes started — show budget status or yet to start */}
+      {!hasAnyProcess && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: (!noBudget && hasStarted) ? 6 : 0 }}>
+          {active ? (
+            <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block' }} />
+              {fmtHours(elapsed/3600)} live
+            </span>
+          ) : !hasStarted ? (
+            <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F3F4F6', color:'#9CA3AF' }}>Yet to start</span>
+          ) : isOver ? (
+            <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'#FEF2F2', color:'#991B1B', border:'1px solid #FCA5A5' }}>
+              ⚠ {fmtHours(total - budget)} over
+            </span>
+          ) : budget > 0 ? (
+            <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, background:'#F0FDF4', color:'#065F46' }}>
+              {fmtHours(budget - total)} left
+            </span>
+          ) : (
+            <span style={{ fontSize:10, color:'#9CA3AF' }}>{fmtHours(total)} logged</span>
+          )}
+          {!noBudget && hasStarted && <span style={{ fontSize:10, color:'#9CA3AF' }}>{Math.round(pct)}%</span>}
+        </div>
+      )}
+
+      {/* Budget progress bar */}
+      {!noBudget && hasStarted && (
+        <div style={{ height:3, background:'#F3F4F6', borderRadius:2, overflow:'hidden' }}>
           <div style={{ height:'100%', width:`${pct}%`, background: barColor, borderRadius:2, transition:'width .3s' }} />
         </div>
       )}
@@ -168,7 +224,7 @@ function JobTimeStatus({ job, activeEntries, accent }) {
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [] }) {
+function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0 }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors   = job.mat_colors ? JSON.parse(job.mat_colors) : []
@@ -217,7 +273,15 @@ function JobCard({ job, index, onClick, activeEntries = [] }) {
               </div>
             )}
           </div>
-          <JobTimeStatus job={job} activeEntries={activeEntries} accent={accent} />
+          <JobTimeStatus job={job} activeEntries={activeEntries} procEntries={procEntries} procStatuses={procStatuses} accent={accent} />
+
+          {/* Unordered materials */}
+          {unorderedCount > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 8px', background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:8, marginTop:4 }}>
+              <span style={{ fontSize:12,lineHeight:1 }}>📦</span>
+              <span style={{ fontSize:11,fontWeight:600,color:'#854D0E' }}>{unorderedCount} item{unorderedCount!==1?'s':''} to order</span>
+            </div>
+          )}
         </div>
       </div>
       {colors.length > 0 && <MatHoverPanel colors={colors} visible={hovered} />}
@@ -242,7 +306,10 @@ export default function Dashboard() {
   const [tab, setTab]         = useState('active')
   const [search, setSearch]   = useState('')
   const [showModal, setShowModal] = useState(false)
-  const [activeEntries, setActiveEntries] = useState([]) // currently clocked-in sessions
+  const [activeEntries, setActiveEntries] = useState([])
+  const [jobProcessData, setJobProcessData] = useState({}) // jobId -> active clock-in entries
+  const [jobProcessStatus, setJobProcessStatus] = useState({}) // jobId -> [{name,status,color,allocated_hours,time_logged}]
+  const [unorderedCounts, setUnorderedCounts] = useState({}) // jobId -> count // currently clocked-in sessions
 
   const loadJobs = useCallback(async () => {
     if (profile === undefined) return // context not ready yet
@@ -266,6 +333,34 @@ export default function Dashboard() {
     const handler = () => setShowModal(true)
     window.addEventListener('open-new-job', handler)
     return () => window.removeEventListener('open-new-job', handler)
+  }, [])
+
+  // Load active time entries, process data, and unordered counts
+  useEffect(() => {
+    supabase.from('time_entries').select('*').is('clocked_out_at', null)
+      .then(({ data }) => setActiveEntries(data || []))
+    supabase.from('time_entries')
+      .select('job_id,clocked_in_at,process_id,job_processes(id,name,allocated_hours,time_logged,color),profiles(id,full_name,email)')
+      .is('clocked_out_at', null).not('process_id', 'is', null)
+      .then(({ data: ae }) => {
+        const map = {}
+        ;(ae||[]).forEach(e => { if (!map[e.job_id]) map[e.job_id]=[]; map[e.job_id].push(e) })
+        setJobProcessData(map)
+      })
+    // Load all non-complete processes to show status even when not clocked in
+    supabase.from('job_processes').select('job_id,name,status,color,allocated_hours,time_logged')
+      .neq('status','Complete').order('sort_order')
+      .then(({ data: jp }) => {
+        const map = {}
+        ;(jp||[]).forEach(p => { if (!map[p.job_id]) map[p.job_id]=[]; map[p.job_id].push(p) })
+        setJobProcessStatus(map)
+      })
+    supabase.from('order_items').select('job_id').eq('status','To order')
+      .then(({ data: oi }) => {
+        const counts = {}
+        ;(oi||[]).forEach(o => { counts[o.job_id]=(counts[o.job_id]||0)+1 })
+        setUnorderedCounts(counts)
+      })
   }, [])
 
   const filtered = jobs.filter(j => {
@@ -341,7 +436,7 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} />
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} />
           ))}
           {can('createJob') && tab !== 'done' && (
             <div onClick={() => setShowModal(true)}

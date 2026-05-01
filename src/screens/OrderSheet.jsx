@@ -71,16 +71,6 @@ function Cell({ value='', onChange, col }) {
     </div>
   )
 
-  if (col.type === 'room') return (
-    <div style={base}>
-      <select value={val||''} onChange={e=>{setVal(e.target.value);commit(e.target.value)}}
-        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color: val?'#374151':'#C4C9D4' }}>
-        <option value=''>No room</option>
-        {(col._rooms||[]).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-      </select>
-    </div>
-  )
-
   if (col.type === 'status') {
     const s = STATUS_STYLES[val]||STATUS_STYLES['To order']
     return (
@@ -316,10 +306,15 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
             onCommit={p=>onUpdate(row.id,p)} />
         )
         if (col.type === 'room') return (
-          <Cell key={col.key}
-            col={{...col, _rooms: rooms}}
-            value={row.room_id||''}
-            onChange={v=>onUpdate(row.id,{room_id:v||null})} />
+          <div key={col.key} style={{ width:col.w, minWidth:col.w, maxWidth:col.w, height:36, padding:'0 8px', display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box' }}>
+            <select
+              value={row.room_id||''}
+              onChange={e => onUpdate(row.id, { room_id: e.target.value || null })}
+              style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color: row.room_id ? '#374151' : '#C4C9D4' }}>
+              <option value=''>No room</option>
+              {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
         )
         return (
           <Cell key={col.key} col={col} value={row[col.key]||''}
@@ -386,7 +381,7 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
         <>
           {rows.map(row=>(
             <OrderRow key={row.id} row={row} materials={materials}
-              onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={cols} />
+              onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={cols} copyFormat={copyFormat} rooms={rooms} />
           ))}
           <div onClick={()=>onAddRow(title)} style={{ padding:'7px 16px', fontSize:12, color:'#9CA3AF', cursor:'pointer', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, background:'#FAFAFA' }}
             onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
@@ -414,14 +409,15 @@ export default function OrderSheet() {
   const [rooms,     setRooms]     = useState([])
   const [addLib,    setAddLib]    = useState(null)
   const [groupBy,   setGroupBy]   = useState('Category')
-  // If opened from a room, switch to Room grouping
-  useEffect(()=>{ if(roomFilter) setGroupBy('Room') },[roomFilter])
   const [filter,    setFilter]    = useState('All')
   const [cols,      setCols]      = useState(DEFAULT_COLS)
   const [copyFormat, setCopyFormat] = useState({ tokens:[], separator:' ' })
   const { getHeaderProps } = useDragColumns(cols, setCols)
   const [showColMenu, setShowColMenu] = useState(false)
   const saveTimer = useRef()
+
+  // Set groupBy to Room when opened from a room context
+  useEffect(()=>{ if(roomFilter) setGroupBy('Room') },[roomFilter])
 
   useEffect(()=>{
     Promise.all([

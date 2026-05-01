@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { useState, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import JobProcessesDropdown from '../screens/JobProcesses'
 
 function SbIcon({ children }) {
   return (
@@ -47,6 +48,10 @@ export default function Layout() {
   const location  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [jobActions, setJobActions]   = useState(null)
+  const jobActionsRef = useRef(null)
+  const [showProcesses, setShowProcesses] = useState(false)
+  const processBtnRef = useRef(null)
+  const processDropRef = useRef(null)
   const [pendingCount, setPendingCount] = useState(0)
 
   const isJob = location.pathname.startsWith('/job/') && !location.pathname.includes('/sketch')
@@ -58,13 +63,30 @@ export default function Layout() {
   // Close sidebar on navigation
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
-  // Job actions broadcast
+  // Close processes dropdown on outside click
   useEffect(() => {
-    const handler = e => setJobActions(e.detail)
+    if (!showProcesses) return
+    const handler = e => {
+      if (processBtnRef.current?.contains(e.target)) return
+      if (processDropRef.current?.contains(e.target)) return
+      setShowProcesses(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showProcesses])
+
+  // Job actions broadcast — persist in ref so buttons never flash away
+  useEffect(() => {
+    const handler = e => {
+      jobActionsRef.current = e.detail || jobActionsRef.current
+      setJobActions(e.detail || jobActionsRef.current)
+    }
     window.addEventListener('job-actions', handler)
-    return () => { window.removeEventListener('job-actions', handler); setJobActions(null) }
+    return () => { window.removeEventListener('job-actions', handler) }
   }, [])
-  useEffect(() => { if (!isJob) setJobActions(null) }, [isJob])
+  useEffect(() => {
+    if (!isJob) { jobActionsRef.current = null; setJobActions(null) }
+  }, [isJob])
 
   // Pending approvals count
   useEffect(() => {
@@ -174,27 +196,39 @@ export default function Layout() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
             {/* job action buttons */}
-            {isJob && jobActions && (<>
-              <button onClick={jobActions.onProcesses}
-                style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:'1px solid #BBF7D0', background:'#ECFDF5', color:'#065F46', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
-                ⚙️ Processes
-              </button>
-              <button onClick={jobActions.onStartup}
+            {isJob && (jobActions || jobActionsRef.current) && (<>
+              <div style={{ position:'relative' }}>
+                <button ref={processBtnRef}
+                  onClick={() => setShowProcesses(s => !s)}
+                  style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:`1px solid ${showProcesses?'#6EE7B7':'#BBF7D0'}`, background:showProcesses?'#DCFCE7':'#ECFDF5', color:'#065F46', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                  ⚙️ Processes
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transform:showProcesses?'rotate(180deg)':'rotate(0)',transition:'transform .15s'}}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {showProcesses && (
+                  <div ref={processDropRef} style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:600, width:460, maxWidth:'calc(100vw - 32px)' }}>
+                    <JobProcessesDropdown
+                      jobId={(jobActions||jobActionsRef.current)?.jobId}
+                      onClose={() => setShowProcesses(false)}
+                    />
+                  </div>
+                )}
+              </div>
+              <button onClick={(jobActions||jobActionsRef.current).onStartup}
                 style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:'1px solid #FED7AA', background:'#FFF7ED', color:'#C2410C', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
                 🚀 Startup
               </button>
-              <button onClick={jobActions.onOrders}
+              <button onClick={(jobActions||jobActionsRef.current).onOrders}
                 style={{ height:34, fontSize:12, fontWeight:700, padding:'0 10px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
                 📋 Orders
               </button>
-              <button onClick={jobActions.onSketch}
+              <button onClick={(jobActions||jobActionsRef.current).onSketch}
                 style={{ height:34, fontSize:12, fontWeight:600, padding:'0 10px', borderRadius:8, border:'1px solid #6EE7B7', background:'#ECFDF5', color:'#065F46', cursor:'pointer' }}>
                 ✏️ Sketch
               </button>
-              {jobActions.dirty && (
-                <button onClick={jobActions.onSave} disabled={jobActions.saving}
+              {(jobActions||jobActionsRef.current).dirty && (
+                <button onClick={(jobActions||jobActionsRef.current).onSave} disabled={(jobActions||jobActionsRef.current).saving}
                   style={{ height:34, fontSize:12, fontWeight:700, padding:'0 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:jobActions.saving?'not-allowed':'pointer', opacity:jobActions.saving?0.7:1, boxShadow:'0 2px 8px rgba(91,138,240,0.35)' }}>
-                  {jobActions.saving ? '…' : 'Save'}
+                  {(jobActions||jobActionsRef.current).saving ? '…' : 'Save'}
                 </button>
               )}
             </>)}

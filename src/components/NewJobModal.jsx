@@ -85,7 +85,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
   const [showNewCust, setShowNewCust] = useState(false)
   const [saving, setSaving]       = useState(false)
   const [form, setForm] = useState({
-    name:'', type:'Kitchen', mvnum:'', budget_hours:'',
+    name:'', type:'Kitchen', job_number:'', mvnum:'', budget_hours:'',
     order_date: new Date().toISOString().slice(0,10),
     due_date:'', addr:'', city:'', postcode:'',
     pm:'', notes:''
@@ -95,7 +95,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
   useEffect(() => {
     if (!show) return
     setSelCust(null); setShowNewCust(false)
-    setForm({ name:'', type:'Kitchen', mvnum:'', budget_hours:'',
+    setForm({ name:'', type:'Kitchen', job_number:'', mvnum:'', budget_hours:'',
       order_date: new Date().toISOString().slice(0,10),
       due_date:'', addr:'', city:'', postcode:'', pm:'', notes:'' })
     Promise.all([
@@ -137,7 +137,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
       type: form.type,
       status: 'In progress',
       notes: form.notes,
-      mvnum: form.mvnum,
+      mvnum: form.mvnum, job_number: form.job_number,
       start_date: form.order_date,
       due_date: form.due_date,
       delivery_address: deliveryAddr,
