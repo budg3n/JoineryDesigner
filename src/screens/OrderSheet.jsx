@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { useDragColumns } from '../hooks/useDragColumns'
+import { buildDescription } from './CopyFormat'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -261,7 +262,32 @@ function AddToLibraryModal({ row, onSave, onClose }) {
 }
 
 // ── Row component ─────────────────────────────────────────────────
-function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols }) {
+// ── Copy description button ──────────────────────────────────────
+function CopyBtn({ row, format }) {
+  const [copied, setCopied] = useState(false)
+  function doCopy() {
+    const text = buildDescription(format.tokens, format.separator, row)
+    if (!text) return
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000) })
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text; document.body.appendChild(ta); ta.select()
+      document.execCommand('copy'); document.body.removeChild(ta)
+      setCopied(true); setTimeout(()=>setCopied(false),2000)
+    }
+  }
+  return (
+    <button onClick={doCopy} title={`Copy: ${buildDescription(format.tokens, format.separator, row)}`}
+      style={{ background:'none', border:'none', cursor:'pointer', color:copied?'#1D9E75':'#C4C9D4', fontSize:14, lineHeight:1, padding:'2px 4px', borderRadius:4, transition:'color .15s', flexShrink:0 }}
+      onMouseEnter={e=>{ if(!copied) e.currentTarget.style.color='#5B8AF0' }}
+      onMouseLeave={e=>{ if(!copied) e.currentTarget.style.color=copied?'#1D9E75':'#C4C9D4' }}>
+      {copied ? '✓' : '⎘'}
+    </button>
+  )
+}
+
+function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
   const qty = parseFloat(row.qty); const price = parseFloat(row.price)
   const total = !isNaN(qty) && !isNaN(price) && qty > 0 && price > 0 ? (qty*price).toFixed(2) : null
@@ -287,7 +313,10 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols }) {
       </div>
 
       {/* actions */}
-      <div style={{ width:50, display:'flex', alignItems:'center', justifyContent:'center', height:36, gap:2, flexShrink:0 }}>
+      <div style={{ width:66, display:'flex', alignItems:'center', justifyContent:'center', height:36, gap:3, flexShrink:0 }}>
+        {row.item && copyFormat?.tokens?.length > 0 && (
+          <CopyBtn row={row} format={copyFormat} />
+        )}
         {row.item && !isInLib && (
           <button onClick={()=>showAddLib(row)} title="Add to materials library"
             style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C9D4', fontSize:15, lineHeight:1, padding:'2px 3px', borderRadius:4 }}
@@ -304,7 +333,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols }) {
 }
 
 // ── Group section ─────────────────────────────────────────────────
-function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols }) {
+function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat }) {
   const [collapsed, setCollapsed] = useState(false)
   const toOrder = rows.filter(r=>r.status==='To order').length
   const subtotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
@@ -364,6 +393,7 @@ export default function OrderSheet() {
   const [groupBy,   setGroupBy]   = useState('Category')
   const [filter,    setFilter]    = useState('All')
   const [cols,      setCols]      = useState(DEFAULT_COLS)
+  const [copyFormat, setCopyFormat] = useState({ tokens:[], separator:' ' })
   const { getHeaderProps } = useDragColumns(cols, setCols)
   const [showColMenu, setShowColMenu] = useState(false)
   const saveTimer = useRef()
@@ -377,6 +407,9 @@ export default function OrderSheet() {
       setJob(j)
       setMaterials(m||[])
       setRows(o||[])
+      // Load copy format config
+      supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
+        .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
     })
   },[id])
 
@@ -562,7 +595,7 @@ export default function OrderSheet() {
           {groups.map(([groupTitle, groupRows])=>(
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
               materials={materials} onUpdate={updateRow} onDelete={deleteRow}
-              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} />
+              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} />
           ))}
 
           {groups.length===0 && (

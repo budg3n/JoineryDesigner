@@ -15,6 +15,7 @@ import Notes from './screens/Notes'
 import FileTypes from './screens/FileTypes'
 import OrderSheet from './screens/OrderSheet'
 import ProcessTemplates from './screens/ProcessTemplates'
+import CopyFormat from './screens/CopyFormat'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="notes/:noteId" element={<Notes />} />
         <Route path="settings/file-types" element={<FileTypes />} />
         <Route path="settings/processes" element={<ProcessTemplates />} />
+        <Route path="settings/copy-format" element={<CopyFormat />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>
