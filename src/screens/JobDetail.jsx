@@ -1285,7 +1285,7 @@ function HistorySectionWithToggle({ timeHistory }) {
 }
 
 function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
-  processes, onProcessesChange, timeHistory, onHistoryChange, activeEntries, onActiveEntriesChange, profile }) {
+  processes, onProcessesChange, timeHistory, onHistoryChange, activeEntries, onActiveEntriesChange, feedback=[], profile }) {
 
   const openTasks  = rooms.reduce((a,r)=>{
     const t=r.tasks?(typeof r.tasks==='string'?JSON.parse(r.tasks):r.tasks):[]
@@ -1318,12 +1318,168 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 
       {/* ── HISTORY ── */}
       <HistorySectionWithToggle timeHistory={timeHistory} />
+
+      {/* ── FEEDBACK ── */}
+      {feedback.length > 0 && (
+        <div style={{background:'#fff',borderRadius:16,border:'1px solid #E8ECF0',boxShadow:'0 1px 3px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px 8px',borderBottom:'1px solid #F3F4F6'}}>
+            <div style={{display:'flex',alignItems:'center',gap:7}}>
+              <span style={{fontSize:12,fontWeight:800,color:'#2A3042',textTransform:'uppercase',letterSpacing:'.05em'}}>Feedback</span>
+              {feedback.filter(f=>f.status==='Open').length > 0 && (
+                <span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:8,background:'#FEF2F2',color:'#991B1B'}}>
+                  {feedback.filter(f=>f.status==='Open').length} open
+                </span>
+              )}
+            </div>
+          </div>
+          {feedback.map(fb=>{
+            const SEV = {Minor:{bg:'#DCFCE7',color:'#166534'},Moderate:{bg:'#FEF9C3',color:'#854D0E'},Major:{bg:'#FEF2F2',color:'#991B1B'}}
+            const s = SEV[fb.severity] || SEV.Minor
+            return (
+              <div key={fb.id} style={{padding:'10px 16px',borderBottom:'1px solid #F9FAFB'}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                  <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8,background:s.bg,color:s.color}}>{fb.severity}</span>
+                  <span style={{fontSize:11,fontWeight:600,color:'#374151'}}>{fb.category}</span>
+                  <span style={{fontSize:10,color:'#9CA3AF',marginLeft:'auto'}}>{fb.status}</span>
+                </div>
+                <div style={{fontSize:12,color:'#374151',lineHeight:1.5}}>{fb.message}</div>
+                <div style={{fontSize:10,color:'#9CA3AF',marginTop:4}}>
+                  {fb.profiles?.full_name || 'Unknown'}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Rooms Panel (right column) ───────────────────────────────────
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
+
+// ── Inline Rooms Panel — rooms expand in place ───────────────────
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange }) {
+  const [adding, setAdding] = React.useState(false)
+  const [newName, setNewName] = React.useState('')
+  const [newType, setNewType] = React.useState('Kitchen')
+  const [expandedId, setExpandedId] = React.useState(null)
+
+  async function addRoom() {
+    const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
+    const { data, error } = await supabase.from('rooms').insert({
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]',
+    }).select().single()
+    if (error) { toast(error.message, 'error'); return }
+    onRoomsChange(p => [...p, data])
+    setNewName(''); setNewType('Kitchen'); setAdding(false)
+    setExpandedId(data.id)
+    toast(`${name} added ✓`)
+  }
+
+  async function deleteRoom(e, roomId) {
+    e.stopPropagation()
+    if (!confirm('Delete this room and all its data?')) return
+    await supabase.from('rooms').delete().eq('id', roomId)
+    onRoomsChange(prev => prev.filter(r => r.id !== roomId))
+    if (expandedId === roomId) setExpandedId(null)
+    toast('Room deleted')
+  }
+
+  return (
+    <div>
+      {/* header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
+          Rooms {rooms.length > 0 && <span style={{ fontSize:11, fontWeight:600, color:'#9CA3AF' }}>({rooms.length})</span>}
+        </div>
+        <button onClick={() => setAdding(a=>!a)}
+          style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:adding?'#F3F4F6':'#5B8AF0', color:adding?'#6B7280':'#fff', cursor:'pointer' }}>
+          {adding ? 'Cancel' : '+ Add room'}
+        </button>
+      </div>
+
+      {/* add form */}
+      {adding && (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #C4D4F8', padding:14, marginBottom:12 }}>
+          <select value={newType} onChange={e=>{ setNewType(e.target.value); setNewName('') }}
+            style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, background:'#fff' }}>
+            {ROOM_TYPES_LIST.map(t=><option key={t}>{t}</option>)}
+          </select>
+          {newType === 'Other' && (
+            <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
+              placeholder="Enter room name…" onKeyDown={e=>e.key==='Enter'&&addRoom()}
+              style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, boxSizing:'border-box' }} />
+          )}
+          <button onClick={addRoom}
+            style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            Create room
+          </button>
+        </div>
+      )}
+
+      {/* empty state */}
+      {rooms.length === 0 && !adding && (
+        <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', padding:'40px 16px', textAlign:'center' }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>🏠</div>
+          <div style={{ fontSize:13, fontWeight:600, color:'#374151', marginBottom:4 }}>No rooms yet</div>
+          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:14 }}>Add rooms to track specs, materials and tasks</div>
+          <button onClick={()=>setAdding(true)}
+            style={{ fontSize:12, fontWeight:700, padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
+            + Add first room
+          </button>
+        </div>
+      )}
+
+      {/* room list with inline expansion */}
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        {rooms.map(room => {
+          const isOpen = expandedId === room.id
+          const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
+          const open = tasks.filter(t=>!t.done).length
+          const emoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
+          return (
+            <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
+              {/* room header row */}
+              <div onClick={() => setExpandedId(isOpen ? null : room.id)}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', cursor:'pointer', background: isOpen?'#F0F4FF':'#fff' }}
+                onMouseEnter={e=>{ if(!isOpen) e.currentTarget.style.background='#F9FAFB' }}
+                onMouseLeave={e=>{ if(!isOpen) e.currentTarget.style.background='#fff' }}>
+                <div style={{ width:36, height:36, borderRadius:9, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                  {emoji}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>
+                </div>
+                <button onClick={e=>deleteRoom(e,room.id)}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'#E8ECF0', fontSize:16, padding:'0 4px', marginRight:4 }}
+                  onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
+                  onMouseLeave={e=>e.currentTarget.style.color='#E8ECF0'}>×</button>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
+                  style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', flexShrink:0 }}>
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </div>
+
+              {/* inline room detail */}
+              {isOpen && (
+                <div style={{ borderTop:'1px solid #E8ECF0' }}>
+                  <RoomDetail
+                    room={room} jobId={jobId} jobMats={jobMats} allAppliances={allAppliances}
+                    inline={true}
+                    onClose={() => setExpandedId(null)}
+                    onSave={saved => onRoomsChange(p=>p.map(r=>r.id===saved.id?saved:r))}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange }) {
   const [adding, setAdding] = React.useState(false)
@@ -1688,6 +1844,7 @@ export default function JobDetail() {
   const [activeRoom, setActiveRoom]   = useState(null)
   const [processes, setProcesses]     = useState([])
   const [timeHistory, setTimeHistory] = useState([])
+  const [feedback, setFeedback]       = useState([])
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
@@ -1696,6 +1853,7 @@ export default function JobDetail() {
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
+  const [jobTab, setJobTab] = useState('details')
   // Persist edits to sessionStorage — survives page reload
   const _jobRef = React.useRef(job)
   _jobRef.current = job
@@ -1745,6 +1903,8 @@ export default function JobDetail() {
     supabase.from('rooms').select('*').eq('job_id', id).order('sort_order').then(({data})=>setRooms(data||[]))
     // Load processes
     supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
+    // Load feedback
+    supabase.from('job_feedback').select('*, profiles(id,full_name,email)').eq('job_id', id).order('created_at',{ascending:false}).then(({data})=>setFeedback(data||[]))
     // Load active entries at job level so both panels stay in sync
     supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
       .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
@@ -2077,19 +2237,12 @@ export default function JobDetail() {
 
   return (
     <>
-    {/* Startup overlay — outside grid so it covers full screen */}
     {showStartup && (
       <StartupPanel
-        key={startupOpenKey}
-        job={job}
-        jobMats={jobMats}
-        jobApps={jobAppliances}
-        startupNote={startupNote}
-        allNotes={allNotes}
-        allJobs={allJobs}
+        key={startupOpenKey} job={job} jobMats={jobMats} jobApps={jobAppliances}
+        startupNote={startupNote} allNotes={allNotes} allJobs={allJobs}
         onClose={() => {
           setShowStartup(false)
-          // Refresh notes list after panel closes
           supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup')
             .eq('job_id', id).order('updated_at',{ascending:false})
             .then(({data}) => {
@@ -2101,51 +2254,90 @@ export default function JobDetail() {
         onSaved={() => {}}
       />
     )}
-    <div className='job-detail-grid' style={{ alignItems:'start' }}>
-      {/* LEFT COLUMN — always shown */}
-      <div>
-
+    <div style={{ maxWidth:860, margin:'0 auto' }}>
       <BackButton to="/" label="Jobs" />
-
-      {/* Active process banner */}
       <ActiveProcessBanner jobId={id} onClockChange={()=>{
-        // Refresh processes and active entries when topbar dropdown clocks in/out
         supabase.from('job_processes').select('*').eq('job_id',id).order('sort_order').then(({data})=>setProcesses(data||[]))
         supabase.from('time_entries').select('*').eq('job_id',id).is('clocked_out_at',null)
           .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
       }} />
-
-      {/* header */}
-      <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
+      <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
-          <div className="text-sm text-[#6B7280] mt-0.5">{[
-              job.job_number || job.mvnum,
-              job.type,
-              job.customers?.company ||
-                (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) ||
-                job.client
-            ].filter(Boolean).join(' · ')}</div>
+          <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number || job.mvnum, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
         </div>
         <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
           {STATUSES.map(s => <option key={s}>{s}</option>)}
         </select>
       </div>
-
-      {/* overdue banner */}
       {overTasks.length > 0 && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-sm text-red-700">
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-3 text-sm text-red-700">
           ⚠ {overTasks.length} overdue task{overTasks.length > 1 ? 's' : ''} on this job
         </div>
       )}
 
-      {/* tasks */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
+      {/* TABS */}
+      <div style={{ display:'flex', gap:2, overflowX:'auto', background:'#F3F4F6', borderRadius:12, padding:4, marginBottom:16 }}>
+        {[
+          { key:'details',    label:'Details' },
+          { key:'rooms',      label:'Rooms',     badge: rooms.length||null },
+          { key:'tasks',      label:'Tasks',     badge: openTasks.length||null },
+          { key:'materials',  label:'Materials' },
+          { key:'appliances', label:'Appliances' },
+          { key:'processes',  label:'Processes', badge: processes.filter(p=>p.status!=='Complete').length||null },
+          { key:'startup',    label:'Startup' },
+          { key:'orders',     label:'Orders',    badge: unorderedCount||null },
+          { key:'files',      label:'Files',     badge: atts.length||null },
+          { key:'feedback',   label:'Feedback',  badge: feedback.filter(f=>f.status==='Open').length||null },
+        ].map(t => (
+          <button key={t.key} onClick={() => setJobTab(t.key)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
+              fontWeight: jobTab===t.key?700:500, background: jobTab===t.key?'#fff':'transparent',
+              color: jobTab===t.key?'#2A3042':'#6B7280', boxShadow: jobTab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
+            {t.label}
+            {t.badge ? <span style={{ fontSize:10, fontWeight:700, minWidth:16, height:16, borderRadius:8, background:jobTab===t.key?'#5B8AF0':'#9CA3AF', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px' }}>{t.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {/* DETAILS */}
+      {jobTab === 'details' && <div>
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
+          <div className="grid grid-cols-2 gap-3">
+            {[['Job name','name','text'],['Job number','job_number','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
+              <div key={k}><label className="label">{l}</label>
+                <input className="input text-sm" type={t==='number'?'number':'text'} value={job[k]||''}
+                  onChange={e => setJob(j => ({ ...j, [k]: e.target.value }))}
+                  onBlur={() => setDirty(true)} />
+              </div>
+            ))}
+            <div><label className="label">Job type</label>
+              <select className="input text-sm" value={job.type||'Kitchen'} onChange={e => { setJob(j => ({ ...j, type: e.target.value })); setDirty(true) }}>
+                {TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div><label className="label">Delivery address</label>
+              <input className="input text-sm" value={job.delivery_address||''} onChange={e => { setJob(j => ({ ...j, delivery_address: e.target.value })); setDirty(true) }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8 }}>Notes</div>
+          <textarea className="input text-sm min-h-[80px] resize-y w-full" placeholder="Notes, observations, specs…"
+            value={job.notes||''} onChange={e => { setJob(j => ({ ...j, notes: e.target.value })); setDirty(true) }} />
+        </div>
+        {dirty && <div style={{ position:'sticky', bottom:16, display:'flex', justifyContent:'flex-end' }}>
+          <button onClick={saveJob} className="btn-blue" style={{ boxShadow:'0 4px 12px rgba(91,138,240,0.4)' }}>Save changes</button>
+        </div>}
+      </div>}
+
+      {/* TASKS */}
+      {jobTab === 'tasks' && <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18 }}>
         <div className="flex items-center justify-between mb-3">
           <span className="section-title">Tasks</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${overTasks.length > 0 ? 'bg-red-50 text-red-700' : openTasks.length > 0 ? 'bg-blue-50 text-blue-700' : tasks.length > 0 ? 'bg-teal-50 text-teal-700' : 'bg-[#F3F4F6] text-[#9CA3AF]'}`}>
-            {overTasks.length > 0 ? `${openTasks.length} remaining · ${overTasks.length} overdue` : openTasks.length > 0 ? `${openTasks.length} of ${tasks.length} remaining` : tasks.length > 0 ? 'All complete' : 'No tasks'}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${overTasks.length>0?'bg-red-50 text-red-700':openTasks.length>0?'bg-blue-50 text-blue-700':tasks.length>0?'bg-teal-50 text-teal-700':'bg-[#F3F4F6] text-[#9CA3AF]'}`}>
+            {overTasks.length>0?`${openTasks.length} remaining · ${overTasks.length} overdue`:openTasks.length>0?`${openTasks.length} of ${tasks.length} remaining`:tasks.length>0?'All complete':'No tasks'}
           </span>
         </div>
         <div className="divide-y divide-[#F3F4F6] mb-3">
@@ -2155,453 +2347,250 @@ export default function JobDetail() {
             return (
               <div key={t.id} className="flex items-start gap-2.5 py-2.5">
                 <div onClick={() => toggleTask(t.id)}
-                  className={`w-5 h-5 rounded-[4px] border-[1.5px] flex-shrink-0 mt-0.5 flex items-center justify-center cursor-pointer transition-colors
-                    ${t.done ? 'bg-teal-500 border-teal-500 text-white' : isOver ? 'border-red-400' : 'border-[#DDE3EC]'}`}>
+                  className={`w-5 h-5 rounded-[4px] border-[1.5px] flex-shrink-0 mt-0.5 flex items-center justify-center cursor-pointer transition-colors ${t.done?'bg-teal-500 border-teal-500 text-white':isOver?'border-red-400':'border-[#DDE3EC]'}`}>
                   {t.done && <span className="text-[10px] font-bold">✓</span>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <div className={`text-sm ${t.done ? 'line-through text-[#9CA3AF]' : 'text-[#2A3042]'}`}>{t.title}</div>
-                    {t.from_note && (
-                      <span onClick={() => navigate(`/notes/${t.from_note}`)}
-                        title="From a linked note — click to open"
-                        style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>
-                        📄 Note
-                      </span>
-                    )}
-                    {t.private && (
-                      <span title="Only visible to you" style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F3F4F6', color:'#6B7280', fontWeight:600, flexShrink:0 }}>
-                        🔒
-                      </span>
-                    )}
+                    <div className={`text-sm ${t.done?'line-through text-[#9CA3AF]':'text-[#2A3042]'}`}>{t.title}</div>
+                    {t.from_note && <span onClick={()=>navigate(`/notes/${t.from_note}`)} style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>📄 Note</span>}
+                    {t.private && <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F3F4F6', color:'#6B7280', fontWeight:600, flexShrink:0 }}>🔒</span>}
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     <DueBadge t={t} />
-                    {t.done && t.completed_by && (
-                      <span style={{ fontSize:10, color:'#9CA3AF', display:'flex', alignItems:'center', gap:3 }}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                        {t.completed_by}
-                        {t.completed_at && (
-                          <span style={{ color:'#C4C9D4' }}>
-                            · {new Date(t.completed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})} {new Date(t.completed_at).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',timeZone:'Pacific/Auckland',hour12:true})}
-                          </span>
-                        )}
-                      </span>
-                    )}
+                    {t.done && t.completed_by && <span style={{ fontSize:10, color:'#9CA3AF' }}>✓ {t.completed_by}</span>}
                   </div>
                 </div>
-                <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none bg-transparent border-none cursor-pointer flex-shrink-0">×</button>
+                <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none ml-1 flex-shrink-0">×</button>
               </div>
             )
           })}
         </div>
         {taskForm ? (
-          <div className="border-t border-[#F3F4F6] pt-3">
-            <input className="input text-sm mb-2" placeholder="Task description…"
-              value={newTask.title} onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addTask()} autoFocus />
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <div><label className="label">Due date</label><input className="input text-sm" type="date" value={newTask.date} onChange={e => setNewTask(p => ({ ...p, date: e.target.value }))} /></div>
-              <div><label className="label">Due time</label><input className="input text-sm" type="time" value={newTask.time} onChange={e => setNewTask(p => ({ ...p, time: e.target.value }))} /></div>
+          <div style={{ background:'#F9FAFB', borderRadius:10, border:'1px solid #E8ECF0', padding:12, marginTop:8 }}>
+            <input autoFocus value={newTask.title} onChange={e=>setNewTask(p=>({...p,title:e.target.value}))}
+              onKeyDown={e=>e.key==='Enter'&&addTask()} placeholder="Task title…" className="input text-sm w-full mb-2" />
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:8 }}>
+              <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))} className="input text-sm" />
+              <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))} className="input text-sm" style={{ width:110 }} />
+              <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#6B7280' }}>
+                <input type="checkbox" checked={!!newTask.private} onChange={e=>setNewTask(p=>({...p,private:e.target.checked}))} /> Private
+              </label>
             </div>
-            <div className="flex gap-2">
-              <button onClick={addTask} className="btn-green btn-sm">Add task</button>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={addTask} className="btn-blue btn-sm">Add task</button>
               <button onClick={() => setTaskForm(false)} className="btn btn-sm">Cancel</button>
             </div>
           </div>
         ) : (
           <button onClick={() => setTaskForm(true)} className="btn-blue btn-sm">+ Add task</button>
         )}
-      </div>
+      </div>}
 
-      {/* job details */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Job details</div>
-        <div className="grid grid-cols-2 gap-3">
-          {[['Job name','name','text'],['Job number','job_number','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
-            <div key={k}><label className="label">{l}</label>
-              <input className="input text-sm" type={t==='number'?'number':'text'} value={job[k]||''}
-                onChange={e => setJob(j => ({ ...j, [k]: e.target.value }))}
-                onBlur={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }} />
-            </div>
-          ))}
-          <div><label className="label">Job type</label>
-            <select className="input text-sm" value={job.type||'Kitchen'} onChange={e => { setJob(j => ({ ...j, type: e.target.value })); setDirty(true) }}>
-              {TYPES.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <div><label className="label">Delivery address</label>
-            <input className="input text-sm" value={job.delivery_address||''} onChange={e => { setJob(j => ({ ...j, delivery_address: e.target.value })); setDirty(true) }} />
-          </div>
-        </div>
-      </div>
+      {/* ROOMS */}
+      {jobTab === 'rooms' && <InlineRoomsPanel
+        rooms={rooms} jobId={id} toast={toast}
+        jobMats={jobMats} allAppliances={allAppliances}
+        onRoomsChange={setRooms} />}
 
-      {/* notes */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:8, display:"block" }}>Notes</div>
-        <textarea className="input text-sm min-h-[80px] resize-y w-full" placeholder="Notes, observations, specs…"
-          value={job.notes||''} onChange={e => { setJob(j => ({ ...j, notes: e.target.value })); setDirty(true) }} />
-      </div>
-
-      {/* materials */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Materials</div>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {jobMats.map(jm => {
-            const m = jm.materials; if (!m) return null
-            return (
-              <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
-                {m.storage_path
-                  ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0, border:'1px solid #E8ECF0' }} alt="" loading="lazy" />
-                  : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0, border:'1px solid rgba(0,0,0,0.08)' }} />
-                }
-                <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.name}</div>
-                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                    {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+      {/* MATERIALS */}
+      {jobTab === 'materials' && <div>
+        <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12 }}>Materials</div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {jobMats.map(jm => {
+              const m = jm.materials; if (!m) return null
+              return (
+                <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
+                  {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" loading="lazy" /> : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0 }} />}
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042' }}>{m.name}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
                   </div>
+                  <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4 }}
+                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
                 </div>
-                <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4, flexShrink:0, padding:'0 2px' }}
-                  onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
-              </div>
-            )
-          })}
-        </div>
-        <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
-        {matPickerOpen && (
-          <div style={{ marginTop:10 }}>
-            <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)}
-              placeholder="Search materials…"
-              style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:6 }} />
-            {matSearch.trim() === '' ? (
-              <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>Start typing to search…</div>
-            ) : (() => {
-              const q = matSearch.toLowerCase()
-              const results = availMats.filter(m =>
-                (m.name||'').toLowerCase().includes(q) ||
-                (m.supplier||'').toLowerCase().includes(q) ||
-                (m.colour_code||'').toLowerCase().includes(q) ||
-                (m.finish||'').toLowerCase().includes(q) ||
-                (m.panel_type||'').toLowerCase().includes(q)
               )
-              return results.length === 0
-                ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches found</div>
+            })}
+          </div>
+          <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
+          {matPickerOpen && <div style={{ marginTop:10 }}>
+            <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)} placeholder="Search materials…"
+              style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:6 }} />
+            {matSearch.trim() === '' ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>Start typing…</div> : (() => {
+              const q = matSearch.toLowerCase()
+              const results = availMats.filter(m => (m.name||'').toLowerCase().includes(q)||(m.supplier||'').toLowerCase().includes(q)||(m.colour_code||'').toLowerCase().includes(q)||(m.panel_type||'').toLowerCase().includes(q))
+              return results.length === 0 ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches</div>
                 : <div style={{ maxHeight:220, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
                     {results.map(m => (
                       <div key={m.id} onClick={() => { addMat(m.id); setMatSearch(''); setMatPickerOpen(false) }}
                         style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', background:'#fff' }}
-                        onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
-                        onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-                        {m.storage_path
-                          ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                          : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />
-                        }
+                        onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                        {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" /> : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />}
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
-                          <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
-                            {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
-                          </div>
+                          <div style={{ fontSize:11, color:'#9CA3AF' }}>{[m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
                         </div>
                       </div>
                     ))}
                   </div>
             })()}
-          </div>
-        )}
-      </div>
-
-      {/* appliances */}
-      <JobAppliancesSection
-        jobId={id}
-        jobAppliances={jobAppliances}
-        allAppliances={allAppliances}
-        setJobAppliances={setJobAppliances}
-        setAllAppliances={setAllAppliances}
-      />
-
-      {/* linked notes */}
-      {/* unordered items banner */}
-      {unorderedCount > 0 && (
-        <div onClick={() => navigate(`/job/${id}/orders`)}
-          style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#FEF9C3', borderRadius:10, border:'1px solid #FDE68A', marginBottom:10, cursor:'pointer', transition:'all .1s' }}
-          onMouseEnter={e=>e.currentTarget.style.background='#FEF3C7'}
-          onMouseLeave={e=>e.currentTarget.style.background='#FEF9C3'}>
-          <span style={{ fontSize:18 }}>📦</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#854D0E' }}>{unorderedCount} item{unorderedCount!==1?'s':''} need to be ordered</div>
-            <div style={{ fontSize:11, color:'#92400E' }}>Tap to open order sheet</div>
-          </div>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>}
         </div>
-      )}
+        {job.type === 'Kitchen' && <KitchenSpecs
+          specs={job.kitchen_specs ? (typeof job.kitchen_specs==='string'?JSON.parse(job.kitchen_specs):job.kitchen_specs) : {}}
+          onChange={updated => { setJob(j=>({...j,kitchen_specs:JSON.stringify(updated)})); setDirty(true) }}
+          panelMaterials={panelMaterials} specsRef={specsRef} />}
+      </div>}
 
-      {/* order sheet quick link */}
-      <div onClick={() => navigate(`/job/${id}/orders`)}
-        style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', marginBottom:14, cursor:'pointer', transition:'all .12s' }}
-        onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#C4D4F8'}}
-        onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
-        <div style={{ width:36, height:36, borderRadius:9, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
-        </div>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>To be ordered</div>
-          <div style={{ fontSize:11, color:'#9CA3AF' }}>Manage materials and items to order</div>
-        </div>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
+      {/* APPLIANCES */}
+      {jobTab === 'appliances' && <JobAppliancesSection jobId={id} jobAppliances={jobAppliances} allAppliances={allAppliances} setJobAppliances={setJobAppliances} setAllAppliances={setAllAppliances} />}
 
-      <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Notes</div>
-          <button onClick={() => navigate(`/notes/new?job=${id}`)}
-            style={{ fontSize:12, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
-            + New note
-          </button>
+      {/* PROCESSES + TIME + NOTES + FILES */}
+      {jobTab === 'processes' && <div>
+        <ProcessesPanel jobId={id} processes={processes} onProcessesChange={setProcesses} profile={profile} toast={toast}
+          activeEntries={activeEntries} onActiveEntriesChange={setActiveEntries}
+          onHistoryRefresh={()=>supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
+            .eq('job_id',id).order('clocked_in_at',{ascending:false}).limit(30).then(({data})=>setTimeHistory(data||[]))} />
+        <div style={{ marginTop:12 }}><HistorySectionWithToggle timeHistory={timeHistory} /></div>
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:18, marginTop:12 }}>
+          <BudgetBar budgetHours={job.budget_hours} timeLogged={job.time_logged || timeHistory.filter(e=>e.clocked_out_at).reduce((s,e)=>{
+            const i=String(e.clocked_in_at).endsWith('Z')?e.clocked_in_at:e.clocked_in_at+'Z'
+            const o=String(e.clocked_out_at).endsWith('Z')?e.clocked_out_at:e.clocked_out_at+'Z'
+            return s+(new Date(o)-new Date(i))/3600000
+          },0)} />
         </div>
-        {/* startup note card */}
-        <div
-          style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background: startupNote ? '#FFF7ED' : '#FAFAFA', borderRadius:9, border:`1px solid ${startupNote ? '#FED7AA' : '#E8ECF0'}`, cursor:'pointer', marginBottom: jobNotes.length > 0 ? 8 : 0, transition:'all .12s' }}
-          onClick={async () => {
-              let sNote = null
-              const { data: d1 } = await supabase.from('notes')
-                .select('id,title,is_public,created_by,updated_at,content,is_startup')
-                .eq('job_id', id).eq('is_startup', true).maybeSingle()
-              if (d1) { sNote = d1 } else {
-                const { data: d2 } = await supabase.from('notes')
-                  .select('id,title,is_public,created_by,updated_at,content,is_startup')
-                  .eq('job_id', id).ilike('title', 'Startup%').order('created_at',{ascending:false}).limit(1).maybeSingle()
-                if (d2) { sNote = d2; await supabase.from('notes').update({ is_startup: true }).eq('id', d2.id) }
-              }
-              setStartupNote(sNote)
-              setShowStartup(true)
-              setStartupOpenKey(k => k+1)
-            }}
-          onMouseEnter={e=>{e.currentTarget.style.background=startupNote?'#FEF3C7':'#F3F4F6'}}
-          onMouseLeave={e=>{e.currentTarget.style.background=startupNote?'#FFF7ED':'#FAFAFA'}}>
-          <div style={{ width:32, height:32, borderRadius:8, background: startupNote ? '#F97316' : '#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <span style={{ fontSize:16 }}>🚀</span>
-          </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>Startup meeting</div>
-            <div style={{ fontSize:11, color:'#9CA3AF' }}>
-              {startupNote ? `Last updated ${new Date(startupNote.updated_at||startupNote.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}` : 'No startup note yet — tap to create'}
+      </div>}
+
+      {/* STARTUP TAB */}
+      {jobTab === 'startup' && <div>
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #FED7AA', padding:18, marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+            <span style={{ fontSize:24 }}>🚀</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:15, fontWeight:800, color:'#2A3042' }}>Startup Meeting</div>
+              <div style={{ fontSize:12, color:'#9CA3AF' }}>{startupNote ? 'Notes recorded' : 'No startup notes yet'}</div>
             </div>
+            <button onClick={() => { setShowStartup(true); setStartupOpenKey(k=>k+1) }}
+              style={{ fontSize:13, fontWeight:700, padding:'8px 16px', borderRadius:9, border:'none', background:'#F97316', color:'#fff', cursor:'pointer' }}>
+              {startupNote ? 'Open notes' : 'Start meeting'}
+            </button>
           </div>
           {startupNote && (
-            <span style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'#ECFDF5', color:'#065F46', fontWeight:600, border:'1px solid #6EE7B7' }}>Ready</span>
+            <div style={{ background:'#FFF7ED', borderRadius:9, padding:'10px 12px', fontSize:13, color:'#374151', lineHeight:1.6, borderLeft:'3px solid #F97316' }}>
+              {startupNote.title}
+            </div>
           )}
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
-        {jobNotes.length === 0 ? (
-          <div style={{ textAlign:'center', padding:'12px 0', color:'#9CA3AF', fontSize:13 }}>No notes linked to this job</div>
-        ) : (
-          <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-              {jobNotes.map(n => (
-                <div key={n.id} onClick={() => navigate(`/notes/${n.id}`)}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .1s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='#F0F4FF';e.currentTarget.style.borderColor='#C4D4F8'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#E8ECF0'}}>
-                  <span style={{ fontSize:16 }}>📄</span>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.title||'Untitled'}</div>
-                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{new Date(n.updated_at||n.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</div>
-                  </div>
-                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background: n.is_public?'#ECFDF5':'#F3F4F6', color: n.is_public?'#065F46':'#6B7280', fontWeight:600, flexShrink:0 }}>
-                    {n.is_public ? '🌐' : '🔒'}
-                  </span>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                </div>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {/* time tracking */}
-      <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', padding:18, marginBottom:14 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Time tracking</div>
-          <ClockInButton jobId={id} onUpdate={() => setTimeRefresh(r => r+1)} />
-        </div>
-        <BudgetBar budgetHours={job.budget_hours} loggedHours={job.time_logged} />
-        <div style={{ marginTop:14 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>History</div>
-          <TimeHistory jobId={id} refreshKey={timeRefresh} />
-        </div>
-      </div>
-
-      {/* file type selection modal */}
-      {showTypeModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => e.target===e.currentTarget && setShowTypeModal(false)}>
-          <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)', overflow:'hidden' }}>
-            <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6' }}>
-              <h2 style={{ fontSize:15, fontWeight:700, color:'#2A3042', margin:0 }}>Select file type</h2>
-              <p style={{ fontSize:12, color:'#9CA3AF', margin:'4px 0 0' }}>{pendingFiles.current.length} file{pendingFiles.current.length!==1?'s':''} ready to upload</p>
+        {jobNotes.length > 0 && (
+          <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+            <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Other notes</div>
+              <button onClick={() => navigate(`/notes/new?job=${id}`)} style={{ fontSize:12, fontWeight:600, padding:'4px 10px', borderRadius:7, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>+ New</button>
             </div>
-            <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
-              {fileTypes.map(ft => (
-                <div key={ft.id} onClick={() => uploadFiles(pendingFiles.current, ft.id)}
-                  style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:10, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .1s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor=ft.color||'#9CA3AF'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
-                  <div style={{ width:12, height:12, borderRadius:'50%', background:ft.color||'#9CA3AF', flexShrink:0 }} />
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:14, fontWeight:600, color:'#2A3042' }}>{ft.name}</div>
-                    {ft.requires_approval && <div style={{ fontSize:11, color:'#5B8AF0' }}>Requires PM approval</div>}
-                  </div>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+            {jobNotes.map(note => (
+              <div key={note.id} onClick={() => navigate(`/notes/${note.id}`)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px', borderBottom:'1px solid #F9FAFB', cursor:'pointer', background:'#fff' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                <span style={{ fontSize:16 }}>📝</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{note.title||'Untitled'}</div>
                 </div>
-              ))}
-              <button onClick={() => uploadFiles(pendingFiles.current, '')}
-                style={{ padding:'11px', borderRadius:10, border:'1px dashed #E8ECF0', background:'transparent', color:'#9CA3AF', cursor:'pointer', fontSize:13 }}>
-                Upload without a type
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* drawings */}
-      <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:18, marginBottom:14 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12, display:"block" }}>Drawings &amp; files</div>
-        {lbIdx !== null && (
-          <div className="bg-black/90 rounded-xl p-3 mb-3 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-white/60 font-mono truncate flex-1">{imgAtts[lbIdx]?.name}</span>
-              <div className="flex gap-2 flex-shrink-0">
-                <button onClick={() => navigate(`/job/${id}/sketch/${atts.indexOf(imgAtts[lbIdx])}`)} className="text-xs px-3 py-1.5 rounded-lg border border-blue-400 bg-blue-400/30 text-white cursor-pointer">✏️ Edit</button>
-                <button onClick={() => window.open(pubUrl(imgAtts[lbIdx]?.storage_path),'_blank')} className="text-xs px-3 py-1.5 rounded-lg border border-white/20 bg-white/10 text-white cursor-pointer">⬇️ Open</button>
-                <button onClick={() => setLbIdx(null)} className="text-xs px-3 py-1.5 rounded-lg border border-white/20 bg-white/10 text-white cursor-pointer">Close</button>
-                <button onClick={() => deleteAtt(imgAtts[lbIdx])} className="text-xs px-3 py-1.5 rounded-lg border border-red-400/30 bg-red-400/20 text-red-300 cursor-pointer">Delete</button>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
-            </div>
-            <img src={pubUrl(imgAtts[lbIdx]?.storage_path)} alt="" className="w-full max-h-[60vh] object-contain rounded-lg" />
-            <div className="flex items-center justify-between">
-              <button onClick={() => setLbIdx(i => Math.max(0, i-1))} disabled={lbIdx===0} className="text-white/60 hover:text-white disabled:opacity-30 bg-transparent border-none cursor-pointer text-lg">←</button>
-              <span className="text-xs text-white/40">{lbIdx+1} / {imgAtts.length}</span>
-              <button onClick={() => setLbIdx(i => Math.min(imgAtts.length-1, i+1))} disabled={lbIdx===imgAtts.length-1} className="text-white/60 hover:text-white disabled:opacity-30 bg-transparent border-none cursor-pointer text-lg">→</button>
-            </div>
+            ))}
           </div>
         )}
-        <div className="relative border-2 border-dashed border-[#E8ECF0] rounded-xl px-4 py-3 text-sm text-[#9CA3AF] text-center cursor-pointer hover:border-gray-300 mb-3">
-          <input type="file" accept="image/*,.pdf,.dwg,.dxf" multiple onChange={handleFiles} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-          {uploading ? 'Uploading…' : '📎 Tap to upload — images, PDFs, DWG, DXF'}
+        {jobNotes.length === 0 && !startupNote && (
+          <div style={{ textAlign:'center', padding:'32px 0', color:'#9CA3AF', fontSize:13 }}>No notes yet — start a startup meeting or create a note</div>
+        )}
+      </div>}
+
+      {/* ORDERS TAB */}
+      {jobTab === 'orders' && <div>
+        {unorderedCount > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', background:'#FEF9C3', borderRadius:10, border:'1px solid #FDE68A', marginBottom:12, cursor:'pointer' }}
+            onClick={() => navigate(`/job/${id}/orders`)}>
+            <span style={{ fontSize:18 }}>📦</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#854D0E' }}>{unorderedCount} item{unorderedCount!==1?'s':''} to order</div>
+              <div style={{ fontSize:11, color:'#92400E' }}>Tap to open full order sheet</div>
+            </div>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        )}
+        <div onClick={() => navigate(`/job/${id}/orders`)}
+          style={{ display:'flex', alignItems:'center', gap:12, padding:'16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', cursor:'pointer' }}
+          onMouseEnter={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#C4D4F8'}}
+          onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
+          <div style={{ width:44, height:44, borderRadius:12, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>Open Order Sheet</div>
+            <div style={{ fontSize:12, color:'#9CA3AF' }}>Manage all materials and items to order</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
-        {imgAtts.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mb-2">
-            {imgAtts.map((a, i) => {
-              const ft = fileTypes.find(f => f.id === a.file_type_id)
-              const approval = approvals.find(ap => ap.attachment_id === a.id)
+      </div>}
+
+      {/* FILES TAB */}
+      {jobTab === 'files' && <div>
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:18 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>Drawings & Files</div>
+            <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, padding:'7px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload file
+              <input type="file" multiple accept=".pdf,.dwg,.dxf,image/*" style={{ display:'none' }} onChange={e=>handleAttachmentUpload(e.target.files)} />
+            </label>
+          </div>
+          {atts.length === 0
+            ? <div style={{ textAlign:'center', padding:'40px 0', color:'#9CA3AF', fontSize:13 }}>
+                <div style={{ fontSize:32, marginBottom:12 }}>📁</div>
+                No files uploaded yet
+              </div>
+            : <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {atts.map(a => {
+                  const ft = fileTypes.find(f=>f.id===a.file_type_id)
+                  const approval = approvals.find(ap=>ap.attachment_id===a.id)
+                  return <div key={a.id}><ApprovalBar att={a} ft={ft} approval={approval} onRequest={()=>requestApproval(a.id)} onReview={(status,notes)=>reviewApproval(a.id,status,notes)} profile={profile} /></div>
+                })}
+              </div>
+          }
+        </div>
+      </div>}
+
+      {/* FEEDBACK */}
+      {jobTab === 'feedback' && <div>
+        {feedback.length === 0
+          ? <div style={{ textAlign:'center', padding:'48px 16px', background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', color:'#9CA3AF' }}>
+              <div style={{ fontSize:32, marginBottom:12 }}>✅</div>
+              <div style={{ fontSize:15, fontWeight:600, color:'#374151' }}>No feedback yet</div>
+            </div>
+          : feedback.map(fb => {
+              const SEV = {Minor:{bg:'#DCFCE7',color:'#166534',dot:'#1D9E75'},Moderate:{bg:'#FEF9C3',color:'#854D0E',dot:'#EF9F27'},Major:{bg:'#FEF2F2',color:'#991B1B',dot:'#E24B4A'}}
+              const sv = SEV[fb.severity]||SEV.Minor
               return (
-                <div key={a.id} style={{ position:'relative' }}>
-                  <div onClick={() => setLbIdx(i)} className="relative aspect-square rounded-lg overflow-hidden border border-[#E8ECF0] cursor-pointer hover:border-gray-300">
-                    <img src={pubUrl(a.storage_path)} alt={a.name} className="w-full h-full object-cover" loading="lazy" />
-                    {ft && <div style={{ position:'absolute', top:4, left:4, fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:8, background:ft.color+'ee', color:'#fff' }}>{ft.name}</div>}
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-0.5 text-[9px] text-white truncate">{a.name}</div>
-                    <button onClick={e => { e.stopPropagation(); deleteAtt(a) }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center text-xs border-none cursor-pointer">×</button>
+                <div key={fb.id} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', marginBottom:10, overflow:'hidden' }}>
+                  <div style={{ height:3, background:sv.dot }} />
+                  <div style={{ padding:'12px 16px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                      <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, background:sv.bg, color:sv.color }}>{fb.severity}</span>
+                      <span style={{ fontSize:12, fontWeight:600, color:'#374151' }}>{fb.category}</span>
+                      <span style={{ fontSize:10, color:'#9CA3AF', marginLeft:'auto' }}>{fb.status}</span>
+                    </div>
+                    <div style={{ fontSize:13, color:'#374151', lineHeight:1.6 }}>{fb.message}</div>
+                    {fb.notes && <div style={{ marginTop:8, padding:'8px 10px', background:'#F0FDF4', borderRadius:7, borderLeft:'3px solid #1D9E75', fontSize:12, color:'#374151' }}>{fb.notes}</div>}
+                    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:6 }}>{fb.profiles?.full_name}</div>
                   </div>
-                  <ApprovalBar att={a} ft={ft} approval={approval} onRequest={() => requestApproval(a)} onReview={reviewApproval} profile={profile} />
                 </div>
               )
-            })}
-          </div>
-        )}
-        {fileAtts.map(a => {
-          const ft = fileTypes.find(f => f.id === a.file_type_id)
-          const approval = approvals.find(ap => ap.attachment_id === a.id)
-          return (
-            <div key={a.id} style={{ marginBottom:8 }}>
-              <div onClick={() => window.open(pubUrl(a.storage_path),'_blank')}
-                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10, cursor:'pointer', transition:'all .1s' }}
-                onMouseEnter={e=>{e.currentTarget.style.background='#F3F4F6'}} onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB'}}>
-                <span style={{ fontSize:18 }}>📄</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:500, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.name}</div>
-                  {ft && <div style={{ fontSize:11, fontWeight:600, color:ft.color||'#9CA3AF', marginTop:1 }}>{ft.name}</div>}
-                </div>
-                <button onClick={e=>{e.stopPropagation();deleteAtt(a)}} style={{ color:'#D1D5DB', background:'none', border:'none', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
-              </div>
-              <ApprovalBar att={a} ft={ft} approval={approval} onRequest={() => requestApproval(a)} onReview={reviewApproval} profile={profile} />
-            </div>
-          )
-        })}
-      </div>
+            })
+        }
+      </div>}
 
-      {/* archive + delete */}
-      <div style={{ display:'flex', gap:8, marginBottom:12 }}>
-        <button onClick={archiveJob} className="btn btn-red btn-sm">Archive job</button>
-      </div>
 
-      {/* delete — admin only */}
-      {can('deleteJob') && (
-        <div style={{ marginTop:24, paddingTop:20, borderTop:'1px solid #F3F4F6' }}>
-          {!showDeleteConfirm ? (
-            <button onClick={() => setShowDeleteConfirm(true)}
-              style={{ display:'flex', alignItems:'center', gap:8, background:'none', border:'1px solid #FCA5A5', borderRadius:9, padding:'8px 16px', cursor:'pointer', color:'#991B1B', fontSize:13, fontWeight:600, transition:'all .15s' }}
-              onMouseEnter={e => { e.currentTarget.style.background='#FEF2F2'; e.currentTarget.style.borderColor='#F87171' }}
-              onMouseLeave={e => { e.currentTarget.style.background='none'; e.currentTarget.style.borderColor='#FCA5A5' }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-              </svg>
-              Delete job permanently
-            </button>
-          ) : (
-            <div style={{ background:'#FEF2F2', border:'1px solid #FCA5A5', borderRadius:12, padding:'16px 18px' }}>
-              <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:14 }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:'#FEE2E2', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#991B1B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontSize:14, fontWeight:700, color:'#991B1B', marginBottom:4 }}>Delete "{job.name}"?</div>
-                  <div style={{ fontSize:13, color:'#DC2626', lineHeight:1.5 }}>
-                    This will permanently delete the job, all tasks, materials, attachments and uploaded files. <strong>This cannot be undone.</strong>
-                  </div>
-                </div>
-              </div>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={deleteJob}
-                  style={{ flex:1, background:'#991B1B', color:'#fff', border:'none', borderRadius:9, padding:'9px 0', fontSize:13, fontWeight:700, cursor:'pointer', transition:'background .15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background='#7F1D1D'}
-                  onMouseLeave={e => e.currentTarget.style.background='#991B1B'}>
-                  Yes, delete permanently
-                </button>
-                <button onClick={() => setShowDeleteConfirm(false)}
-                  style={{ padding:'9px 18px', background:'#fff', border:'1px solid #FCA5A5', borderRadius:9, fontSize:13, fontWeight:600, color:'#6B7280', cursor:'pointer' }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-      </div>{/* end left column */}
-
-      {/* RIGHT COLUMN — Rooms / Processes / History */}
-      <div style={{ position:'sticky', top:80, maxHeight:'calc(100vh - 96px)', overflowY:'auto', overflowX:'hidden', paddingRight:2 }}>
-        <RightPanel
-          jobId={id} toast={toast}
-          rooms={rooms} onAddRoom={room=>{setRooms(p=>[...p,room]);setActiveRoom(room)}}
-          onOpenRoom={room=>setActiveRoom(room)} onRoomsChange={setRooms}
-          processes={processes} onProcessesChange={setProcesses}
-          timeHistory={timeHistory} onHistoryChange={setTimeHistory}
-          activeEntries={activeEntries} onActiveEntriesChange={setActiveEntries}
-          profile={profile}
-        />
-      </div>
-
-      {/* Room detail overlay */}
-      {activeRoom && (
-        <RoomDetail
-          room={activeRoom}
-          jobId={id}
-          jobMats={jobMats}
-          allAppliances={allAppliances}
-          onClose={() => setActiveRoom(null)}
-          onSave={saved => setRooms(p=>p.map(r=>r.id===saved.id?saved:r))}
-        />
-      )}
     </div>
     </>
   )

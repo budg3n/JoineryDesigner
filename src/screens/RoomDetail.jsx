@@ -347,7 +347,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   )
 }
 
-export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave }) {
+export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave, inline=false }) {
   const toast = useToast()
   const { profile } = useApp()
   const navigate = useNavigate()
@@ -470,10 +470,14 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     return !roomMats.some(rm => rm.material_id === jm.material_id)
   }).filter(jm => !roomMats.some(rm=>rm.material_id===jm.material_id))
 
+  const innerStyle = inline
+    ? { background:'#F0F2F5', display:'flex', flexDirection:'column' }
+    : { position:'relative', width:'min(640px,100vw)', height:'100%', background:'#F0F2F5', boxShadow:'-8px 0 40px rgba(0,0,0,0.18)', display:'flex', flexDirection:'column', pointerEvents:'all', zIndex:1, overflow:'hidden' }
+
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', justifyContent:'flex-end', pointerEvents:'none' }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', pointerEvents:'all' }} onClick={onClose} />
-      <div style={{ position:'relative', width:'min(640px,100vw)', height:'100%', background:'#F0F2F5', boxShadow:'-8px 0 40px rgba(0,0,0,0.18)', display:'flex', flexDirection:'column', pointerEvents:'all', zIndex:1, overflow:'hidden' }}>
+    <div style={ inline ? {} : { position:'fixed', inset:0, zIndex:400, display:'flex', justifyContent:'flex-end', pointerEvents:'none' }}>
+      {!inline && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', pointerEvents:'all' }} onClick={onClose} />}
+      <div style={innerStyle}>
 
         {/* header */}
         <div style={{ background:'#2A3042', padding:'14px 20px', flexShrink:0 }}>
@@ -490,7 +494,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                   {saving?'Saving…':'Save'}
                 </button>
               )}
-              <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer', color:'#fff', width:28, height:28, borderRadius:7, fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+              {!inline && <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer', color:'#fff', width:28, height:28, borderRadius:7, fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>}
             </div>
           </div>
           {/* type selector */}

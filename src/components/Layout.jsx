@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useState, useRef, useEffect } from 'react'
 import JobProcessesDropdown from '../screens/JobProcesses'
+import NotificationBell from './NotificationBell'
 
 function SbIcon({ children }) {
   return (
@@ -160,14 +161,16 @@ export default function Layout() {
   return (
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'#F0F2F5' }}>
 
-      {/* ── DESKTOP SIDEBAR (≥768px) ── */}
-      <aside style={{ width:220, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' }}
-        className="desktop-sidebar">
-        <SidebarContent />
-      </aside>
+      {/* ── DESKTOP SIDEBAR (≥768px) — hidden for Production Team ── */}
+      {role !== 'Production Team' && (
+        <aside style={{ width:220, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' }}
+          className="desktop-sidebar">
+          <SidebarContent />
+        </aside>
+      )}
 
-      {/* ── MOBILE OVERLAY ── */}
-      {sidebarOpen && (
+      {/* ── MOBILE OVERLAY — hidden for Production Team ── */}
+      {role !== 'Production Team' && sidebarOpen && (
         <div style={{ position:'fixed', inset:0, zIndex:300 }}>
           <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)' }} onClick={() => setSidebarOpen(false)} />
           <div style={{ position:'absolute', left:0, top:0, bottom:0, width:260, background:'#111318', display:'flex', flexDirection:'column', boxShadow:'4px 0 24px rgba(0,0,0,0.3)' }}>
@@ -181,13 +184,15 @@ export default function Layout() {
         {/* topbar */}
         <header style={{ background:'#fff', height:56, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', borderBottom:'1px solid #E8ECF0', position:'sticky', top:0, zIndex:100, gap:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
-            {/* hamburger — always visible */}
-            <button onClick={() => setSidebarOpen(true)}
-              style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', display:'flex', padding:4, borderRadius:8, flexShrink:0 }}
-              onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
-              onMouseLeave={e=>e.currentTarget.style.background='none'}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-            </button>
+            {/* hamburger — hidden for Production Team */}
+            {role !== 'Production Team' && (
+              <button onClick={() => setSidebarOpen(true)}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', display:'flex', padding:4, borderRadius:8, flexShrink:0 }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
+                onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+            )}
             {location.pathname !== '/' && (
               <button onClick={() => navigate(-1)}
                 style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', display:'flex', alignItems:'center', gap:4, fontSize:13, padding:'4px 0', flexShrink:0 }}>
@@ -237,16 +242,16 @@ export default function Layout() {
                 </button>
               )}
             </>)}
-            {/* bell */}
-            <div onClick={() => navigate('/approvals')}
-              style={{ width:34, height:34, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative' }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-              {pendingCount > 0 && (
-                <div style={{ position:'absolute', top:3, right:3, width:14, height:14, borderRadius:'50%', background:'#E24B4A', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>
-                  {pendingCount > 9 ? '9+' : pendingCount}
-                </div>
-              )}
-            </div>
+            {role === 'Production Team' && (
+              <button onClick={signOut}
+                style={{ fontSize:12, fontWeight:600, padding:'6px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F9FAFB', color:'#6B7280', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}
+                onMouseEnter={e=>{e.currentTarget.style.background='#FEF2F2';e.currentTarget.style.color='#E24B4A';e.currentTarget.style.borderColor='#FCA5A5'}}
+                onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.color='#6B7280';e.currentTarget.style.borderColor='#E8ECF0'}}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Sign out
+              </button>
+            )}
+            <NotificationBell />
             {isDash && can('createJob') && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('open-new-job'))}
                 style={{ height:34, fontSize:12, fontWeight:700, padding:'0 12px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>

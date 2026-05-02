@@ -18,9 +18,11 @@ import OrderSheet from './screens/OrderSheet'
 import ProcessTemplates from './screens/ProcessTemplates'
 import CopyFormat from './screens/CopyFormat'
 import FormulaWriter from './screens/FormulaWriter'
+import ProductionDashboard from './screens/ProductionDashboard'
+import JobFeedback from './screens/JobFeedback'
 
 function RequireAuth({ children }) {
-  const { user, loading } = useApp()
+  const { user, loading, profile } = useApp()
   // Never unmount children — show overlay so app state is preserved
   if (!user && !loading) return <Navigate to="/login" replace />
   return (
@@ -38,6 +40,12 @@ function RequireAuth({ children }) {
   )
 }
 
+function RoleRouter() {
+  const { profile } = useApp()
+  if (profile?.role === 'Production Team') return <ProductionDashboard />
+  return <Dashboard />
+}
+
 function AppInner() {
   useRestoreOnLoad()
   usePageRestore()
@@ -51,7 +59,7 @@ export default function App() {
       <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<RoleRouter />} />
         <Route path="job/:id" element={<JobDetail />} />
         <Route path="job/:id/sketch" element={<Sketch />} />
         <Route path="job/:id/sketch/:attId" element={<Sketch />} />
@@ -68,6 +76,7 @@ export default function App() {
         <Route path="settings/copy-format" element={<CopyFormat />} />
         <Route path="formula-writer" element={<FormulaWriter />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />
+        <Route path="job/:id/feedback" element={<JobFeedback />} />
       </Route>
     </Routes>
     </>
