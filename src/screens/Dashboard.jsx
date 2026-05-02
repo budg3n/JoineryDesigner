@@ -1,4 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+
+function fmtNZTime(dt) {
+  const d = new Date(dt)
+  const offset = (d.getUTCMonth() >= 4 && d.getUTCMonth() <= 8) ? 12 : 13
+  const nz = new Date(d.getTime() + offset * 3600000)
+  const h24 = nz.getUTCHours()
+  const h12 = h24 % 12 || 12
+  const ampm = h24 < 12 ? 'am' : 'pm'
+  const min = String(nz.getUTCMinutes()).padStart(2, '0')
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][nz.getUTCMonth()]
+  return `${nz.getUTCDate()} ${mon}, ${h12}:${min} ${ampm}`
+}
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -163,7 +175,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
         if (showProcs.length === 0) return null
         return (
           <div style={{ display:'flex', flexDirection:'column', gap:3, marginBottom:6 }}>
-            {showProcs.slice(0,3).map(p => {
+            {showProcs.slice(0,3).map((p, _pi) => {
               const ps = PROC_STYLE[p.status] || PROC_STYLE['Not started']
               const elapsed = p.isLive ? (Date.now()-new Date(p.clockedIn).getTime())/3600000 : 0
               const remaining = p.allocated>0 ? Math.max(0,(p.allocated||0)-(p.logged||0)-elapsed) : null
@@ -173,10 +185,10 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
                           : p.status==='In progress' ? (assignedName ? `● ${assignedName.split(' ')[0]}` : '● In progress')
                           : p.status
               return (
-                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 7px', borderRadius:8, background:ps.bg, border:`1px solid ${p.isLive?'#6EE7B7':ps.dot+'55'}` }}>
+                <div key={p.id || _pi} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 7px', borderRadius:8, background:ps.bg, border:`1px solid ${p.isLive?'#6EE7B7':ps.dot+'55'}` }}>
                   {p.isLive
-                    ? <span style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0, display:'inline-block', animation:'ping 1.5s infinite' }} />
-                    : <span style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0 }} />
+                    ? <span key='dot' style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0, display:'inline-block', animation:'ping 1.5s infinite' }} />
+                    : <span key='dot' style={{ width:6, height:6, borderRadius:'50%', background:ps.dot, flexShrink:0 }} />
                   }
                   <span style={{ fontSize:10, fontWeight:700, color:ps.color, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {p.name}
@@ -227,7 +239,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0 }) {
+function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [] }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors   = job.mat_colors ? JSON.parse(job.mat_colors) : []
@@ -390,10 +402,12 @@ export default function Dashboard() {
       })
   }
 
-  // Load live data on mount and every 30s so process status stays current
+  // Load live data on mount and every 30s — only when tab is visible
   useEffect(() => {
     loadLiveData()
-    const interval = setInterval(loadLiveData, 30000)
+    const interval = setInterval(() => {
+      if (!document.hidden) loadLiveData()
+    }, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -490,7 +504,7 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} />
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers} />
           ))}
           {can('createJob') && tab !== 'done' && (
             <div onClick={() => setShowModal(true)}

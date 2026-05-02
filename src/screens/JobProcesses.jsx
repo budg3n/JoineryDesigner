@@ -146,7 +146,8 @@ export default function JobProcesses({ jobId, onClose }) {
     if (activeEntries[proc.id]) { toast('Already clocked in','error'); return }
     // Clock out of any other active entry first
     for (const [pid, entry] of Object.entries(activeEntries)) {
-      const mins = (Date.now() - new Date(entry.clocked_in_at).getTime()) / 60000
+      const _in1 = String(entry.clocked_in_at).endsWith('Z') ? entry.clocked_in_at : entry.clocked_in_at+'Z'
+      const mins = (Date.now() - new Date(_in1).getTime()) / 60000
       await supabase.from('time_entries').update({ clocked_out_at: new Date().toISOString(), duration_minutes: Math.round(mins) }).eq('id', entry.id)
       const p = processes.find(x => x.id === pid)
       if (p) await supabase.from('job_processes').update({ time_logged: parseFloat(((p.time_logged||0) + mins/60).toFixed(2)) }).eq('id', pid)
@@ -165,7 +166,8 @@ export default function JobProcesses({ jobId, onClose }) {
   async function clockOut(proc) {
     const entry = activeEntries[proc.id]
     if (!entry) return
-    const mins = (Date.now() - new Date(entry.clocked_in_at).getTime()) / 60000
+    const _in2 = String(entry.clocked_in_at).endsWith('Z') ? entry.clocked_in_at : entry.clocked_in_at+'Z'
+    const mins = (Date.now() - new Date(_in2).getTime()) / 60000
     await supabase.from('time_entries').update({ clocked_out_at: new Date().toISOString(), duration_minutes: Math.round(mins) }).eq('id', entry.id)
     const newLogged = parseFloat(((proc.time_logged||0) + mins/60).toFixed(2))
     update(proc.id, { time_logged: newLogged })
@@ -202,7 +204,7 @@ export default function JobProcesses({ jobId, onClose }) {
   if (!jobId) return null
 
   return (
-    <div ref={panelRef} style={{ position:'absolute', top:'calc(100% + 8px)', left:0, zIndex:500, width:480, maxWidth:'calc(100vw - 32px)', background:'#fff', borderRadius:16, boxShadow:'0 16px 48px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0', overflow:'hidden' }}>
+    <div ref={panelRef} style={{ width:'100%', background:'#fff', borderRadius:16, boxShadow:'0 16px 48px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0', overflow:'hidden', marginTop:4 }}>
       {/* header */}
       <div style={{ background:'#2A3042', padding:'14px 18px', display:'flex', alignItems:'center', gap:10 }}>
         <span style={{ fontSize:16 }}>⚙️</span>

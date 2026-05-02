@@ -27,23 +27,27 @@ export function AppProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setUser(session.user)
-        loadProfile(session.user.id)
+        loadProfile(session.user.id, true)
       } else {
         setLoading(false)
       }
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
-      if (session?.user) { setLoading(true); loadProfile(session.user.id) }
-      else { setProfile(null); setLoading(false) }
+      if (session?.user) {
+        const isInitial = event === 'SIGNED_IN' || event === 'INITIAL_SESSION'
+        loadProfile(session.user.id, isInitial)
+      } else {
+        setProfile(null); setLoading(false)
+      }
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  async function loadProfile(uid) {
+  async function loadProfile(uid, showLoading = false) {
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
-    setProfile(data || { id: uid, role: 'Production Team' }) // never leave profile null for authed users
-    setLoading(false)
+    setProfile(data || { id: uid, role: 'Production Team' })
+    if (showLoading) setLoading(false)
     // Keep Supabase warm — ping every 4 minutes to avoid cold starts
     if (!window._sbKeepAlive) {
       window._sbKeepAlive = setInterval(() => {

@@ -20,22 +20,28 @@ const KITCHEN_SPEC_FIELDS = [
   { key:'toe_kick_height',     label:'Toe kick height',     unit:'mm', group:'Base' },
 ]
 
-function DimTile({ label, value, onChange }) {
-  const [editing, setEditing] = useState(false)
+function SpecRow({ label, value, unit='mm', onChange }) {
   const [v, setV] = useState(value||'')
+  const [editing, setEditing] = useState(false)
   const ref = useRef()
   useEffect(()=>setV(value||''),[value])
   useEffect(()=>{ if(editing && ref.current) ref.current.focus() },[editing])
   return (
-    <div onClick={()=>setEditing(true)} style={{ background:'#F9FAFB', borderRadius:9, border:`1px solid ${v?'#C4D4F8':'#E8ECF0'}`, padding:'10px 12px', cursor:'text', minWidth:100 }}>
-      <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{label}</div>
-      {editing
-        ? <input ref={ref} type="number" value={v} onChange={e=>setV(e.target.value)}
-            onBlur={()=>{ setEditing(false); onChange(v) }}
-            onKeyDown={e=>{ if(e.key==='Enter'){ setEditing(false); onChange(v) }}}
-            style={{ border:'none', outline:'none', background:'transparent', fontSize:18, fontWeight:700, color:'#2A3042', width:80, fontFamily:'inherit' }} />
-        : <div style={{ fontSize:18, fontWeight:700, color:v?'#2A3042':'#C4C9D4' }}>{v||'—'} {v&&<span style={{fontSize:12,fontWeight:400,color:'#9CA3AF'}}>mm</span>}</div>
-      }
+    <div onClick={()=>setEditing(true)} style={{ display:'flex', alignItems:'center', padding:'10px 16px', cursor:'text', borderBottom:'1px solid #F3F4F6', background:editing?'#FAFBFF':'#fff', transition:'background .1s' }}
+      onMouseEnter={e=>{if(!editing)e.currentTarget.style.background='#F9FAFB'}}
+      onMouseLeave={e=>{if(!editing)e.currentTarget.style.background='#fff'}}>
+      <span style={{ flex:1, fontSize:13, color:'#374151' }}>{label}</span>
+      {editing ? (
+        <input ref={ref} type="number" value={v}
+          onChange={e=>setV(e.target.value)}
+          onBlur={()=>{ setEditing(false); onChange(v) }}
+          onKeyDown={e=>{ if(e.key==='Enter'){ setEditing(false); onChange(v) } if(e.key==='Escape'){ setEditing(false); setV(value||'') }}}
+          style={{ border:'none', borderBottom:'2px solid #5B8AF0', outline:'none', background:'transparent', fontSize:13, fontWeight:600, color:'#2A3042', width:80, textAlign:'right', fontFamily:'inherit', padding:'0 4px' }} />
+      ) : (
+        <span style={{ fontSize:13, fontWeight:600, color:v?'#1D1D1D':'#C4C9D4', minWidth:60, textAlign:'right' }}>
+          {v ? `${v}${unit}` : '—'}
+        </span>
+      )}
     </div>
   )
 }
@@ -548,13 +554,17 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
 
           {/* ── SPECS ── */}
           {tab==='specs' && (
-            <div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
               {Object.entries(specGroups).map(([group, fields])=>(
-                <div key={group} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:16, marginBottom:12 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:12 }}>{group}</div>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
-                    {fields.map(f=>(
-                      <DimTile key={f.key} label={f.label} value={specs[f.key]||''} onChange={v=>setSpec(f.key,v)} />
+                <div key={group} style={{ background:'#fff', borderRadius:0, overflow:'hidden' }}>
+                  <div style={{ padding:'10px 16px 8px', background:'#fff' }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:'#1D1D1D', textTransform:'uppercase', letterSpacing:'.08em' }}>{group}</span>
+                  </div>
+                  <div style={{ border:'1px solid #E8E8E8', borderRadius:4, overflow:'hidden' }}>
+                    {fields.map((f, i)=>(
+                      <div key={f.key} style={{ background: i%2===0 ? '#F5F5F5' : '#fff' }}>
+                        <SpecRow label={f.label} value={specs[f.key]||''} unit={f.unit||'mm'} onChange={v=>setSpec(f.key,v)} />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -692,18 +702,41 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                 ? <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>No appliances — search above to add</div>
                 : roomApps.map(ra=>{
                     const a=ra.appliances; if(!a) return null
+                    const dims = [
+                      a.width  ? { label:'Width',          val:`${a.width}mm` }  : null,
+                      a.height ? { label:'Height',         val:`${a.height}mm` } : null,
+                      a.depth  ? { label:'Depth',          val:`${a.depth}mm` }  : null,
+                      a.cutout_width  ? { label:'Cutout width',  val:`${a.cutout_width}mm` }  : null,
+                      a.cutout_height ? { label:'Cutout height', val:`${a.cutout_height}mm` } : null,
+                      a.cutout_depth  ? { label:'Cutout depth',  val:`${a.cutout_depth}mm` }  : null,
+                    ].filter(Boolean)
                     return (
-                      <div key={ra.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', marginBottom:7 }}>
-                        {a.image_path
-                          ? <img src={pubUrl(a.image_path)} style={{ width:40,height:40,borderRadius:8,objectFit:'contain',background:'#F9FAFB',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                          : <div style={{ width:40,height:40,borderRadius:8,background:'#F3F4F6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0 }}>🔌</div>
-                        }
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:13,fontWeight:600,color:'#2A3042' }}>{a.brand} {a.model}</div>
-                          <div style={{ fontSize:11,color:'#9CA3AF' }}>{a.type}{a.width?` · ${a.width}×${a.height}×${a.depth}mm`:''}</div>
+                      <div key={ra.id} style={{ marginBottom:14 }}>
+                        {/* header */}
+                        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+                          {a.image_path
+                            ? <img src={pubUrl(a.image_path)} style={{ width:36,height:36,borderRadius:6,objectFit:'contain',background:'#F9FAFB',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                            : <div style={{ width:36,height:36,borderRadius:6,background:'#F3F4F6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0 }}>🔌</div>
+                          }
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:13,fontWeight:700,color:'#1D1D1D' }}>{a.brand} {a.model}</div>
+                            <div style={{ fontSize:11,color:'#9CA3AF' }}>{a.type}</div>
+                          </div>
+                          <button onClick={()=>removeApp(ra.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:18,lineHeight:1 }}
+                            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
                         </div>
-                        <button onClick={()=>removeApp(ra.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:18 }}
-                          onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                        {/* spec table */}
+                        {dims.length > 0 && (
+                          <div style={{ border:'1px solid #E8E8E8', borderRadius:4, overflow:'hidden' }}>
+                            {dims.map((d,i)=>(
+                              <div key={d.label} style={{ display:'flex', alignItems:'center', padding:'9px 16px', background:i%2===0?'#F5F5F5':'#fff', borderBottom:i<dims.length-1?'1px solid #EFEFEF':'none' }}>
+                                <span style={{ flex:1, fontSize:13, color:'#374151' }}>{d.label}</span>
+                                <span style={{ fontSize:13, fontWeight:600, color:'#1D1D1D' }}>{d.val}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {a.notes && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:6, fontStyle:'italic', padding:'0 4px' }}>{a.notes}</div>}
                       </div>
                     )
                   })

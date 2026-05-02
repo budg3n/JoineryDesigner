@@ -30,7 +30,8 @@ export function useLiveTimer(clockedInAt) {
   useEffect(() => {
     if (!clockedInAt) { setElapsed(0); return }
     function tick() {
-      const diff = (Date.now() - new Date(clockedInAt).getTime()) / 60000
+      const s = String(clockedInAt).endsWith('Z')||String(clockedInAt).includes('+') ? clockedInAt : clockedInAt+'Z'
+      const diff = (Date.now() - new Date(s).getTime()) / 60000
       setElapsed(diff)
     }
     tick()
@@ -130,7 +131,8 @@ export function ClockInButton({ jobId, onUpdate }) {
   async function clockOut() {
     if (!active) return
     setLoading(true)
-    const mins = (Date.now() - new Date(active.clocked_in_at).getTime()) / 60000
+    const _inAt = String(active.clocked_in_at).endsWith('Z') ? active.clocked_in_at : active.clocked_in_at+'Z'
+    const mins = (Date.now() - new Date(_inAt).getTime()) / 60000
     const { error } = await supabase.from('time_entries')
       .update({ clocked_out_at: new Date().toISOString(), duration_minutes: Math.round(mins) })
       .eq('id', active.id)

@@ -207,7 +207,10 @@ export default function Layout() {
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transform:showProcesses?'rotate(180deg)':'rotate(0)',transition:'transform .15s'}}><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 {showProcesses && (
-                  <div ref={processDropRef} style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:600, width:460, maxWidth:'calc(100vw - 32px)' }}>
+                  <div ref={processDropRef} style={{
+                    position:'fixed', top:54, left:'50%', transform:'translateX(-50%)',
+                    zIndex:600, width:'min(480px, calc(100vw - 24px))'
+                  }}>
                     <JobProcessesDropdown
                       jobId={(jobActions||jobActionsRef.current)?.jobId}
                       onClose={() => setShowProcesses(false)}

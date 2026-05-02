@@ -1,4 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
+const fmtNZTime = dt => { const s = String(dt).endsWith('Z')||String(dt).includes('+') ? dt : dt+'Z'; const d = new Date(s), o = d.getUTCMonth()>=4&&d.getUTCMonth()<=8?12:13, n = new Date(d.getTime()+o*3600000), H = n.getUTCHours(); return n.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][n.getUTCMonth()]+', '+(H%12||12)+':'+String(n.getUTCMinutes()).padStart(2,'0')+' '+(H<12?'am':'pm') }
+
+// ── NZ time formatter — module level, pure arithmetic, no Intl ────
+
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -1017,7 +1022,8 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
   async function clockIn(proc) {
     // Clock out any active first
     for (const [pid,entry] of Object.entries(activeEntries)) {
-      const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+      const _ci = String(entry.clocked_in_at).endsWith('Z') ? entry.clocked_in_at : entry.clocked_in_at+'Z'
+      const mins=(Date.now()-new Date(_ci).getTime())/60000
       await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
       const p=processes.find(x=>x.id===pid)
       if(p) update(p.id,{time_logged:parseFloat(((p.time_logged||0)+mins/60).toFixed(2))})
@@ -1088,7 +1094,8 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
             const isActive=!!activeEntries[proc.id]
             const ss=PROC_STATUS_STYLE[proc.status]||PROC_STATUS_STYLE['Not started']
             const allocated=proc.allocated_hours||0
-            const logged=proc.time_logged||0
+            const rawLogged=proc.time_logged||0
+            const logged=rawLogged>200?0:rawLogged // cap corrupt data
             const pct=allocated>0?Math.min((logged/allocated)*100,100):0
             const remaining=allocated>0?Math.max(0,allocated-logged):null
             const isDone = proc.status==='Complete'
@@ -1187,52 +1194,20 @@ function HistoryPanel({ timeHistory }) {
     <div style={{textAlign:'center',padding:'32px 16px',color:'#9CA3AF',fontSize:13}}>No time entries yet</div>
   )
 
-  function fmt(dt) {
-    const d = new Date(dt)
-    // Use UTC midnight of the same day as a reference point.
-    // NZ midnight UTC = 12pm NZ (NZST) or 1pm NZ (NZDT).
-    // Crucially: we ask Intl for the FULL date+time string and parse the hour
-    // from a known position rather than using the 'hour' part (iOS breaks that).
-    const ref = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-    const nzStr = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Pacific/Auckland',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false
-    }).format(ref)
-    // nzStr = "05/02/2026, 12:00:00" — hour is always position after ", "
-    const hourMatch = nzStr.match(/,\s*(\d{2}):/)
-    const refHour = hourMatch ? parseInt(hourMatch[1], 10) : 12
-    // refHour is the NZ hour when UTC = midnight → equals the offset (12 or 13)
-    // Even if iOS mangles it, UTC midnight NZ = always 12 or 13, so it self-corrects
-    const offsetMs = refHour * 3600000
-    const nz = new Date(d.getTime() + offsetMs)
-    const day = nz.getUTCDate()
-    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][nz.getUTCMonth()]
-    const h24 = nz.getUTCHours()
-    const h12 = h24 % 12 || 12
-    const ampm = h24 < 12 ? 'am' : 'pm'
-    const min = String(nz.getUTCMinutes()).padStart(2, '0')
-    return `${day} ${mon}, ${h12}:${min} ${ampm}`
-  }
+
   function dur(entry) {
-    // Active entries: always calculate live from clocked_in_at
-    if (!entry.clocked_out_at) {
-      const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+    // Ensure Z suffix so Safari parses as UTC not local time
+    const toUTC = s => s ? (String(s).endsWith('Z')||String(s).includes('+') ? s : s+'Z') : null
+    const inAt  = toUTC(entry.clocked_in_at)
+    const outAt = toUTC(entry.clocked_out_at)
+    // Active entries: always calculate live
+    if (!outAt) {
+      const mins=(Date.now()-new Date(inAt).getTime())/60000
       const h=Math.floor(mins/60), m=Math.round(mins%60)
       return h>0?`${h}h ${m}m`:`${m}m`
     }
-    // Completed: use stored duration if valid (>0 and reasonable)
-    if (entry.duration_minutes && entry.duration_minutes > 0) {
-      // Sanity check: duration shouldn't exceed actual clock time by >10%
-      const actualMins=(new Date(entry.clocked_out_at)-new Date(entry.clocked_in_at))/60000
-      const stored=entry.duration_minutes
-      const use = stored > actualMins * 10 ? actualMins : stored // fallback if wildly wrong
-      const h=Math.floor(use/60), m=Math.round(use%60)
-      return h>0?`${h}h ${m}m`:`${m}m`
-    }
-    // Calculate from timestamps
-    const mins=(new Date(entry.clocked_out_at)-new Date(entry.clocked_in_at))/60000
+    // Always calculate from timestamps — ignore stored duration_minutes (may be corrupt)
+    const mins=(new Date(outAt)-new Date(inAt))/60000
     const h=Math.floor(mins/60), m=Math.round(mins%60)
     return h>0?`${h}h ${m}m`:`${m}m`
   }
@@ -1254,7 +1229,7 @@ function HistoryPanel({ timeHistory }) {
                   {isActive&&<span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:6,background:'#DCFCE7',color:'#166534',border:'1px solid #86EFAC'}}>● Active</span>}
                 </div>
                 <div style={{fontSize:11,color:'#9CA3AF',marginTop:2}}>
-                  {user?.full_name||user?.email||'Unknown'} · {fmt(entry.clocked_in_at)}
+                  {user?.full_name||user?.email||'Unknown'} · {fmtNZTime(entry.clocked_in_at)}
                 </div>
               </div>
               <div style={{fontSize:12,fontWeight:700,color:isActive?'#1D9E75':'#374151',flexShrink:0,textAlign:'right'}}>
@@ -1282,6 +1257,7 @@ function SectionHeader({ title, badge, badgeBg, badgeColor, action }) {
 }
 
 function HistorySectionWithToggle({ timeHistory }) {
+  // BUILD: v9-NZ-TIME-FIX
   const [show, setShow] = React.useState(false)
   const active = timeHistory.filter(e=>!e.clocked_out_at).length
   const total  = timeHistory.length
@@ -1358,7 +1334,7 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
   React.useEffect(() => { if (adding && inputRef.current) inputRef.current.focus() }, [adding])
 
   async function addRoom() {
-    const name = newName.trim() || newType
+    const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
       job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]',
     }).select().single()
@@ -1400,14 +1376,17 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
       {/* add form */}
       {adding && (
         <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', background:'#F9FAFB' }}>
-          <select value={newType} onChange={e=>setNewType(e.target.value)}
+          <select value={newType} onChange={e=>{ setNewType(e.target.value); setNewName('') }}
             style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, background:'#fff' }}>
             {ROOM_TYPES_LIST.map(t=><option key={t}>{t}</option>)}
           </select>
-          <input ref={inputRef} value={newName} onChange={e=>setNewName(e.target.value)}
-            placeholder={`Room name (default: ${newType})`}
-            onKeyDown={e=>e.key==='Enter'&&addRoom()}
-            style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, boxSizing:'border-box' }} />
+          {newType === 'Other' && (
+            <input ref={inputRef} value={newName} onChange={e=>setNewName(e.target.value)}
+              placeholder="Enter room name…"
+              onKeyDown={e=>e.key==='Enter'&&addRoom()}
+              autoFocus
+              style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', marginBottom:8, boxSizing:'border-box' }} />
+          )}
           <button onClick={addRoom}
             style={{ width:'100%', padding:'8px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
             Create room
@@ -1678,7 +1657,9 @@ export default function JobDetail() {
   const toast    = useToast()
   const { can, profile } = useApp()
 
-  const [job, setJob]       = useState(null)
+  const [job, setJob]       = useState(() => {
+    try { const s = sessionStorage.getItem('draft_job_'+id); return s ? JSON.parse(s) : null } catch { return null }
+  })
   const [atts, setAtts]     = useState([])
   const [materials, setMaterials] = useState([])
   const [jobMats, setJobMats]     = useState([])
@@ -1715,6 +1696,14 @@ export default function JobDetail() {
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
+  // Persist edits to sessionStorage — survives page reload
+  const _jobRef = React.useRef(job)
+  _jobRef.current = job
+  useEffect(() => {
+    if (dirty && job) try { sessionStorage.setItem('draft_job_'+id, JSON.stringify(job)) } catch {}
+  }, [job, dirty, id])
+  function clearJobDraft() { try { sessionStorage.removeItem('draft_job_'+id) } catch {} }
+
   const [jobAppliances, setJobAppliances] = useState([])
   const [allAppliances, setAllAppliances] = useState([])
   const [showAppPicker, setShowAppPicker] = useState(false)

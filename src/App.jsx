@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { usePageRestore, useRestoreOnLoad } from './hooks/usePageRestore'
 import { useApp } from './context/AppContext'
 import Layout from './components/Layout'
 import Login from './screens/Login'
@@ -20,20 +21,34 @@ import FormulaWriter from './screens/FormulaWriter'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
-  if (loading) return (
-    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#2A3042" }}>
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
-        <div className="spinner" />
-        <p style={{ fontSize:13, color:"rgba(255,255,255,0.4)", margin:0 }}>Loading…</p>
-      </div>
-    </div>
+  // Never unmount children — show overlay so app state is preserved
+  if (!user && !loading) return <Navigate to="/login" replace />
+  return (
+    <>
+      {children}
+      {loading && (
+        <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', background:'#2A3042' }}>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+            <div className="spinner" />
+            <p style={{ fontSize:13, color:'rgba(255,255,255,0.4)', margin:0 }}>Loading…</p>
+          </div>
+        </div>
+      )}
+    </>
   )
-  return user ? children : <Navigate to="/login" replace />
+}
+
+function AppInner() {
+  useRestoreOnLoad()
+  usePageRestore()
+  return null
 }
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <AppInner />
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
@@ -55,5 +70,6 @@ export default function App() {
         <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>
+    </>
   )
 }
