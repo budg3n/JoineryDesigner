@@ -995,19 +995,17 @@ const PROC_STATUS_STYLE = {
   'On hold':      { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A' },
 }
 
-function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, onHistoryRefresh }) {
+function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, onHistoryRefresh, activeEntries={}, onActiveEntriesChange }) {
   const [templates, setTemplates]     = React.useState([])
-  const [activeEntries, setActiveEntries] = React.useState({}) // processId->entry
   const [showAdd, setShowAdd]         = React.useState(false)
   const [newProc, setNewProc]         = React.useState({ name:'', hours:'' })
   const saveTimer = React.useRef()
 
+  // Use setter from parent if provided, otherwise local (fallback)
+  const setActiveEntries = onActiveEntriesChange || React.useState({})[1]
+
   React.useEffect(() => {
     supabase.from('process_templates').select('*').order('sort_order').then(({data})=>setTemplates(data||[]))
-    supabase.from('time_entries').select('*').eq('job_id',jobId).is('clocked_out_at',null)
-      .then(({data})=>{
-        const map={}; (data||[]).forEach(e=>{ if(e.process_id) map[e.process_id]=e }); setActiveEntries(map)
-      })
   },[jobId])
 
   function update(id, patch) {
@@ -1047,6 +1045,7 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     await supabase.from('job_processes').update(patch).eq('id',proc.id)
     const {[proc.id]:_,...rest}=activeEntries; setActiveEntries(rest)
     toast(`${newStatus==='Complete'?'✓':newStatus==='On hold'?'⏸':'■'} ${proc.name} — ${(mins/60).toFixed(1)}h logged`)
+    window.dispatchEvent(new CustomEvent('process-clock-change', { detail: { jobId } }))
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
   }
 
@@ -1189,16 +1188,32 @@ function HistoryPanel({ timeHistory }) {
   )
 
   function fmt(dt) {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const d = new Date(dt)
+    // Use UTC midnight of the same day as a reference point.
+    // NZ midnight UTC = 12pm NZ (NZST) or 1pm NZ (NZDT).
+    // Crucially: we ask Intl for the FULL date+time string and parse the hour
+    // from a known position rather than using the 'hour' part (iOS breaks that).
+    const ref = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+    const nzStr = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Pacific/Auckland',
-      day: 'numeric', month: 'short',
-      hour: 'numeric', minute: '2-digit', hour12: false
-    }).formatToParts(new Date(dt))
-    const get = t => parts.find(p=>p.type===t)?.value||''
-    const h24 = parseInt(get('hour'), 10)
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).format(ref)
+    // nzStr = "05/02/2026, 12:00:00" — hour is always position after ", "
+    const hourMatch = nzStr.match(/,\s*(\d{2}):/)
+    const refHour = hourMatch ? parseInt(hourMatch[1], 10) : 12
+    // refHour is the NZ hour when UTC = midnight → equals the offset (12 or 13)
+    // Even if iOS mangles it, UTC midnight NZ = always 12 or 13, so it self-corrects
+    const offsetMs = refHour * 3600000
+    const nz = new Date(d.getTime() + offsetMs)
+    const day = nz.getUTCDate()
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][nz.getUTCMonth()]
+    const h24 = nz.getUTCHours()
     const h12 = h24 % 12 || 12
     const ampm = h24 < 12 ? 'am' : 'pm'
-    return `${get('day')} ${get('month')}, ${h12}:${get('minute')} ${ampm}`
+    const min = String(nz.getUTCMinutes()).padStart(2, '0')
+    return `${day} ${mon}, ${h12}:${min} ${ampm}`
   }
   function dur(entry) {
     // Active entries: always calculate live from clocked_in_at
@@ -1294,7 +1309,7 @@ function HistorySectionWithToggle({ timeHistory }) {
 }
 
 function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
-  processes, onProcessesChange, timeHistory, onHistoryChange, profile }) {
+  processes, onProcessesChange, timeHistory, onHistoryChange, activeEntries, onActiveEntriesChange, profile }) {
 
   const openTasks  = rooms.reduce((a,r)=>{
     const t=r.tasks?(typeof r.tasks==='string'?JSON.parse(r.tasks):r.tasks):[]
@@ -1318,6 +1333,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
           badgeBg={activeProcs>0?'#DCFCE7':'#F3F4F6'} badgeColor={activeProcs>0?'#166534':'#6B7280'} />
         <ProcessesPanel jobId={jobId} processes={processes}
           onProcessesChange={onProcessesChange} profile={profile} toast={toast}
+          activeEntries={activeEntries} onActiveEntriesChange={onActiveEntriesChange}
           onHistoryRefresh={()=>supabase.from('time_entries')
             .select('*,profiles(id,full_name,email),job_processes(id,name,color)')
             .eq('job_id',jobId).order('clocked_in_at',{ascending:false}).limit(30)
@@ -1692,6 +1708,7 @@ export default function JobDetail() {
   const [processes, setProcesses]     = useState([])
   const [timeHistory, setTimeHistory] = useState([])
   const [rightTab, setRightTab]       = useState('rooms')
+  const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
   const [showProcesses, setShowProcesses] = useState(false)
   const [startupOpenKey, setStartupOpenKey] = useState(0)
@@ -1709,7 +1726,7 @@ export default function JobDetail() {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
     const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
-      supabase.from('jobs').select('*').eq('id', id).single(),
+      supabase.from('jobs').select('*, customers(id,first_name,last_name,company)').eq('id', id).single(),
       supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
       supabase.from('materials').select('*').order('name'),
@@ -1739,6 +1756,9 @@ export default function JobDetail() {
     supabase.from('rooms').select('*').eq('job_id', id).order('sort_order').then(({data})=>setRooms(data||[]))
     // Load processes
     supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
+    // Load active entries at job level so both panels stay in sync
+    supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
+      .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
     // Load time history
     supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
       .eq('job_id', id).order('clocked_in_at',{ascending:false}).limit(30)
@@ -1770,6 +1790,22 @@ export default function JobDetail() {
         setJob(prev => prev ? { ...prev, mat_colors: JSON.stringify(freshColors) } : prev)
       }
     }
+  }, [id])
+
+  // Listen for clock changes from the topbar processes dropdown and refresh panels live
+  useEffect(() => {
+    function handleClockChange(e) {
+      if (e.detail?.jobId !== id) return
+      supabase.from('job_processes').select('*').eq('job_id',id).order('sort_order')
+        .then(({data})=>setProcesses(data||[]))
+      supabase.from('time_entries').select('*').eq('job_id',id).is('clocked_out_at',null)
+        .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
+      supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
+        .eq('job_id',id).order('clocked_in_at',{ascending:false}).limit(30)
+        .then(({data})=>setTimeHistory(data||[]))
+    }
+    window.addEventListener('process-clock-change', handleClockChange)
+    return () => window.removeEventListener('process-clock-change', handleClockChange)
   }, [id])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -2083,13 +2119,24 @@ export default function JobDetail() {
       <BackButton to="/" label="Jobs" />
 
       {/* Active process banner */}
-      <ActiveProcessBanner jobId={id} />
+      <ActiveProcessBanner jobId={id} onClockChange={()=>{
+        // Refresh processes and active entries when topbar dropdown clocks in/out
+        supabase.from('job_processes').select('*').eq('job_id',id).order('sort_order').then(({data})=>setProcesses(data||[]))
+        supabase.from('time_entries').select('*').eq('job_id',id).is('clocked_out_at',null)
+          .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
+      }} />
 
       {/* header */}
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#2A3042]">{job.name}</h1>
-          <div className="text-sm text-[#6B7280] mt-0.5">{job.id} · {job.type} · {job.client}</div>
+          <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
+          <div className="text-sm text-[#6B7280] mt-0.5">{[
+              job.job_number || job.mvnum,
+              job.type,
+              job.customers?.company ||
+                (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) ||
+                job.client
+            ].filter(Boolean).join(' · ')}</div>
         </div>
         <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
@@ -2550,6 +2597,7 @@ export default function JobDetail() {
           onOpenRoom={room=>setActiveRoom(room)} onRoomsChange={setRooms}
           processes={processes} onProcessesChange={setProcesses}
           timeHistory={timeHistory} onHistoryChange={setTimeHistory}
+          activeEntries={activeEntries} onActiveEntriesChange={setActiveEntries}
           profile={profile}
         />
       </div>

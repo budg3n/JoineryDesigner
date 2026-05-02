@@ -256,11 +256,35 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
         <div style={{ height:3, background: accent }} />
         <div style={{ padding:16 }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:10 }}>
-            <span style={{ fontSize:10, color:'#9CA3AF', fontFamily:'monospace', fontWeight:500 }}>{job.job_number || job.mvnum || job.id.slice(0,8)}</span>
+<div>
+              <span style={{ fontSize:16, fontWeight:800, color:'#2A3042', fontFamily:'monospace', letterSpacing:'-0.5px', lineHeight:1 }}>
+                {job.job_number || job.mvnum || ''}
+              </span>
+            </div>
             <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:20, background:badge.bg, color:badge.color }}>{job.status}</span>
           </div>
-          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:2, lineHeight:1.3 }}>{job.name}</div>
-          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom: job.due_date ? 4 : 12 }}>{job.client || '—'}</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:2, lineHeight:1.3 }}>{job.name?.replace(/^.+?[—–-]{1,2}\s*/, '') || job.name}</div>
+          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom: job.due_date ? 4 : 12 }}>
+            {(() => {
+              // Try linked customer first
+              const linked = job.customers
+              if (linked?.company) return linked.company
+              if (linked) return `${linked.first_name||''} ${linked.last_name||''}`.trim() || job.client
+              // Try to match by customer_id in our full list
+              const byId = job.customer_id ? allCustomers.find(cu => cu.id === job.customer_id) : null
+              if (byId?.company) return byId.company
+              if (byId) return `${byId.first_name||''} ${byId.last_name||''}`.trim() || job.client
+              // Try match by client name
+              const byName = allCustomers.find(cu =>
+                job.client && (
+                  cu.company?.toLowerCase() === job.client.toLowerCase() ||
+                  (`${cu.first_name} ${cu.last_name}`).toLowerCase() === job.client.toLowerCase()
+                )
+              )
+              if (byName?.company) return byName.company
+              return job.client || '—'
+            })()}
+          </div>
           {job.due_date && (
             <div style={{ fontSize:11, color:'#6B7280', marginBottom:12 }}>
               Due {new Date(job.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'short', timeZone:'Pacific/Auckland' })}
@@ -310,6 +334,8 @@ export default function Dashboard() {
   const [search, setSearch]   = useState('')
   const [showModal, setShowModal] = useState(false)
   const [activeEntries, setActiveEntries] = useState([])
+  const [sortBy, setSortBy] = useState('created_desc')
+  const [allCustomers, setAllCustomers] = useState([])
   const [jobProcessData, setJobProcessData] = useState({}) // jobId -> active clock-in entries
   const [jobProcessStatus, setJobProcessStatus] = useState({}) // jobId -> [{name,status,color,allocated_hours,time_logged}]
   const [unorderedCounts, setUnorderedCounts] = useState({}) // jobId -> count // currently clocked-in sessions
@@ -317,7 +343,7 @@ export default function Dashboard() {
   const loadJobs = useCallback(async () => {
     if (profile === undefined) return // context not ready yet
     setLoading(true)
-    let q = supabase.from('jobs').select('*').order('created_at', { ascending:false })
+    let q = supabase.from('jobs').select('*, customers(id,first_name,last_name,company)').order('created_at', { ascending:false })
     if (!can('seeAllJobs') && profile?.id) {
       const { data: a } = await supabase.from('job_assignments').select('job_id').eq('user_id', profile?.id)
       const ids = (a||[]).map(x => x.job_id)
@@ -371,7 +397,27 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  const filtered = jobs.filter(j => {
+  const sortedJobs = [...jobs].sort((a, b) => {
+    if (sortBy === 'created_desc') return new Date(b.created_at) - new Date(a.created_at)
+    if (sortBy === 'created_asc')  return new Date(a.created_at) - new Date(b.created_at)
+    if (sortBy === 'due_asc') {
+      if (!a.due_date && !b.due_date) return 0
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return new Date(a.due_date) - new Date(b.due_date)
+    }
+    if (sortBy === 'due_desc') {
+      if (!a.due_date && !b.due_date) return 0
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return new Date(b.due_date) - new Date(a.due_date)
+    }
+    if (sortBy === 'number_asc') return (a.job_number||a.mvnum||'').localeCompare(b.job_number||b.mvnum||'', undefined, {numeric:true})
+    if (sortBy === 'name_asc') return (a.name||'').localeCompare(b.name||'')
+    return 0
+  })
+
+  const filtered = sortedJobs.filter(j => {
     const tabOk    = TABS.find(t => t.key === tab)?.f(j) ?? true
     const q        = search.toLowerCase()
     const searchOk = !q || [j.name, j.client, j.id, j.type].some(s => (s||'').toLowerCase().includes(q))

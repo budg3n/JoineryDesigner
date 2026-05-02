@@ -16,6 +16,7 @@ import FileTypes from './screens/FileTypes'
 import OrderSheet from './screens/OrderSheet'
 import ProcessTemplates from './screens/ProcessTemplates'
 import CopyFormat from './screens/CopyFormat'
+import FormulaWriter from './screens/FormulaWriter'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="settings/file-types" element={<FileTypes />} />
         <Route path="settings/processes" element={<ProcessTemplates />} />
         <Route path="settings/copy-format" element={<CopyFormat />} />
+        <Route path="formula-writer" element={<FormulaWriter />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>

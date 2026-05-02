@@ -37,7 +37,7 @@ function ProgressBar({ allocated, logged, activeElapsed=0 }) {
 }
 
 // ── Active process banner shown at top of job card ────────────────
-export function ActiveProcessBanner({ jobId }) {
+export function ActiveProcessBanner({ jobId, onClockChange }) {
   const { profile } = useApp()
   const toast = useToast()
   const [active, setActive] = useState(null) // {entry, process}
@@ -67,6 +67,7 @@ export function ActiveProcessBanner({ jobId }) {
     }
     toast(`${fmtHours(mins / 60)} logged on ${active.process?.name || 'process'} ✓`)
     setActive(null)
+    if (onClockChange) onClockChange()
   }
 
   if (!active) return null
@@ -171,6 +172,7 @@ export default function JobProcesses({ jobId, onClose }) {
     const { [proc.id]: _, ...rest } = activeEntries
     setActiveEntries(rest)
     toast(`${fmtHours(mins/60)} logged ✓`)
+    window.dispatchEvent(new CustomEvent('process-clock-change', { detail: { jobId } }))
   }
 
   async function addProcess(fromTemplate) {
