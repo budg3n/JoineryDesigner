@@ -2653,6 +2653,27 @@ export default function JobDetail() {
         {dirty && <div style={{ position:'sticky', bottom:16, display:'flex', justifyContent:'flex-end' }}>
           <button onClick={saveJob} className="btn-blue" style={{ boxShadow:'0 4px 12px rgba(91,138,240,0.4)' }}>Save changes</button>
         </div>}
+
+        {/* Delete job */}
+        <div style={{ marginTop:8, padding:'14px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0' }}>
+          {showDeleteConfirm ? (
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:'#991B1B', marginBottom:10 }}>Delete "{job.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || job.name}"?</div>
+              <div style={{ fontSize:12, color:'#6B7280', marginBottom:12 }}>This will permanently delete the job and all associated data. This cannot be undone.</div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={deleteJob} style={{ flex:1, padding:'8px', borderRadius:8, border:'none', background:'#E24B4A', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>Yes, delete job</button>
+                <button onClick={() => setShowDeleteConfirm(false)} style={{ flex:1, padding:'8px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F9FAFB', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowDeleteConfirm(true)}
+              style={{ fontSize:13, fontWeight:600, color:'#9CA3AF', background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', alignItems:'center', gap:6 }}
+              onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              Delete job
+            </button>
+          )}
+        </div>
       </div>}
 
       {/* TASKS */}
