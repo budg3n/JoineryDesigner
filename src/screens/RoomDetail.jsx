@@ -372,7 +372,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   const [dirty, setDirty]     = useState(false)
   const [saving, setSaving]   = useState(false)
   const [tab, setTab]         = useState('overview')
-  const [newTask, setNewTask] = useState({ title:'', date:'' })
+  const [newTask, setNewTask] = useState({ title:'', date:'', time:'' })
   const [addingTask, setAddingTask] = useState(false)
   const [appSearch, setAppSearch] = useState('')
   const [matSearch, setMatSearch] = useState('')
@@ -439,7 +439,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   function addTask() {
     if (!newTask.title.trim()) return
     saveTasks([...tasks, { id:Date.now().toString(), ...newTask, done:false }])
-    setNewTask({ title:'', date:'' }); setAddingTask(false)
+    setNewTask({ title:'', date:'', time:'' }); setAddingTask(false)
   }
   function deleteTask(tid) { saveTasks(tasks.filter(t=>t.id!==tid)) }
 
@@ -642,14 +642,22 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                   <input autoFocus value={newTask.title} onChange={e=>setNewTask(p=>({...p,title:e.target.value}))}
                     onKeyDown={e=>e.key==='Enter'&&addTask()}
                     placeholder="Task title…"
-                    style={{ width:'100%', border:'none', outline:'none', fontSize:13, marginBottom:8, fontFamily:'inherit' }} />
-                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                    <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
-                      style={{ fontSize:12, border:'1px solid #E8ECF0', borderRadius:7, padding:'4px 8px', outline:'none' }} />
-                    <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))}
-                      style={{ fontSize:12, border:'1px solid #E8ECF0', borderRadius:7, padding:'4px 8px', outline:'none', width:100 }} />
-                    <button onClick={addTask} style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>Add</button>
-                    <button onClick={()=>setAddingTask(false)} style={{ fontSize:12, padding:'6px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
+                    style={{ width:'100%', border:'none', borderBottom:'1px solid #E8ECF0', outline:'none', fontSize:13, marginBottom:10, fontFamily:'inherit', paddingBottom:8, boxSizing:'border-box' }} />
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Due date</div>
+                      <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
+                        style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px', outline:'none', boxSizing:'border-box' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Time</div>
+                      <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))}
+                        style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px', outline:'none', boxSizing:'border-box' }} />
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={addTask} style={{ flex:1, fontSize:13, fontWeight:700, padding:'8px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>Add task</button>
+                    <button onClick={()=>{ setAddingTask(false); setNewTask({title:'',date:'',time:''}) }} style={{ fontSize:13, padding:'8px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
                   </div>
                 </div>
               ) : (

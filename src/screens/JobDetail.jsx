@@ -2575,10 +2575,7 @@ export default function JobDetail() {
             })()}
           </div>}
         </div>
-        {job.type === 'Kitchen' && <KitchenSpecs
-          specs={job.kitchen_specs ? (typeof job.kitchen_specs==='string'?JSON.parse(job.kitchen_specs):job.kitchen_specs) : {}}
-          onChange={updated => { setJob(j=>({...j,kitchen_specs:JSON.stringify(updated)})); setDirty(true) }}
-          panelMaterials={panelMaterials} specsRef={specsRef} />}
+
       </div>}
 
       {/* APPLIANCES */}

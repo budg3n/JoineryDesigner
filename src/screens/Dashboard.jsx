@@ -447,7 +447,7 @@ export default function Dashboard() {
   const filtered = sortedJobs.filter(j => {
     const tabOk    = TABS.find(t => t.key === tab)?.f(j) ?? true
     const q        = search.toLowerCase()
-    const searchOk = !q || [j.name, j.client, j.id, j.type].some(s => (s||'').toLowerCase().includes(q))
+    const searchOk = !q || [j.name, j.client, j.id, j.type, j.job_number, j.mvnum, j.customers?.company].some(s => (s||'').toLowerCase().includes(q))
     return tabOk && searchOk
   })
 
