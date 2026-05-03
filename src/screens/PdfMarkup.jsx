@@ -97,9 +97,10 @@ export default function PdfMarkup() {
     tryLoad()
   }, [att])
 
-  // Re-render on page/scale change (not first load)
+  // Re-render on page change or scale change (not first load, not during pinch)
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return }
+    if (isPinchingRef.current) return  // pinch handles its own re-render on end
     if (pdfDocRef.current) renderPage(page, scale)
   }, [page, scale])
 
@@ -222,9 +223,18 @@ export default function PdfMarkup() {
         const dx = e.touches[0].clientX - e.touches[1].clientX
         const dy = e.touches[0].clientY - e.touches[1].clientY
         const newDist = Math.hypot(dx, dy)
-        const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * (newDist / pinchRef.current.dist)))
-        scaleRef.current = newScale
-        setScaleState(newScale)
+        const ratio = newDist / pinchRef.current.dist
+        const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * ratio))
+        // CSS transform only — no re-render, no flicker
+        const pc = pdfCanvasRef.current
+        const dc = drawCanvasRef.current
+        if (pc && dc) {
+          pc.style.transform = `scale(${ratio})`
+          pc.style.transformOrigin = 'top left'
+          dc.style.transform = `scale(${ratio})`
+          dc.style.transformOrigin = 'top left'
+        }
+        pinchRef.current.pendingScale = newScale
         return
       }
       if (drawingRef.current && e.touches.length === 1) {
@@ -238,8 +248,17 @@ export default function PdfMarkup() {
       if (isPinchingRef.current) {
         if (e.touches.length < 2) {
           isPinchingRef.current = false
+          const finalScale = pinchRef.current?.pendingScale ?? scaleRef.current
           pinchRef.current = null
-          if (pdfDocRef.current) renderPage(pageRef.current, scaleRef.current)
+          // Reset CSS transforms before re-render
+          const pc = pdfCanvasRef.current
+          const dc = drawCanvasRef.current
+          if (pc) { pc.style.transform = ''; pc.style.transformOrigin = '' }
+          if (dc) { dc.style.transform = ''; dc.style.transformOrigin = '' }
+          // Now re-render at final scale
+          scaleRef.current = finalScale
+          setScaleState(finalScale)
+          if (pdfDocRef.current) renderPage(pageRef.current, finalScale)
         }
         return
       }
