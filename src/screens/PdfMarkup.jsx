@@ -185,7 +185,10 @@ export default function PdfMarkup() {
   function getPos(e) {
     const dc = drawCanvasRef.current
     const rect = dc.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
     const ce = e.touches ? e.touches[0] : e
+    // rect already accounts for scroll position via getBoundingClientRect
+    // Divide by CSS scale (not DPR) to get logical PDF coords
     return {
       x: (ce.clientX - rect.left) / scaleRef.current,
       y: (ce.clientY - rect.top)  / scaleRef.current
@@ -201,15 +204,13 @@ export default function PdfMarkup() {
     touchBound.current = true
 
     // ── Stylus (Apple Pencil) — draws ─────────────────────────────────────
-    // Track active touch count to distinguish pencil from finger scroll
-    const activeTouches = new Set()
+    // fingerActive: true when a finger touch is in progress — blocks all drawing
+    let fingerActive = false
 
     function onPointerDown(e) {
-      activeTouches.add(e.pointerId)
-      // If 2+ pointers, it's a pinch — don't draw
-      if (activeTouches.size >= 2) { drawingRef.current = false; strokeRef.current = []; return }
-      // Finger single touch = scroll (unless no stylus support, e.g. desktop mouse)
-      if (e.pointerType === 'touch') return  // let finger scroll
+      if (e.pointerType === 'touch') { fingerActive = true; return }
+      if (fingerActive) return
+      if (isPinchingRef.current) return
       if (toolRef.current === 'text') return
       e.preventDefault()
       try { dc.setPointerCapture(e.pointerId) } catch {}
@@ -217,17 +218,16 @@ export default function PdfMarkup() {
       strokeRef.current = [getPos(e)]
     }
     function onPointerMove(e) {
-      if (!drawingRef.current) return
       if (e.pointerType === 'touch') return
+      if (!drawingRef.current || fingerActive || isPinchingRef.current) return
       e.preventDefault()
       const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
       events.forEach(ev => strokeRef.current.push(getPos(ev)))
       redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
     }
     function onPointerUp(e) {
-      activeTouches.delete(e.pointerId)
+      if (e.pointerType === 'touch') { fingerActive = false; return }
       if (!drawingRef.current) return
-      if (e.pointerType === 'touch') return
       drawingRef.current = false
       if (!strokeRef.current.length) return
       let pts = [...strokeRef.current]
@@ -263,11 +263,14 @@ export default function PdfMarkup() {
         return
       }
       if (e.touches.length === 1) {
-        // Single finger — track for manual scrolling
+        // Single finger — scroll only, cancel any drawing
+        fingerActive = true
+        drawingRef.current = false
+        strokeRef.current = []
         scrollStart = { x: e.touches[0].clientX, y: e.touches[0].clientY,
           scrollLeft: wrapRef.current?.scrollLeft || 0,
           scrollTop: wrapRef.current?.scrollTop || 0 }
-        e.preventDefault() // prevent default but we'll scroll manually
+        e.preventDefault()
       }
     }
     function onTouchMove(e) {
@@ -299,6 +302,7 @@ export default function PdfMarkup() {
     }
     function onTouchEnd(e) {
       scrollStart = null
+      fingerActive = false
       if (!isPinchingRef.current) return
       if (e.touches.length < 2) {
         isPinchingRef.current = false
