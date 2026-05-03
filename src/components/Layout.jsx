@@ -185,9 +185,10 @@ export default function Layout() {
         {/* topbar */}
         <header style={{ background:'#fff', height:56, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', borderBottom:'1px solid #E8ECF0', position:'sticky', top:0, zIndex:100, gap:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
-            {/* hamburger — hidden for Production Team */}
+            {/* hamburger — only on mobile, hidden for Production Team */}
             {role !== 'Production Team' && (
               <button onClick={() => setSidebarOpen(true)}
+                className="mobile-only-hamburger"
                 style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', display:'flex', padding:4, borderRadius:8, flexShrink:0 }}
                 onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
                 onMouseLeave={e=>e.currentTarget.style.background='none'}>
@@ -246,9 +247,11 @@ export default function Layout() {
       <style>{`
         @media (min-width: 768px) {
           .desktop-sidebar { display: flex !important; }
+          .mobile-only-hamburger { display: none !important; }
         }
         @media (max-width: 767px) {
           .desktop-sidebar { display: none !important; }
+          .mobile-only-hamburger { display: flex !important; }
         }
       `}</style>
     </div>
