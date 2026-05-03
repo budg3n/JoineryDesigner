@@ -2478,10 +2478,16 @@ export default function JobDetail() {
                   <div className="flex flex-wrap gap-1.5 mt-1 items-center">
                     {!t.from_room && editingTaskId === t.id ? (
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-                        <input type="date" value={t.date||''} onChange={e=>updateTaskField(t.id,'date',e.target.value)}
-                          style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff' }} />
-                        <input type="time" value={t.time||''} onChange={e=>updateTaskField(t.id,'time',e.target.value)}
-                          style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', width:90 }} />
+                        <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                          <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <input type="date" value={t.date||''} onChange={e=>updateTaskField(t.id,'date',e.target.value)}
+                            style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+                        </div>
+                        <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                          <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          <input type="time" value={t.time||''} onChange={e=>updateTaskField(t.id,'time',e.target.value)}
+                            style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', width:95, WebkitAppearance:'none', appearance:'none' }} />
+                        </div>
                         <button onClick={()=>setEditingTaskId(null)} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
                       </div>
                     ) : (
@@ -2509,8 +2515,14 @@ export default function JobDetail() {
             <input autoFocus value={newTask.title} onChange={e=>setNewTask(p=>({...p,title:e.target.value}))}
               onKeyDown={e=>e.key==='Enter'&&addTask()} placeholder="Task title…" className="input text-sm w-full mb-2" />
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:8 }}>
-              <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))} className="input text-sm" />
-              <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))} className="input text-sm" style={{ width:110 }} />
+              <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                <svg style={{ position:'absolute', left:7, pointerEvents:'none', color:'#9CA3AF' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))} className="input text-sm" style={{ paddingLeft:24, WebkitAppearance:'none', appearance:'none', background:'#fff' }} />
+              </div>
+              <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                <svg style={{ position:'absolute', left:7, pointerEvents:'none', color:'#9CA3AF' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))} className="input text-sm" style={{ width:110, paddingLeft:24, WebkitAppearance:'none', appearance:'none', background:'#fff' }} />
+              </div>
               <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#6B7280' }}>
                 <input type="checkbox" checked={!!newTask.private} onChange={e=>setNewTask(p=>({...p,private:e.target.checked}))} /> Private
               </label>

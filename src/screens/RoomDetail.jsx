@@ -1,5 +1,5 @@
 // RoomDetail — floating panel showing a single room's details
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -58,10 +58,16 @@ function TaskRow({ task, onToggle, onDelete, onUpdate }) {
         <div style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none' }}>{task.title}</div>
         {editing ? (
           <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap', alignItems:'center' }}>
-            <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
-              style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none' }} />
-            <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
-              style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', width:88 }} />
+            <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+              <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
+                style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+            </div>
+            <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+              <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
+                style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', width:95, background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+            </div>
             <button onClick={()=>setEditing(false)} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
           </div>
         ) : (
@@ -646,13 +652,19 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
                     <div>
                       <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Due date</div>
-                      <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
-                        style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px', outline:'none', boxSizing:'border-box' }} />
+                      <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                        <svg style={{ position:'absolute', left:8, pointerEvents:'none', color:'#9CA3AF' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
+                          style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px 7px 28px', outline:'none', boxSizing:'border-box', background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+                      </div>
                     </div>
                     <div>
                       <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Time</div>
-                      <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))}
-                        style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px', outline:'none', boxSizing:'border-box' }} />
+                      <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+                        <svg style={{ position:'absolute', left:8, pointerEvents:'none', color:'#9CA3AF' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))}
+                          style={{ width:'100%', fontSize:13, border:'1px solid #E8ECF0', borderRadius:7, padding:'7px 8px 7px 28px', outline:'none', boxSizing:'border-box', background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+                      </div>
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:8 }}>
