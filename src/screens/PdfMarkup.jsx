@@ -109,8 +109,9 @@ export default function PdfMarkup() {
   async function renderPage(pg, sc) {
     if (!pdfDocRef.current) return
     const pdfPage = await pdfDocRef.current.getPage(pg)
+    const dpr = window.devicePixelRatio || 1
 
-    // Auto-fit: calculate scale so page fills available width
+    // Auto-fit: calculate CSS scale so page fills available width
     if (sc === null) {
       const raw = pdfPage.getViewport({ scale: 1 })
       const wrap = wrapRef.current
@@ -120,19 +121,30 @@ export default function PdfMarkup() {
       setScaleState(sc)
     }
 
-    const vp = pdfPage.getViewport({ scale: sc })
+    // Render at DPR * scale for crisp retina/iPad display
+    const vp = pdfPage.getViewport({ scale: sc * dpr })
     const pc = pdfCanvasRef.current
     const dc = drawCanvasRef.current
     if (!pc || !dc) return
 
-    pc.width = vp.width;   pc.height = vp.height
-    dc.width = vp.width;   dc.height = vp.height
-    // No CSS width/height override — canvas intrinsic size IS the display size
+    // Canvas buffer = full DPR resolution
+    pc.width  = vp.width
+    pc.height = vp.height
+    // CSS display size = logical pixels (no DPR)
+    pc.style.width  = (vp.width  / dpr) + 'px'
+    pc.style.height = (vp.height / dpr) + 'px'
 
     const ctx = pc.getContext('2d')
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, pc.width, pc.height)
     await pdfPage.render({ canvasContext: ctx, viewport: vp }).promise
+
+    // Draw canvas same physical size, same CSS display size
+    dc.width  = vp.width
+    dc.height = vp.height
+    dc.style.width  = pc.style.width
+    dc.style.height = pc.style.height
+
     redraw(pg, sc)
   }
 
@@ -147,11 +159,13 @@ export default function PdfMarkup() {
 
   function paint(ctx, s, sc) {
     if (!s?.points?.length) return
+    const dpr = window.devicePixelRatio || 1
+    const r = sc * dpr  // canvas resolution scale
     ctx.save()
     if (s.tool === 'text') {
-      ctx.font = `${s.size * 5 * sc}px -apple-system, sans-serif`
+      ctx.font = `${s.size * 5 * r}px -apple-system, sans-serif`
       ctx.fillStyle = s.colour
-      ctx.fillText(s.text || '', s.points[0].x * sc, s.points[0].y * sc)
+      ctx.fillText(s.text || '', s.points[0].x * r, s.points[0].y * r)
       ctx.restore(); return
     }
     if (s.tool === 'eraser') ctx.globalCompositeOperation = 'destination-out'
@@ -160,19 +174,19 @@ export default function PdfMarkup() {
       if (s.points.length < 2) { ctx.restore(); return }
       const [p1, p2] = [s.points[0], s.points[s.points.length - 1]]
       ctx.strokeStyle = ctx.fillStyle = s.colour
-      ctx.lineWidth = s.size * sc; ctx.lineCap = 'round'
-      ctx.beginPath(); ctx.moveTo(p1.x*sc, p1.y*sc); ctx.lineTo(p2.x*sc, p2.y*sc); ctx.stroke()
-      const a = Math.atan2(p2.y - p1.y, p2.x - p1.x), hw = s.size * sc * 4
-      ctx.beginPath(); ctx.moveTo(p2.x*sc, p2.y*sc)
-      ctx.lineTo(p2.x*sc - hw*Math.cos(a-.45), p2.y*sc - hw*Math.sin(a-.45))
-      ctx.lineTo(p2.x*sc - hw*Math.cos(a+.45), p2.y*sc - hw*Math.sin(a+.45))
+      ctx.lineWidth = s.size * r; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(p1.x*r, p1.y*r); ctx.lineTo(p2.x*r, p2.y*r); ctx.stroke()
+      const a = Math.atan2(p2.y - p1.y, p2.x - p1.x), hw = s.size * r * 4
+      ctx.beginPath(); ctx.moveTo(p2.x*r, p2.y*r)
+      ctx.lineTo(p2.x*r - hw*Math.cos(a-.45), p2.y*r - hw*Math.sin(a-.45))
+      ctx.lineTo(p2.x*r - hw*Math.cos(a+.45), p2.y*r - hw*Math.sin(a+.45))
       ctx.closePath(); ctx.fill(); ctx.restore(); return
     }
     ctx.strokeStyle = s.tool === 'eraser' ? '#000' : s.colour
-    ctx.lineWidth   = s.tool === 'highlight' ? s.size * sc * 8 : s.size * sc
+    ctx.lineWidth   = s.tool === 'highlight' ? s.size * r * 8 : s.size * r
     ctx.lineCap = 'round'; ctx.lineJoin = 'round'
     ctx.beginPath()
-    s.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x*sc, p.y*sc) : ctx.lineTo(p.x*sc, p.y*sc))
+    s.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x*r, p.y*r) : ctx.lineTo(p.x*r, p.y*r))
     ctx.stroke(); ctx.restore()
   }
 
@@ -181,6 +195,7 @@ export default function PdfMarkup() {
     const rect = dc.getBoundingClientRect()
     const sc = scaleRef.current
     const ce = e.touches ? e.touches[0] : e
+    // rect is CSS pixels; divide by sc to get logical PDF coords
     return {
       x: (ce.clientX - rect.left) / sc,
       y: (ce.clientY - rect.top)  / sc
