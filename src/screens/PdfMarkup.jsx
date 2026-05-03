@@ -192,77 +192,35 @@ export default function PdfMarkup() {
     }
   }
 
-  // ── Touch events — attached after PDF renders so refs are valid ────────
+  // ── Input events — attached after PDF renders ───────────────────────────
+  // Uses Pointer Events API: pointerType 'stylus' = Apple Pencil, 'touch' = finger
   const touchBound = useRef(false)
   function bindTouchEvents() {
     const dc = drawCanvasRef.current
     if (!dc || touchBound.current) return
     touchBound.current = true
 
-    function onTouchStart(e) {
-      if (e.touches.length === 2) {
-        isPinchingRef.current = true
-        drawingRef.current = false
-        strokeRef.current = []
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        pinchRef.current = { dist: Math.hypot(dx, dy), scale: scaleRef.current }
-        e.preventDefault()
-        return
-      }
-      if (e.touches.length === 1 && !isPinchingRef.current && toolRef.current !== 'text') {
-        e.preventDefault()
-        drawingRef.current = true
-        strokeRef.current = [getPos(e)]
-      }
+    // ── Stylus (Apple Pencil) — draws ─────────────────────────────────────
+    function onPointerDown(e) {
+      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      if (toolRef.current === 'text') return
+      e.preventDefault()
+      dc.setPointerCapture(e.pointerId)
+      drawingRef.current = true
+      strokeRef.current = [getPos(e)]
     }
-
-    function onTouchMove(e) {
-      if (isPinchingRef.current && e.touches.length >= 2 && pinchRef.current) {
-        e.preventDefault()
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        const newDist = Math.hypot(dx, dy)
-        const ratio = newDist / pinchRef.current.dist
-        const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * ratio))
-        // CSS transform only — no re-render, no flicker
-        const pc = pdfCanvasRef.current
-        const dc = drawCanvasRef.current
-        if (pc && dc) {
-          pc.style.transform = `scale(${ratio})`
-          pc.style.transformOrigin = 'top left'
-          dc.style.transform = `scale(${ratio})`
-          dc.style.transformOrigin = 'top left'
-        }
-        pinchRef.current.pendingScale = newScale
-        return
-      }
-      if (drawingRef.current && e.touches.length === 1) {
-        e.preventDefault()
-        strokeRef.current.push(getPos(e))
-        redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
-      }
-    }
-
-    function onTouchEnd(e) {
-      if (isPinchingRef.current) {
-        if (e.touches.length < 2) {
-          isPinchingRef.current = false
-          const finalScale = pinchRef.current?.pendingScale ?? scaleRef.current
-          pinchRef.current = null
-          // Reset CSS transforms before re-render
-          const pc = pdfCanvasRef.current
-          const dc = drawCanvasRef.current
-          if (pc) { pc.style.transform = ''; pc.style.transformOrigin = '' }
-          if (dc) { dc.style.transform = ''; dc.style.transformOrigin = '' }
-          // Now re-render at final scale
-          scaleRef.current = finalScale
-          setScaleState(finalScale)
-          if (pdfDocRef.current) renderPage(pageRef.current, finalScale)
-        }
-        return
-      }
+    function onPointerMove(e) {
       if (!drawingRef.current) return
+      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      e.preventDefault()
+      // Use getCoalescedEvents for maximum precision on Apple Pencil
+      const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
+      events.forEach(ev => strokeRef.current.push(getPos(ev)))
+      redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
+    }
+    function onPointerUp(e) {
+      if (!drawingRef.current) return
+      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
       drawingRef.current = false
       if (!strokeRef.current.length) return
       let pts = [...strokeRef.current]
@@ -273,41 +231,69 @@ export default function PdfMarkup() {
       strokeRef.current = []
       redraw()
     }
+    function onPointerClick(e) {
+      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      if (toolRef.current !== 'text') return
+      setTextPos(getPos(e))
+      setTextDraft('')
+      setTimeout(() => textInputRef.current?.focus(), 30)
+    }
 
-    dc.addEventListener('touchstart', onTouchStart, { passive: false })
-    dc.addEventListener('touchmove',  onTouchMove,  { passive: false })
-    dc.addEventListener('touchend',   onTouchEnd,   { passive: false })
+    // ── Touch (finger) — pinch to zoom only, scrolls naturally ───────────
+    function onTouchStart(e) {
+      if (e.touches.length === 2) {
+        isPinchingRef.current = true
+        drawingRef.current = false
+        strokeRef.current = []
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        pinchRef.current = { dist: Math.hypot(dx, dy), scale: scaleRef.current }
+        e.preventDefault()
+      }
+      // 1-finger touch: don't preventDefault — let it scroll naturally
+    }
+    function onTouchMove(e) {
+      if (!isPinchingRef.current || e.touches.length < 2 || !pinchRef.current) return
+      e.preventDefault()
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      const ratio = Math.hypot(dx, dy) / pinchRef.current.dist
+      const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * ratio))
+      const pc = pdfCanvasRef.current
+      if (pc && dc) {
+        pc.style.transform = `scale(${ratio})`
+        pc.style.transformOrigin = 'top left'
+        dc.style.transform = `scale(${ratio})`
+        dc.style.transformOrigin = 'top left'
+      }
+      pinchRef.current.pendingScale = newScale
+    }
+    function onTouchEnd(e) {
+      if (!isPinchingRef.current) return
+      if (e.touches.length < 2) {
+        isPinchingRef.current = false
+        const finalScale = pinchRef.current?.pendingScale ?? scaleRef.current
+        pinchRef.current = null
+        const pc = pdfCanvasRef.current
+        if (pc) { pc.style.transform = ''; pc.style.transformOrigin = '' }
+        if (dc) { dc.style.transform = ''; dc.style.transformOrigin = '' }
+        scaleRef.current = finalScale
+        setScaleState(finalScale)
+        if (pdfDocRef.current) renderPage(pageRef.current, finalScale)
+      }
+    }
+
+    dc.addEventListener('pointerdown',  onPointerDown,  { passive: false })
+    dc.addEventListener('pointermove',  onPointerMove,  { passive: false })
+    dc.addEventListener('pointerup',    onPointerUp,    { passive: false })
+    dc.addEventListener('pointercancel',onPointerUp,    { passive: false })
+    dc.addEventListener('click',        onPointerClick, { passive: false })
+    dc.addEventListener('touchstart',   onTouchStart,   { passive: false })
+    dc.addEventListener('touchmove',    onTouchMove,    { passive: false })
+    dc.addEventListener('touchend',     onTouchEnd,     { passive: false })
   }
 
-  // ── Mouse handlers (desktop) ──────────────────────────────────
-  function onMouseDown(e) {
-    if (toolRef.current === 'text') return
-    drawingRef.current = true
-    strokeRef.current = [getPos(e)]
-  }
-  function onMouseMove(e) {
-    if (!drawingRef.current) return
-    strokeRef.current.push(getPos(e))
-    redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
-  }
-  function onMouseUp(e) {
-    if (!drawingRef.current) return
-    drawingRef.current = false
-    if (!strokeRef.current.length) return
-    let pts = [...strokeRef.current]
-    if (toolRef.current === 'arrow' && pts.length === 1) pts.push({ x: pts[0].x + 2, y: pts[0].y + 2 })
-    const stroke = { tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: pts }
-    const pg = pageRef.current
-    annotRef.current = { ...annotRef.current, [pg]: [...(annotRef.current[pg] || []), stroke] }
-    strokeRef.current = []
-    redraw()
-  }
-  function onCanvasClick(e) {
-    if (toolRef.current !== 'text') return
-    setTextPos(getPos(e))
-    setTextDraft('')
-    setTimeout(() => textInputRef.current?.focus(), 30)
-  }
+  // Mouse/pointer handled via addEventListener in bindTouchEvents
   function commitText() {
     if (textDraft.trim() && textPos) {
       const pg = pageRef.current
@@ -420,7 +406,7 @@ export default function PdfMarkup() {
         <button onClick={() => setScale(Math.min(5,+(scale+0.1).toFixed(2)))} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#374151', padding:'0 4px' }}>+</button>
         <button onClick={() => renderPage(page,null)} style={{ fontSize:11, color:'#9CA3AF', background:'none', border:'none', cursor:'pointer' }}>Fit</button>
         <span style={{ marginLeft:'auto', fontSize:11, color:'#9CA3AF' }}>
-          {tool==='text'?'Tap to place text':'Use two fingers to zoom · Apple Pencil to draw'}
+          {tool==='text'?'Tap with Apple Pencil to place text':'Apple Pencil to draw · One finger to scroll · Two fingers to zoom'}
         </span>
       </div>
 
@@ -432,13 +418,8 @@ export default function PdfMarkup() {
             <canvas ref={drawCanvasRef}
               style={{ position:'absolute', top:0, left:0,
                 cursor: tool==='text'?'text':tool==='eraser'?'cell':'crosshair',
-                touchAction:'none',
+                touchAction:'pan-x pan-y',
                 WebkitTapHighlightColor:'transparent' }}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-              onMouseLeave={() => { if(drawingRef.current) onMouseUp() }}
-              onClick={onCanvasClick}
             />
             {/* Text input */}
             {textPos && (
