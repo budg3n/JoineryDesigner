@@ -1634,6 +1634,211 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
 }
 
 // ── Startup Floating Panel ───────────────────────────────────────
+// ── Renders startup note content inline ──────────────────────────
+// ── Inline startup note — Notion-style, saves only when content exists ──
+function InlineStartupNote({ jobId, job, startupNote, onNoteChange }) {
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2)
+  const EMPTY_BLOCKS = [
+    { id: uid(), type: 'heading2', content: 'Meeting notes' },
+    { id: uid(), type: 'paragraph', content: '' },
+  ]
+
+  const [blocks, setBlocks] = React.useState(() => {
+    if (!startupNote?.content) return EMPTY_BLOCKS
+    try {
+      const parsed = typeof startupNote.content === 'string'
+        ? JSON.parse(startupNote.content)
+        : startupNote.content
+      return parsed?.blocks?.length ? parsed.blocks : EMPTY_BLOCKS
+    } catch { return EMPTY_BLOCKS }
+  })
+  const [saving, setSaving] = React.useState(false)
+  const [savedAt, setSavedAt] = React.useState(null)
+  const saveTimer = React.useRef(null)
+  const noteIdRef = React.useRef(startupNote?.id || null)
+
+  // Update blocks when startupNote changes externally
+  React.useEffect(() => {
+    if (startupNote?.content && !noteIdRef.current) {
+      noteIdRef.current = startupNote.id
+    }
+  }, [startupNote])
+
+  function hasContent(blks) {
+    return blks.some(b => b.content && b.content.trim() && b.type !== 'heading2')
+  }
+
+  async function saveBlocks(blks) {
+    if (!hasContent(blks)) return // Don't save empty notes
+    setSaving(true)
+    const content = JSON.stringify({ blocks: blks })
+    if (noteIdRef.current) {
+      await supabase.from('notes').update({ content, updated_at: new Date().toISOString() }).eq('id', noteIdRef.current)
+    } else {
+      // Create the note for the first time
+      const { data } = await supabase.from('notes').insert({
+        job_id: jobId, title: `Startup — ${job?.name || jobId}`,
+        content, is_startup: true, is_public: true,
+        created_by: (await supabase.auth.getUser()).data.user?.id
+      }).select().single()
+      if (data) { noteIdRef.current = data.id; onNoteChange(data) }
+    }
+    setSaving(false)
+    setSavedAt(new Date())
+  }
+
+  function updateBlock(id, patch) {
+    const updated = blocks.map(b => b.id === id ? { ...b, ...patch } : b)
+    setBlocks(updated)
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => saveBlocks(updated), 1200)
+  }
+
+  function addBlockAfter(id, type = 'paragraph') {
+    const idx = blocks.findIndex(b => b.id === id)
+    const newBlock = { id: uid(), type, content: '' }
+    const updated = [...blocks.slice(0, idx + 1), newBlock, ...blocks.slice(idx + 1)]
+    setBlocks(updated)
+    setTimeout(() => document.getElementById('block_' + newBlock.id)?.focus(), 10)
+  }
+
+  function deleteBlock(id) {
+    if (blocks.length <= 1) return
+    const idx = blocks.findIndex(b => b.id === id)
+    const updated = blocks.filter(b => b.id !== id)
+    setBlocks(updated)
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => saveBlocks(updated), 1200)
+    // Focus previous block
+    const prev = blocks[Math.max(0, idx - 1)]
+    setTimeout(() => document.getElementById('block_' + prev?.id)?.focus(), 10)
+  }
+
+  const blockStyle = (type) => {
+    if (type === 'heading1') return { fontSize:22, fontWeight:800, color:'#2A3042', outline:'none', width:'100%', border:'none', background:'transparent', fontFamily:'inherit', padding:'2px 0', lineHeight:1.3 }
+    if (type === 'heading2') return { fontSize:17, fontWeight:700, color:'#2A3042', outline:'none', width:'100%', border:'none', background:'transparent', fontFamily:'inherit', padding:'2px 0', lineHeight:1.4, marginTop:8 }
+    if (type === 'heading3') return { fontSize:14, fontWeight:700, color:'#374151', outline:'none', width:'100%', border:'none', background:'transparent', fontFamily:'inherit', padding:'2px 0' }
+    if (type === 'bullet')   return { fontSize:14, color:'#374151', outline:'none', width:'calc(100% - 20px)', border:'none', background:'transparent', fontFamily:'inherit', padding:'2px 0', lineHeight:1.6 }
+    return { fontSize:14, color:'#374151', outline:'none', width:'100%', border:'none', background:'transparent', fontFamily:'inherit', padding:'2px 0', lineHeight:1.7 }
+  }
+
+  const placeholder = (type) => {
+    if (type === 'heading1') return 'Heading 1'
+    if (type === 'heading2') return 'Heading 2'
+    if (type === 'heading3') return 'Heading 3'
+    if (type === 'bullet') return 'List item'
+    return "Type '/' for commands…"
+  }
+
+  return (
+    <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', overflow:'hidden', minHeight:300 }}>
+      {/* toolbar */}
+      <div style={{ padding:'10px 16px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <span style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>🚀 Startup Notes</span>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {saving && <span style={{ fontSize:11, color:'#9CA3AF' }}>Saving…</span>}
+          {savedAt && !saving && <span style={{ fontSize:11, color:'#1D9E75' }}>✓ Saved</span>}
+          {!hasContent(blocks) && <span style={{ fontSize:11, color:'#C4C9D4' }}>Nothing saved yet</span>}
+        </div>
+      </div>
+
+      {/* blocks */}
+      <div style={{ padding:'16px 20px' }}>
+        {blocks.map((b, i) => (
+          <div key={b.id} style={{ display:'flex', alignItems:'flex-start', gap:6, marginBottom:2,
+            position:'relative' }}
+            onMouseEnter={e=>e.currentTarget.querySelector('.blk-handle')?.style && (e.currentTarget.querySelector('.blk-handle').style.opacity='1')}
+            onMouseLeave={e=>e.currentTarget.querySelector('.blk-handle')?.style && (e.currentTarget.querySelector('.blk-handle').style.opacity='0')}>
+            {b.type === 'bullet' && <span style={{ color:'#9CA3AF', marginTop:4, flexShrink:0, fontSize:16, lineHeight:1.7 }}>•</span>}
+            {b.type === 'divider'
+              ? <hr style={{ flex:1, border:'none', borderTop:'2px solid #E8ECF0', margin:'8px 0' }} />
+              : (
+                <textarea id={'block_'+b.id}
+                  value={b.content||''}
+                  placeholder={placeholder(b.type)}
+                  rows={1}
+                  onChange={e => {
+                    e.target.style.height = 'auto'
+                    e.target.style.height = e.target.scrollHeight + 'px'
+                    updateBlock(b.id, { content: e.target.value })
+                  }}
+                  onFocus={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      addBlockAfter(b.id, b.type === 'bullet' ? 'bullet' : 'paragraph')
+                    }
+                    if (e.key === 'Backspace' && !b.content) {
+                      e.preventDefault()
+                      deleteBlock(b.id)
+                    }
+                    // Type selectors
+                    if (e.key === ' ' && b.content === '#') { e.preventDefault(); updateBlock(b.id, { type:'heading1', content:'' }) }
+                    if (e.key === ' ' && b.content === '##') { e.preventDefault(); updateBlock(b.id, { type:'heading2', content:'' }) }
+                    if (e.key === ' ' && b.content === '###') { e.preventDefault(); updateBlock(b.id, { type:'heading3', content:'' }) }
+                    if (e.key === ' ' && (b.content === '-' || b.content === '*')) { e.preventDefault(); updateBlock(b.id, { type:'bullet', content:'' }) }
+                    if (e.key === 'Enter' && b.content === '---') { e.preventDefault(); updateBlock(b.id, { type:'divider', content:'' }); addBlockAfter(b.id) }
+                  }}
+                  style={{ ...blockStyle(b.type), resize:'none', overflow:'hidden', display:'block' }}
+                />
+              )
+            }
+          </div>
+        ))}
+        <div style={{ paddingTop:8 }}>
+          <button onClick={() => addBlockAfter(blocks[blocks.length-1]?.id || '')}
+            style={{ fontSize:12, color:'#C4C9D4', background:'none', border:'none', cursor:'pointer', padding:'4px 0' }}
+            onMouseEnter={e=>e.currentTarget.style.color='#9CA3AF'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>
+            + Add block
+          </button>
+        </div>
+        <div style={{ marginTop:16, padding:'10px 12px', background:'#F9FAFB', borderRadius:8, fontSize:11, color:'#9CA3AF', lineHeight:1.6 }}>
+          <strong style={{ color:'#6B7280' }}>Shortcuts:</strong> # + space = Heading · - + space = Bullet · --- + Enter = Divider · Enter = new block · Shift+Enter = line break
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StartupNoteViewer({ note }) {
+  try {
+    if (!note) return <div style={{ color:'#9CA3AF', fontSize:13, fontStyle:'italic' }}>No content yet</div>
+    // Handle both string and object content
+    let content = note.content
+    if (typeof content === 'string') {
+      try { content = JSON.parse(content) } catch { 
+        // Plain text fallback
+        return <div style={{ fontSize:13, color:'#374151', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{content}</div>
+      }
+    }
+    const blocks = content?.blocks || content?.ops || []
+    if (!blocks.length) {
+      // Maybe it's plain text in title
+      return <div style={{ fontSize:13, color:'#374151', lineHeight:1.7 }}>{note.title || 'No content yet'}</div>
+    }
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+        {blocks.map((b, i) => {
+          const text = b.content || b.text || b.insert || ''
+          if (typeof text !== 'string' || !text.trim()) return null
+          if (b.type === 'heading1') return <div key={i} style={{ fontSize:17, fontWeight:800, color:'#2A3042', marginTop:10, marginBottom:2 }}>{text}</div>
+          if (b.type === 'heading2') return <div key={i} style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginTop:8, marginBottom:2 }}>{text}</div>
+          if (b.type === 'heading3') return <div key={i} style={{ fontSize:13, fontWeight:700, color:'#374151', marginTop:6 }}>{text}</div>
+          if (b.type === 'bullet' || b.type === 'list_item') return (
+            <div key={i} style={{ fontSize:13, color:'#374151', lineHeight:1.6, display:'flex', gap:8, paddingLeft:4 }}>
+              <span style={{ color:'#9CA3AF', flexShrink:0, marginTop:1 }}>•</span><span>{text}</span>
+            </div>
+          )
+          if (b.type === 'divider') return <hr key={i} style={{ border:'none', borderTop:'1px solid #E8ECF0', margin:'8px 0' }} />
+          return <div key={i} style={{ fontSize:13, color:'#374151', lineHeight:1.7 }}>{text}</div>
+        })}
+      </div>
+    )
+  } catch(e) {
+    return <div style={{ fontSize:13, color:'#9CA3AF', fontStyle:'italic' }}>Unable to render note content</div>
+  }
+}
+
 function StartupPanel({ job, jobMats, jobApps, startupNote, allNotes, allJobs, onClose, onSaved }) {
   // Build a simple startup note with just a title and blank meeting notes
   // Materials/appliances are shown as a read-only summary above the editor
@@ -2610,48 +2815,23 @@ export default function JobDetail() {
       </div>}
 
       {/* STARTUP TAB */}
-      {jobTab === 'startup' && <div>
-        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #FED7AA', padding:18, marginBottom:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
-            <span style={{ fontSize:24 }}>🚀</span>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:15, fontWeight:800, color:'#2A3042' }}>Startup Meeting</div>
-              <div style={{ fontSize:12, color:'#9CA3AF' }}>{startupNote ? 'Notes recorded' : 'No startup notes yet'}</div>
-            </div>
-            <button onClick={() => { setShowStartup(true); setStartupOpenKey(k=>k+1) }}
-              style={{ fontSize:13, fontWeight:700, padding:'8px 16px', borderRadius:9, border:'none', background:'#F97316', color:'#fff', cursor:'pointer' }}>
-              {startupNote ? 'Open notes' : 'Start meeting'}
-            </button>
-          </div>
-          {startupNote && (
-            <div style={{ background:'#FFF7ED', borderRadius:9, padding:'10px 12px', fontSize:13, color:'#374151', lineHeight:1.6, borderLeft:'3px solid #F97316' }}>
-              {startupNote.title}
-            </div>
-          )}
-        </div>
-        {jobNotes.length > 0 && (
-          <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
-            <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Other notes</div>
-              <button onClick={() => navigate(`/notes/new?job=${id}`)} style={{ fontSize:12, fontWeight:600, padding:'4px 10px', borderRadius:7, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>+ New</button>
-            </div>
-            {jobNotes.map(note => (
-              <div key={note.id} onClick={() => navigate(`/notes/${note.id}`)}
-                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px', borderBottom:'1px solid #F9FAFB', cursor:'pointer', background:'#fff' }}
-                onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-                <span style={{ fontSize:16 }}>📝</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{note.title||'Untitled'}</div>
-                </div>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-              </div>
-            ))}
-          </div>
-        )}
-        {jobNotes.length === 0 && !startupNote && (
-          <div style={{ textAlign:'center', padding:'32px 0', color:'#9CA3AF', fontSize:13 }}>No notes yet — start a startup meeting or create a note</div>
-        )}
-      </div>}
+      {jobTab === 'startup' && (
+        <InlineStartupNote
+          jobId={id} job={job}
+          startupNote={startupNote}
+          onNoteChange={note => {
+            setStartupNote(note)
+            // Reload notes so sidebar also updates
+            supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup')
+              .eq('job_id', id).order('updated_at', { ascending: false })
+              .then(({ data }) => {
+                if (!data) return
+                setJobNotes(data.filter(n => !n.is_startup))
+                setStartupNote(data.find(n => n.is_startup) || null)
+              })
+          }}
+        />
+      )}
 
       {/* ORDERS TAB */}
       {jobTab === 'orders' && <div>
