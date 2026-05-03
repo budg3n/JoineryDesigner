@@ -1807,6 +1807,104 @@ function ApprovalBar({ att, ft, approval, onRequest, onReview, profile }) {
   )
 }
 
+// ── Inline rename component ───────────────────────────────────────
+function InlineRename({ name, url, onSave }) {
+  const [editing, setEditing] = React.useState(false)
+  const [val, setVal]         = React.useState(name)
+  const ref = React.useRef()
+  React.useEffect(() => { setVal(name) }, [name])
+  React.useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
+  if (!editing) return (
+    <div style={{ display:'flex', alignItems:'center', gap:6, flex:1, minWidth:0 }}>
+      {url
+        ? <a href={url} target="_blank" rel="noreferrer"
+            style={{ fontSize:13, fontWeight:600, color:'#2A3042', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, minWidth:0 }}>
+            {name}
+          </a>
+        : <span style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, minWidth:0 }}>{name}</span>
+      }
+      <button onClick={() => setEditing(true)}
+        title="Rename" style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C9D4', padding:'2px 4px', flexShrink:0, fontSize:13, lineHeight:1 }}
+        onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>✏️</button>
+    </div>
+  )
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:4, flex:1, minWidth:0 }}>
+      <input ref={ref} value={val} onChange={e=>setVal(e.target.value)}
+        onKeyDown={e=>{ if(e.key==='Enter'){ onSave(val); setEditing(false) } if(e.key==='Escape'){ setVal(name); setEditing(false) }}}
+        onBlur={()=>{ onSave(val); setEditing(false) }}
+        style={{ flex:1, fontSize:13, fontWeight:600, padding:'4px 7px', border:'1px solid #5B8AF0', borderRadius:6, outline:'none', fontFamily:'inherit', minWidth:0 }} />
+      <button onClick={()=>{ onSave(val); setEditing(false) }}
+        style={{ background:'#5B8AF0', border:'none', borderRadius:5, color:'#fff', fontSize:11, fontWeight:700, padding:'3px 7px', cursor:'pointer', flexShrink:0 }}>✓</button>
+    </div>
+  )
+}
+
+// ── File rename/confirm modal ─────────────────────────────────────
+function FileRenameModal({ pending, fileTypes, onConfirm, onCancel }) {
+  const [names, setNames]   = React.useState(pending.names)
+  const [typeId, setTypeId] = React.useState(pending.typeId || '')
+  const previews = React.useMemo(() =>
+    pending.files.map(f => f.type?.startsWith('image/') ? URL.createObjectURL(f) : null)
+  , [pending.files])
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:900, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:16, paddingTop:40 }}
+      onClick={e=>e.target===e.currentTarget&&onCancel()}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:480, boxShadow:'0 24px 64px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding:'18px 20px 14px', borderBottom:'1px solid #F3F4F6' }}>
+          <div style={{ fontSize:16, fontWeight:800, color:'#2A3042' }}>Confirm upload</div>
+          <div style={{ fontSize:13, color:'#9CA3AF', marginTop:2 }}>Edit names before uploading</div>
+        </div>
+        <div style={{ padding:'14px 20px', maxHeight:'50vh', overflowY:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+          {fileTypes.length > 0 && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>File type</div>
+              <select value={typeId} onChange={e=>setTypeId(e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', background:'#fff' }}>
+                <option value="">No type</option>
+                {fileTypes.map(ft => <option key={ft.id} value={ft.id}>{ft.name}</option>)}
+              </select>
+            </div>
+          )}
+          {pending.files.map((file, i) => {
+            const dotIdx = names[i].lastIndexOf('.')
+            const ext  = dotIdx > 0 ? names[i].slice(dotIdx) : ''
+            const base = dotIdx > 0 ? names[i].slice(0, dotIdx) : names[i]
+            return (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#F9FAFB', borderRadius:10, border:'1px solid #E8ECF0' }}>
+                {previews[i]
+                  ? <img src={previews[i]} style={{ width:44, height:44, borderRadius:7, objectFit:'cover', flexShrink:0 }} alt="" />
+                  : <div style={{ width:44, height:44, borderRadius:7, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:11, fontWeight:800, color:'#5B8AF0' }}>
+                      {ext.slice(1).toUpperCase()||'FILE'}
+                    </div>
+                }
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <input value={base} onChange={e => setNames(ns => ns.map((n,j) => j===i ? e.target.value+ext : n))}
+                      style={{ flex:1, fontSize:13, fontWeight:600, padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, outline:'none', fontFamily:'inherit', minWidth:0 }} />
+                    <span style={{ fontSize:12, color:'#9CA3AF', flexShrink:0 }}>{ext}</span>
+                  </div>
+                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:3 }}>{(file.size/1024).toFixed(0)} KB</div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ padding:'14px 20px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8 }}>
+          <button onClick={onCancel}
+            style={{ flex:1, padding:'11px', borderRadius:10, border:'1px solid #E8ECF0', background:'#F9FAFB', color:'#6B7280', fontSize:14, fontWeight:600, cursor:'pointer' }}>
+            Cancel
+          </button>
+          <button onClick={() => onConfirm(names, typeId)}
+            style={{ flex:2, padding:'11px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+            Upload {pending.files.length} file{pending.files.length!==1?'s':''}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
@@ -2115,17 +2213,13 @@ export default function JobDetail() {
   const fileAtts = atts.filter(a => !a.type?.startsWith('image/'))
 
   const pendingFiles = React.useRef([])
+  const [pendingRename, setPendingRename] = React.useState(null) // { files, typeId, names[] }
 
-  function handleFiles(e) {
-    const files = Array.from(e.target.files)
+  function handleFiles(filesOrEvent) {
+    const files = Array.from(filesOrEvent?.target?.files || filesOrEvent || [])
     if (!files.length) return
-    if (fileTypes.length === 0) {
-      // no file types configured — upload directly
-      uploadFiles(files, '')
-    } else {
-      pendingFiles.current = files
-      setShowTypeModal(true)
-    }
+    // Always show rename/confirm modal — type picker is inside it
+    setPendingRename({ files, typeId: '', names: files.map(f => f.name) })
   }
 
   async function uploadFiles(files, typeId) {
@@ -2542,7 +2636,7 @@ export default function JobDetail() {
             <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, padding:'7px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               Upload file
-              <input type="file" multiple accept=".pdf,.dwg,.dxf,image/*" style={{ display:'none' }} onChange={e=>handleAttachmentUpload(e.target.files)} />
+              <input type="file" multiple accept=".pdf,.dwg,.dxf,image/*,.heic,.heif" style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
             </label>
           </div>
           {atts.length === 0
@@ -2564,11 +2658,11 @@ export default function JobDetail() {
                           : <div style={{ width:40, height:40, borderRadius:7, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:11, fontWeight:800, color:'#5B8AF0' }}>{ext}</div>
                         }
                         <div style={{ flex:1, minWidth:0 }}>
-                          <a href={pubUrl(a.storage_path)} target="_blank" rel="noreferrer"
-                            style={{ fontSize:13, fontWeight:600, color:'#2A3042', textDecoration:'none', display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                            {a.name}
-                          </a>
-                          {ft && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>{ft.name}</div>}
+                          <InlineRename name={a.name} url={pubUrl(a.storage_path)} onSave={async(n)=>{
+                            await supabase.from('attachments').update({name:n}).eq('id',a.id)
+                            setAtts(p=>p.map(x=>x.id===a.id?{...x,name:n}:x))
+                          }} />
+                          {ft && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>{ft.name}</div>}
                         </div>
                         <button onClick={()=>{ if(confirm('Delete this file?')){ supabase.storage.from(BUCKET).remove([a.storage_path]); supabase.from('attachments').delete().eq('id',a.id); setAtts(p=>p.filter(x=>x.id!==a.id)) }}}
                           style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
@@ -2612,6 +2706,31 @@ export default function JobDetail() {
         }
       </div>}
 
+      {pendingRename && (
+        <FileRenameModal
+          pending={pendingRename}
+          fileTypes={fileTypes}
+          onCancel={() => setPendingRename(null)}
+          onConfirm={async (names, chosenTypeId) => {
+            const { files } = pendingRename
+            setPendingRename(null)
+            setUploading(true)
+            for (let i = 0; i < files.length; i++) {
+              const file = files[i]
+              const name = names[i] || file.name
+              const path = `${id}/${Date.now()}_${name}`
+              const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || 'application/octet-stream' })
+              if (upErr) { toast(upErr.message, 'error'); continue }
+              const { data } = await supabase.from('attachments')
+                .insert({ job_id: id, name, type: file.type, size: file.size, storage_path: path, file_type_id: chosenTypeId||null })
+                .select().single()
+              if (data) setAtts(prev => [...prev, data])
+            }
+            setUploading(false)
+            toast('Uploaded ✓')
+          }}
+        />
+      )}
 
     </div>
     </>
