@@ -201,26 +201,33 @@ export default function PdfMarkup() {
     touchBound.current = true
 
     // ── Stylus (Apple Pencil) — draws ─────────────────────────────────────
+    // Track active touch count to distinguish pencil from finger scroll
+    const activeTouches = new Set()
+
     function onPointerDown(e) {
-      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      activeTouches.add(e.pointerId)
+      // If 2+ pointers, it's a pinch — don't draw
+      if (activeTouches.size >= 2) { drawingRef.current = false; strokeRef.current = []; return }
+      // Finger single touch = scroll (unless no stylus support, e.g. desktop mouse)
+      if (e.pointerType === 'touch') return  // let finger scroll
       if (toolRef.current === 'text') return
       e.preventDefault()
-      dc.setPointerCapture(e.pointerId)
+      try { dc.setPointerCapture(e.pointerId) } catch {}
       drawingRef.current = true
       strokeRef.current = [getPos(e)]
     }
     function onPointerMove(e) {
       if (!drawingRef.current) return
-      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      if (e.pointerType === 'touch') return
       e.preventDefault()
-      // Use getCoalescedEvents for maximum precision on Apple Pencil
       const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
       events.forEach(ev => strokeRef.current.push(getPos(ev)))
       redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
     }
     function onPointerUp(e) {
+      activeTouches.delete(e.pointerId)
       if (!drawingRef.current) return
-      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      if (e.pointerType === 'touch') return
       drawingRef.current = false
       if (!strokeRef.current.length) return
       let pts = [...strokeRef.current]
@@ -232,7 +239,7 @@ export default function PdfMarkup() {
       redraw()
     }
     function onPointerClick(e) {
-      if (e.pointerType !== 'stylus' && e.pointerType !== 'mouse') return
+      if (e.pointerType === 'touch') return
       if (toolRef.current !== 'text') return
       setTextPos(getPos(e))
       setTextDraft('')
@@ -240,19 +247,41 @@ export default function PdfMarkup() {
     }
 
     // ── Touch (finger) — pinch to zoom only, scrolls naturally ───────────
+    // Manual scroll state for single finger
+    let scrollStart = null
+
     function onTouchStart(e) {
       if (e.touches.length === 2) {
         isPinchingRef.current = true
         drawingRef.current = false
         strokeRef.current = []
+        scrollStart = null
         const dx = e.touches[0].clientX - e.touches[1].clientX
         const dy = e.touches[0].clientY - e.touches[1].clientY
         pinchRef.current = { dist: Math.hypot(dx, dy), scale: scaleRef.current }
         e.preventDefault()
+        return
       }
-      // 1-finger touch: don't preventDefault — let it scroll naturally
+      if (e.touches.length === 1) {
+        // Single finger — track for manual scrolling
+        scrollStart = { x: e.touches[0].clientX, y: e.touches[0].clientY,
+          scrollLeft: wrapRef.current?.scrollLeft || 0,
+          scrollTop: wrapRef.current?.scrollTop || 0 }
+        e.preventDefault() // prevent default but we'll scroll manually
+      }
     }
     function onTouchMove(e) {
+      // Single finger scroll
+      if (e.touches.length === 1 && scrollStart && !isPinchingRef.current) {
+        e.preventDefault()
+        const dx = scrollStart.x - e.touches[0].clientX
+        const dy = scrollStart.y - e.touches[0].clientY
+        if (wrapRef.current) {
+          wrapRef.current.scrollLeft = scrollStart.scrollLeft + dx
+          wrapRef.current.scrollTop  = scrollStart.scrollTop  + dy
+        }
+        return
+      }
       if (!isPinchingRef.current || e.touches.length < 2 || !pinchRef.current) return
       e.preventDefault()
       const dx = e.touches[0].clientX - e.touches[1].clientX
@@ -269,6 +298,7 @@ export default function PdfMarkup() {
       pinchRef.current.pendingScale = newScale
     }
     function onTouchEnd(e) {
+      scrollStart = null
       if (!isPinchingRef.current) return
       if (e.touches.length < 2) {
         isPinchingRef.current = false
@@ -418,7 +448,7 @@ export default function PdfMarkup() {
             <canvas ref={drawCanvasRef}
               style={{ position:'absolute', top:0, left:0,
                 cursor: tool==='text'?'text':tool==='eraser'?'cell':'crosshair',
-                touchAction:'pan-x pan-y',
+                touchAction:'none',
                 WebkitTapHighlightColor:'transparent' }}
             />
             {/* Text input */}
