@@ -2554,7 +2554,29 @@ export default function JobDetail() {
                 {atts.map(a => {
                   const ft = fileTypes.find(f=>f.id===a.file_type_id)
                   const approval = approvals.find(ap=>ap.attachment_id===a.id)
-                  return <div key={a.id}><ApprovalBar att={a} ft={ft} approval={approval} onRequest={()=>requestApproval(a.id)} onReview={(status,notes)=>reviewApproval(a.id,status,notes)} profile={profile} /></div>
+                  const ext = (a.name||'').split('.').pop().toUpperCase()
+                  const isImg = a.type?.startsWith('image/')
+                  return (
+                    <div key={a.id} style={{ background:'#F9FAFB', borderRadius:10, border:'1px solid #E8ECF0', padding:'10px 14px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        {isImg
+                          ? <img src={pubUrl(a.storage_path)} style={{ width:40, height:40, borderRadius:7, objectFit:'cover', flexShrink:0 }} alt="" />
+                          : <div style={{ width:40, height:40, borderRadius:7, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:11, fontWeight:800, color:'#5B8AF0' }}>{ext}</div>
+                        }
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <a href={pubUrl(a.storage_path)} target="_blank" rel="noreferrer"
+                            style={{ fontSize:13, fontWeight:600, color:'#2A3042', textDecoration:'none', display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                            {a.name}
+                          </a>
+                          {ft && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>{ft.name}</div>}
+                        </div>
+                        <button onClick={()=>{ if(confirm('Delete this file?')){ supabase.storage.from(BUCKET).remove([a.storage_path]); supabase.from('attachments').delete().eq('id',a.id); setAtts(p=>p.filter(x=>x.id!==a.id)) }}}
+                          style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
+                          onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                      </div>
+                      {ft?.requires_approval && <div style={{ marginTop:8 }}><ApprovalBar att={a} ft={ft} approval={approval} onRequest={()=>requestApproval(a.id)} onReview={(status,notes)=>reviewApproval(a.id,status,notes)} profile={profile} /></div>}
+                    </div>
+                  )
                 })}
               </div>
           }
