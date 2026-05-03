@@ -20,6 +20,7 @@ import CopyFormat from './screens/CopyFormat'
 import FormulaWriter from './screens/FormulaWriter'
 import ProductionDashboard from './screens/ProductionDashboard'
 import JobFeedback from './screens/JobFeedback'
+import PdfMarkup from './screens/PdfMarkup'
 
 function RequireAuth({ children }) {
   const { user, loading, profile } = useApp()
@@ -77,6 +78,7 @@ export default function App() {
         <Route path="formula-writer" element={<FormulaWriter />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />
         <Route path="job/:id/feedback" element={<JobFeedback />} />
+        <Route path="job/:id/markup/:attachmentId" element={<PdfMarkup />} />
       </Route>
     </Routes>
     </>
