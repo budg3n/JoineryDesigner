@@ -134,6 +134,7 @@ export default function PdfMarkup() {
     ctx.fillRect(0, 0, pc.width, pc.height)
     await pdfPage.render({ canvasContext: ctx, viewport: vp }).promise
     redraw()
+    bindTouchEvents()
   }
 
   // ── Redraw annotations ────────────────────────────────────────
@@ -190,42 +191,43 @@ export default function PdfMarkup() {
     }
   }
 
-  // ── Touch event handlers (attached via addEventListener for passive:false) ──
-  useEffect(() => {
+  // ── Touch events — attached after PDF renders so refs are valid ────────
+  const touchBound = useRef(false)
+  function bindTouchEvents() {
     const dc = drawCanvasRef.current
-    if (!dc) return
+    if (!dc || touchBound.current) return
+    touchBound.current = true
 
     function onTouchStart(e) {
       if (e.touches.length === 2) {
-        // Pinch start
         isPinchingRef.current = true
         drawingRef.current = false
         strokeRef.current = []
         const dx = e.touches[0].clientX - e.touches[1].clientX
         const dy = e.touches[0].clientY - e.touches[1].clientY
         pinchRef.current = { dist: Math.hypot(dx, dy), scale: scaleRef.current }
+        e.preventDefault()
         return
       }
-      if (e.touches.length === 1 && toolRef.current !== 'text') {
+      if (e.touches.length === 1 && !isPinchingRef.current && toolRef.current !== 'text') {
         e.preventDefault()
-        isPinchingRef.current = false
         drawingRef.current = true
         strokeRef.current = [getPos(e)]
       }
     }
 
     function onTouchMove(e) {
-      if (e.touches.length === 2 && isPinchingRef.current && pinchRef.current) {
+      if (isPinchingRef.current && e.touches.length >= 2 && pinchRef.current) {
         e.preventDefault()
         const dx = e.touches[0].clientX - e.touches[1].clientX
         const dy = e.touches[0].clientY - e.touches[1].clientY
-        const dist = Math.hypot(dx, dy)
-        const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * (dist / pinchRef.current.dist)))
+        const newDist = Math.hypot(dx, dy)
+        const newScale = Math.max(0.3, Math.min(5, pinchRef.current.scale * (newDist / pinchRef.current.dist)))
         scaleRef.current = newScale
         setScaleState(newScale)
         return
       }
-      if (e.touches.length === 1 && drawingRef.current && !isPinchingRef.current) {
+      if (drawingRef.current && e.touches.length === 1) {
         e.preventDefault()
         strokeRef.current.push(getPos(e))
         redraw({ tool: toolRef.current, colour: colourRef.current, size: sizeRef.current, points: [...strokeRef.current] })
@@ -233,10 +235,12 @@ export default function PdfMarkup() {
     }
 
     function onTouchEnd(e) {
-      if (isPinchingRef.current && e.touches.length < 2) {
-        isPinchingRef.current = false
-        // Re-render at new scale after pinch
-        if (pdfDocRef.current) renderPage(pageRef.current, scaleRef.current)
+      if (isPinchingRef.current) {
+        if (e.touches.length < 2) {
+          isPinchingRef.current = false
+          pinchRef.current = null
+          if (pdfDocRef.current) renderPage(pageRef.current, scaleRef.current)
+        }
         return
       }
       if (!drawingRef.current) return
@@ -254,12 +258,7 @@ export default function PdfMarkup() {
     dc.addEventListener('touchstart', onTouchStart, { passive: false })
     dc.addEventListener('touchmove',  onTouchMove,  { passive: false })
     dc.addEventListener('touchend',   onTouchEnd,   { passive: false })
-    return () => {
-      dc.removeEventListener('touchstart', onTouchStart)
-      dc.removeEventListener('touchmove',  onTouchMove)
-      dc.removeEventListener('touchend',   onTouchEnd)
-    }
-  }, [])  // mount once — uses only refs, no stale closures
+  }
 
   // ── Mouse handlers (desktop) ──────────────────────────────────
   function onMouseDown(e) {
