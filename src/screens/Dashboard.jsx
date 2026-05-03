@@ -411,6 +411,19 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [])
 
+  // Listen for task completions from TaskCounter — update job card instantly
+  useEffect(() => {
+    function handleTasksUpdated(e) {
+      const jobId = e.detail?.jobId
+      supabase.from('jobs').select('id,tasks').eq('id', jobId).single()
+        .then(({ data }) => {
+          if (data) setJobs(prev => prev.map(j => j.id === jobId ? { ...j, tasks: data.tasks } : j))
+        })
+    }
+    window.addEventListener('tasks-updated', handleTasksUpdated)
+    return () => window.removeEventListener('tasks-updated', handleTasksUpdated)
+  }, [])
+
   const sortedJobs = [...jobs].sort((a, b) => {
     if (sortBy === 'created_desc') return new Date(b.created_at) - new Date(a.created_at)
     if (sortBy === 'created_asc')  return new Date(a.created_at) - new Date(b.created_at)

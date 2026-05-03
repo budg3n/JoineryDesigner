@@ -69,16 +69,16 @@ export default function NotificationBell() {
     <div ref={dropRef} style={{ position:'relative' }}>
       <button onClick={() => setOpen(s => !s)}
         style={{ position:'relative', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8,
-          background: open ? 'rgba(255,255,255,0.15)' : 'transparent',
+          background: open ? '#F3F4F6' : 'transparent',
           color: 'rgba(255,255,255,0.85)' }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="1.8">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
         {unread > 0 && (
           <span style={{ position:'absolute', top:4, right:4, width:16, height:16, borderRadius:'50%',
             background:'#E24B4A', color:'#fff', fontSize:9, fontWeight:700,
-            display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #2A3042' }}>
+            display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #fff' }}>
             {unread > 9 ? '9+' : unread}
           </span>
         )}

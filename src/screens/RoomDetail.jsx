@@ -46,7 +46,8 @@ function SpecRow({ label, value, unit='mm', onChange }) {
   )
 }
 
-function TaskRow({ task, onToggle, onDelete, profile }) {
+function TaskRow({ task, onToggle, onDelete, onUpdate }) {
+  const [editing, setEditing] = React.useState(false)
   const isOver = !task.done && task.date && new Date(task.date) < new Date()
   return (
     <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background:'#F9FAFB', borderRadius:9, border:`1px solid ${isOver?'#FCA5A5':'#E8ECF0'}`, marginBottom:6 }}>
@@ -55,8 +56,22 @@ function TaskRow({ task, onToggle, onDelete, profile }) {
       </div>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none' }}>{task.title}</div>
-        {task.date && <div style={{ fontSize:11, color:isOver?'#E24B4A':'#9CA3AF', marginTop:2 }}>Due {new Date(task.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</div>}
-        {task.done && task.completed_by && <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>✓ {task.completed_by}</div>}
+        {editing ? (
+          <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap', alignItems:'center' }}>
+            <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
+              style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none' }} />
+            <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
+              style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', width:88 }} />
+            <button onClick={()=>setEditing(false)} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
+          </div>
+        ) : (
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+            {task.date && <span style={{ fontSize:11, color:isOver?'#E24B4A':'#9CA3AF' }}>Due {new Date(task.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}{task.time ? ' ' + task.time : ''}</span>}
+            {!task.done && <button onClick={()=>setEditing(true)} style={{ fontSize:10, color:'#C4C9D4', background:'none', border:'none', cursor:'pointer', padding:0 }}
+              onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>✏️</button>}
+            {task.done && task.completed_by && <span style={{ fontSize:10, color:'#9CA3AF' }}>✓ {task.completed_by}</span>}
+          </div>
+        )}
       </div>
       <button onClick={onDelete} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1 }}
         onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -347,7 +362,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   )
 }
 
-export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave, inline=false }) {
+export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave, onSyncJobTasks, inline=false }) {
   const toast = useToast()
   const { profile } = useApp()
   const navigate = useNavigate()
@@ -408,8 +423,11 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
   function saveTasks(updated) {
     const r = { ...room, tasks: JSON.stringify(updated) }
-    setRoom(r); markDirty()
+    setRoom(r)
     supabase.from('rooms').update({ tasks: JSON.stringify(updated) }).eq('id', room.id)
+    if (onSave) onSave(r)
+    // Sync to job tasks — push room tasks up to parent job
+    if (onSyncJobTasks) onSyncJobTasks(room.id, room.name, updated)
   }
   function toggleTask(tid) {
     saveTasks(tasks.map(t => t.id===tid ? {
@@ -471,7 +489,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   }).filter(jm => !roomMats.some(rm=>rm.material_id===jm.material_id))
 
   const innerStyle = inline
-    ? { background:'#F0F2F5', display:'flex', flexDirection:'column' }
+    ? { background:'#fff', display:'flex', flexDirection:'column', borderRadius:0 }
     : { position:'relative', width:'min(640px,100vw)', height:'100%', background:'#F0F2F5', boxShadow:'-8px 0 40px rgba(0,0,0,0.18)', display:'flex', flexDirection:'column', pointerEvents:'all', zIndex:1, overflow:'hidden' }
 
   return (
@@ -479,43 +497,77 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
       {!inline && <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.35)', pointerEvents:'all' }} onClick={onClose} />}
       <div style={innerStyle}>
 
-        {/* header */}
-        <div style={{ background:'#2A3042', padding:'14px 20px', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
-            <span style={{ fontSize:20 }}>🏠</span>
-            <div style={{ flex:1, minWidth:0 }}>
-              <input value={room.name} onChange={e=>setField('name',e.target.value)}
-                style={{ background:'none', border:'none', outline:'none', fontSize:17, fontWeight:800, color:'#fff', width:'100%', fontFamily:'inherit' }} />
+        {/* header — clean light style for inline, dark for panel */}
+        {inline ? (
+          <div style={{ padding:'12px 16px', background:'#F9FAFB', borderBottom:'1px solid #E8ECF0', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <input value={room.name} onChange={e=>setField('name',e.target.value)}
+                  style={{ background:'none', border:'none', outline:'none', fontSize:15, fontWeight:700, color:'#2A3042', width:'100%', fontFamily:'inherit', padding:0 }} />
+              </div>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <select value={room.type||'Kitchen'} onChange={e=>setField('type',e.target.value)}
+                  style={{ fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer', outline:'none' }}>
+                  {ROOM_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+                {(dirty||saving) && (
+                  <button onClick={()=>saveRoom()} disabled={saving}
+                    style={{ fontSize:12, fontWeight:700, padding:'5px 12px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
+                    {saving?'Saving…':'Save'}
+                  </button>
+                )}
+              </div>
             </div>
-            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-              {(dirty||saving) && (
-                <button onClick={()=>saveRoom()} disabled={saving}
-                  style={{ fontSize:12, fontWeight:700, padding:'5px 12px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
-                  {saving?'Saving…':'Save'}
+            {/* tabs inline style */}
+            <div style={{ display:'flex', gap:2, overflowX:'auto', background:'#EEEFF2', borderRadius:9, padding:3 }}>
+              {TABS.map(t=>(
+                <button key={t.key} onClick={()=>setTab(t.key)}
+                  style={{ fontSize:12, fontWeight:tab===t.key?700:500, padding:'5px 12px', borderRadius:7, border:'none', whiteSpace:'nowrap', cursor:'pointer',
+                    background: tab===t.key?'#fff':'transparent',
+                    color: tab===t.key?'#2A3042':'#6B7280',
+                    boxShadow: tab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
+                  {t.label}
                 </button>
-              )}
-              {!inline && <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer', color:'#fff', width:28, height:28, borderRadius:7, fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>}
+              ))}
             </div>
           </div>
-          {/* type selector */}
-          <select value={room.type||'Kitchen'} onChange={e=>setField('type',e.target.value)}
-            style={{ fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:8, border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.85)', cursor:'pointer', outline:'none' }}>
-            {ROOM_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-
-        {/* tabs */}
-        <div style={{ display:'flex', gap:2, padding:'8px 12px', background:'#fff', borderBottom:'1px solid #E8ECF0', overflowX:'auto', flexShrink:0 }}>
-          {TABS.map(t=>(
-            <button key={t.key} onClick={()=>setTab(t.key)}
-              style={{ fontSize:12, fontWeight:tab===t.key?700:500, padding:'6px 14px', borderRadius:8, border:'none', background:tab===t.key?'#EEF2FF':'transparent', color:tab===t.key?'#3730A3':'#6B7280', cursor:'pointer', whiteSpace:'nowrap' }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        ) : (
+          <>
+          <div style={{ background:'#2A3042', padding:'14px 20px', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+              <span style={{ fontSize:20 }}>🏠</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <input value={room.name} onChange={e=>setField('name',e.target.value)}
+                  style={{ background:'none', border:'none', outline:'none', fontSize:17, fontWeight:800, color:'#fff', width:'100%', fontFamily:'inherit' }} />
+              </div>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                {(dirty||saving) && (
+                  <button onClick={()=>saveRoom()} disabled={saving}
+                    style={{ fontSize:12, fontWeight:700, padding:'5px 12px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
+                    {saving?'Saving…':'Save'}
+                  </button>
+                )}
+                <button onClick={onClose} style={{ background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer', color:'#fff', width:28, height:28, borderRadius:7, fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+              </div>
+            </div>
+            <select value={room.type||'Kitchen'} onChange={e=>setField('type',e.target.value)}
+              style={{ fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:8, border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.85)', cursor:'pointer', outline:'none' }}>
+              {ROOM_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ display:'flex', gap:2, padding:'8px 12px', background:'#fff', borderBottom:'1px solid #E8ECF0', overflowX:'auto', flexShrink:0 }}>
+            {TABS.map(t=>(
+              <button key={t.key} onClick={()=>setTab(t.key)}
+                style={{ fontSize:12, fontWeight:tab===t.key?700:500, padding:'6px 14px', borderRadius:8, border:'none', background:tab===t.key?'#EEF2FF':'transparent', color:tab===t.key?'#3730A3':'#6B7280', cursor:'pointer', whiteSpace:'nowrap' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          </>
+        )}
 
         {/* content */}
-        <div style={{ flex:1, overflowY:'auto', padding:'16px' }}>
+        <div style={{ flex:1, overflowY: inline ? 'visible' : 'auto', padding:'16px' }}>
 
           {/* ── OVERVIEW ── */}
           {tab==='overview' && (
@@ -582,7 +634,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
               <div style={{ marginBottom:12 }}>
                 {tasks.length===0
                   ? <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>No tasks yet</div>
-                  : tasks.map(t=><TaskRow key={t.id} task={t} profile={profile} onToggle={()=>toggleTask(t.id)} onDelete={()=>deleteTask(t.id)} />)
+                  : tasks.map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onDelete={()=>deleteTask(t.id)} onUpdate={(field,val)=>saveTasks(tasks.map(x=>x.id===t.id?{...x,[field]:val}:x))} />)
                 }
               </div>
               {addingTask ? (
@@ -591,9 +643,11 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                     onKeyDown={e=>e.key==='Enter'&&addTask()}
                     placeholder="Task title…"
                     style={{ width:'100%', border:'none', outline:'none', fontSize:13, marginBottom:8, fontFamily:'inherit' }} />
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    <input type="date" value={newTask.date} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    <input type="date" value={newTask.date||''} onChange={e=>setNewTask(p=>({...p,date:e.target.value}))}
                       style={{ fontSize:12, border:'1px solid #E8ECF0', borderRadius:7, padding:'4px 8px', outline:'none' }} />
+                    <input type="time" value={newTask.time||''} onChange={e=>setNewTask(p=>({...p,time:e.target.value}))}
+                      style={{ fontSize:12, border:'1px solid #E8ECF0', borderRadius:7, padding:'4px 8px', outline:'none', width:100 }} />
                     <button onClick={addTask} style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>Add</button>
                     <button onClick={()=>setAddingTask(false)} style={{ fontSize:12, padding:'6px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
                   </div>

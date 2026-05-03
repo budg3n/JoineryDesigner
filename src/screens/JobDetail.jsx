@@ -1359,7 +1359,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1440,22 +1440,24 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const emoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
           return (
             <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
-              {/* room header row */}
+              {/* room header row — collapsed shows summary, expanded shows just controls */}
               <div onClick={() => setExpandedId(isOpen ? null : room.id)}
-                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', cursor:'pointer', background: isOpen?'#F0F4FF':'#fff' }}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', cursor:'pointer',
+                  background: isOpen ? '#F8F9FF' : '#fff',
+                  borderBottom: isOpen ? '1px solid #E8ECF0' : 'none' }}
                 onMouseEnter={e=>{ if(!isOpen) e.currentTarget.style.background='#F9FAFB' }}
-                onMouseLeave={e=>{ if(!isOpen) e.currentTarget.style.background='#fff' }}>
-                <div style={{ width:36, height:36, borderRadius:9, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                onMouseLeave={e=>{ if(!isOpen) e.currentTarget.style.background=isOpen?'#F8F9FF':'#fff' }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
                   {emoji}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
-                  <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>
+                  {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
                 </div>
                 <button onClick={e=>deleteRoom(e,room.id)}
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'#E8ECF0', fontSize:16, padding:'0 4px', marginRight:4 }}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 4px', marginRight:4 }}
                   onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
-                  onMouseLeave={e=>e.currentTarget.style.color='#E8ECF0'}>×</button>
+                  onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
                   style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', flexShrink:0 }}>
                   <polyline points="9 18 15 12 9 6"/>
@@ -1470,6 +1472,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                     inline={true}
                     onClose={() => setExpandedId(null)}
                     onSave={saved => onRoomsChange(p=>p.map(r=>r.id===saved.id?saved:r))}
+                    onSyncJobTasks={onSyncJobTasks}
                   />
                 </div>
               )}
@@ -1924,6 +1927,7 @@ export default function JobDetail() {
   const [tasks, setTasks]         = useState([])
   const [taskForm, setTaskForm]   = useState(false)
   const [newTask, setNewTask]     = useState({ title:'', date:'', time:'09:00' })
+  const [editingTaskId, setEditingTaskId] = useState(null)
   const [matPickerOpen, setMatPickerOpen] = useState(false)
   const [matSearch, setMatSearch] = useState('')
   const [lbIdx, setLbIdx]         = useState(null)
@@ -2181,12 +2185,32 @@ export default function JobDetail() {
     await supabase.from('jobs').update({ tasks: JSON.stringify(updated) }).eq('id', id)
   }
 
+  // Sync room tasks into job task list — keeps them visible in one place
+  async function syncJobTasksFromRoom(roomId, roomName, roomTasks) {
+    // Remove old tasks from this room, then add current ones back
+    const without = tasks.filter(t => t.from_room !== roomId)
+    const roomItems = roomTasks.map(t => ({
+      ...t,
+      id: `room_${roomId}_${t.id}`, // stable unique id
+      from_room: roomId,
+      room_name: roomName,
+    }))
+    const merged = [...without, ...roomItems]
+    setTasks(merged)
+    await supabase.from('jobs').update({ tasks: JSON.stringify(merged) }).eq('id', id)
+  }
+
   async function addTask() {
     if (!newTask.title.trim()) return
     const updated = [...tasks, { id: Date.now().toString(), ...newTask, done: false }]
     await saveTasks(updated)
     setNewTask({ title:'', date:'', time:'09:00' })
     setTaskForm(false)
+  }
+
+  async function updateTaskField(tid, field, value) {
+    const updated = tasks.map(t => t.id === tid ? { ...t, [field]: value } : t)
+    await saveTasks(updated)
   }
 
   async function toggleTask(tid) {
@@ -2447,15 +2471,35 @@ export default function JobDetail() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className={`text-sm ${t.done?'line-through text-[#9CA3AF]':'text-[#2A3042]'}`}>{t.title}</div>
+                    {t.from_room && <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0FDF4', color:'#065F46', fontWeight:600, flexShrink:0, border:'1px solid #86EFAC' }}>🏠 {t.room_name}</span>}
                     {t.from_note && <span onClick={()=>navigate(`/notes/${t.from_note}`)} style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>📄 Note</span>}
                     {t.private && <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F3F4F6', color:'#6B7280', fontWeight:600, flexShrink:0 }}>🔒</span>}
                   </div>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    <DueBadge t={t} />
+                  <div className="flex flex-wrap gap-1.5 mt-1 items-center">
+                    {!t.from_room && editingTaskId === t.id ? (
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                        <input type="date" value={t.date||''} onChange={e=>updateTaskField(t.id,'date',e.target.value)}
+                          style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff' }} />
+                        <input type="time" value={t.time||''} onChange={e=>updateTaskField(t.id,'time',e.target.value)}
+                          style={{ fontSize:11, padding:'2px 6px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', width:90 }} />
+                        <button onClick={()=>setEditingTaskId(null)} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
+                      </div>
+                    ) : (
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <DueBadge t={t} />
+                        {!t.done && !t.from_room && (
+                          <button onClick={()=>setEditingTaskId(t.id)}
+                            style={{ fontSize:10, color:'#C4C9D4', background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1 }}
+                            onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {t.done && t.completed_by && <span style={{ fontSize:10, color:'#9CA3AF' }}>✓ {t.completed_by}</span>}
                   </div>
                 </div>
-                <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none ml-1 flex-shrink-0">×</button>
+                {!t.from_room && <button onClick={() => deleteTask(t.id)} className="text-[#D1D5DB] hover:text-red-400 text-lg leading-none ml-1 flex-shrink-0">×</button>}
               </div>
             )
           })}
@@ -2485,7 +2529,7 @@ export default function JobDetail() {
       {jobTab === 'rooms' && <InlineRoomsPanel
         rooms={rooms} jobId={id} toast={toast}
         jobMats={jobMats} allAppliances={allAppliances}
-        onRoomsChange={setRooms} />}
+        onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
