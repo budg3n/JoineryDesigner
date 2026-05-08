@@ -68,10 +68,16 @@ function ApplianceForm({ appliance, onSave, onCancel }) {
   const fileRef = useRef()
   const attRef = useRef()
 
+  const [categories, setCategories] = useState([])
+  useEffect(() => {
+    supabase.from('appliance_categories').select('*').order('name').then(({data})=>setCategories(data||[]))
+  }, [])
+
   const [f, setF] = useState({
     brand:         appliance?.brand         || '',
     model:         appliance?.model         || '',
-    type:          appliance?.type          || 'Oven',
+    type:          appliance?.type          || '',
+    category_id:   appliance?.category_id   || '',
     width:         appliance?.width         || '',
     height:        appliance?.height        || '',
     depth:         appliance?.depth         || '',
@@ -172,9 +178,33 @@ function ApplianceForm({ appliance, onSave, onCancel }) {
       {/* core fields */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
         <div style={{ gridColumn:'span 2' }}>
-          <label style={{ fontSize:12, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Appliance type</label>
-          <select value={f.type} onChange={set('type')} style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', cursor:'pointer' }}>
-            {APPLIANCE_TYPES.map(t => <option key={t}>{t}</option>)}
+          <label style={{ fontSize:12, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Category</label>
+          <select value={f.category_id} onChange={set('category_id')} style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', cursor:'pointer' }}>
+            <option value="">— Uncategorised —</option>
+            {/* Build tree: top-level categories as optgroups, children as options */}
+            {categories.filter(c=>!c.parent_id).map(parent => {
+              const children = categories.filter(c=>c.parent_id===parent.id)
+              if (children.length === 0) return (
+                <option key={parent.id} value={parent.id}>{parent.name}</option>
+              )
+              return (
+                <optgroup key={parent.id} label={parent.name}>
+                  <option value={parent.id}>{parent.name} (general)</option>
+                  {children.map(child => {
+                    const grandchildren = categories.filter(c=>c.parent_id===child.id)
+                    if (grandchildren.length === 0) return (
+                      <option key={child.id} value={child.id}>└ {child.name}</option>
+                    )
+                    return [
+                      <option key={child.id} value={child.id}>└ {child.name}</option>,
+                      ...grandchildren.map(gc => (
+                        <option key={gc.id} value={gc.id}>    └ {gc.name}</option>
+                      ))
+                    ]
+                  })}
+                </optgroup>
+              )
+            })}
           </select>
         </div>
         {[['brand','Brand *','e.g. Bosch'],['model','Model *','e.g. HBG634BS1A']].map(([k,l,p]) => (
@@ -273,7 +303,17 @@ function ApplianceForm({ appliance, onSave, onCancel }) {
 }
 
 // ── Appliance Detail View ─────────────────────────────────────────
-function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated }) {
+// ── Module-level category helper (used by ApplianceDetail too) ───
+function getCatName(a, categories) {
+  if (!a) return 'Uncategorised'
+  if (a.category_id && categories?.length) {
+    const found = categories.find(c=>c.id===a.category_id)
+    if (found) return found.name
+  }
+  return a.type || 'Uncategorised'
+}
+
+function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated, categories=[] }) {
   const toast = useToast()
   const [editing, setEditing] = useState(false)
   const [files, setFiles]     = useState([])
@@ -294,12 +334,12 @@ function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated }) {
     await supabase.from('appliances').delete().eq('id', app.id)
     toast('Appliance deleted')
     onBack()
-    onUpdated(allAppliances.filter(a => a.id !== app.id))
+    onUpdated()
   }
 
   if (editing) return (
     <ApplianceForm appliance={app} onCancel={() => setEditing(false)}
-      onSave={saved => { setApp(saved); setEditing(false); onUpdated(allAppliances.map(a=>a.id===saved.id?saved:a)) }} />
+      onSave={saved => { setApp(saved); setEditing(false); onUpdated && onUpdated() }} />
   )
 
   return (
@@ -331,9 +371,9 @@ function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated }) {
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
             <div>
               <div style={{ fontSize:22, fontWeight:800, color:'#2A3042', marginBottom:2 }}>{app.brand} {app.model}</div>
-              <div style={{ fontSize:14, color:'#6B7280' }}>{app.type}</div>
+              <div style={{ fontSize:14, color:'#6B7280' }}>{getCatName(app, categories)}</div>
             </div>
-            <span style={{ fontSize:12, fontWeight:700, padding:'4px 12px', borderRadius:20, background:'#EEF2FF', color:'#3730A3' }}>{app.type}</span>
+            <span style={{ fontSize:12, fontWeight:700, padding:'4px 12px', borderRadius:20, background:'#EEF2FF', color:'#3730A3' }}>{getCatName(app, categories)}</span>
           </div>
 
           {/* unit dimensions */}
@@ -394,145 +434,216 @@ function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated }) {
 }
 
 // ── Main Screen ───────────────────────────────────────────────────
+// Stack-based navigation: [] = category tiles, [catId] = appliance list in category
 export default function Appliances() {
   const toast = useToast()
   const [appliances, setAppliances] = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [search, setSearch]         = useState('')
-  const [typeFilter, setTypeFilter] = useState('All')
-  const [sortBy, setSortBy]         = useState('brand') // brand | model | type
-  const [adding, setAdding]         = useState(false)
-  const [active, setActive]         = useState(null)
+  const [categories,  setCategories] = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [stack,      setStack]      = useState([])   // array of category ids drilled into
+  const [search,     setSearch]     = useState('')
+  const [adding,     setAdding]     = useState(false)
+  const [active,     setActive]     = useState(null)
 
-  useEffect(() => {
-    supabase.from('appliances').select('*').order('brand').then(({ data }) => {
-      setAppliances(data||[])
+  function load() {
+    return Promise.all([
+      supabase.from('appliances').select('*').order('brand'),
+      supabase.from('appliance_categories').select('*').order('name'),
+    ]).then(([{data:apps},{data:cats}]) => {
+      setAppliances(apps||[])
+      setCategories(cats||[])
       setLoading(false)
     })
-  }, [])
+  }
 
-  const types = ['All', ...new Set(appliances.map(a=>a.type).filter(Boolean).sort())]
+  useEffect(() => { load() }, [])
 
-  const filtered = appliances
-    .filter(a => {
-      if (typeFilter !== 'All' && a.type !== typeFilter) return false
-      if (!search) return true
-      const q = search.toLowerCase()
-      return (a.brand||'').toLowerCase().includes(q) ||
-             (a.model||'').toLowerCase().includes(q) ||
-             (a.type||'').toLowerCase().includes(q) ||
-             (a.notes||'').toLowerCase().includes(q)
-    })
-    .sort((a,b) => {
-      if (sortBy==='brand') return (a.brand||'').localeCompare(b.brand||'') || (a.model||'').localeCompare(b.model||'')
-      if (sortBy==='model') return (a.model||'').localeCompare(b.model||'')
-      if (sortBy==='type')  return (a.type||'').localeCompare(b.type||'')
-      return 0
-    })
+  function catName(a) { return getCatName(a, categories) }
 
+  // ── Navigation ────────────────────────────────────────────────
+  const currentCatId = stack[stack.length - 1] || null
+  const currentCat   = categories.find(c => c.id === currentCatId) || null
+  const children     = categories.filter(c => c.parent_id === currentCatId)
+
+  // Breadcrumb path
+  const breadcrumb = stack.map(id => categories.find(c=>c.id===id)).filter(Boolean)
+
+  // Appliances in the current category (or all if at top level with no categories)
+  const inCurrentCat = appliances.filter(a => {
+    if (!currentCatId && categories.length === 0) return true  // no categories — show all
+    if (!currentCatId) return false  // at top level with categories — show tiles not list
+    return a.category_id === currentCatId
+  })
+
+  // When in a category with no sub-children, show appliance list
+  const showList = currentCatId && children.length === 0
+
+  // Filtered appliances for list view
+  const filtered = inCurrentCat.filter(a => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (a.brand||'').toLowerCase().includes(q) ||
+           (a.model||'').toLowerCase().includes(q) ||
+           (a.notes||'').toLowerCase().includes(q)
+  }).sort((a,b) => (a.brand||'').localeCompare(b.brand||'')||(a.model||'').localeCompare(b.model||''))
+
+  // ── Active appliance detail ───────────────────────────────────
   if (active) return (
-    <ApplianceDetail appliance={active} allAppliances={appliances}
+    <ApplianceDetail appliance={active} allAppliances={appliances} categories={categories}
       onBack={() => setActive(null)}
-      onUpdated={updated => { setAppliances(updated); setActive(null) }} />
+      onUpdated={async () => { await load() }} />
   )
+
+  if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
 
   return (
     <div>
       <BackButton to="/settings" label="Settings" />
 
+      {/* Header */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
-        <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>Appliance library</h1>
-        <button onClick={() => setAdding(true)}
-          style={{ fontSize:13, fontWeight:700, padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
-          + Add appliance
-        </button>
+        <div>
+          <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>Appliance library</h1>
+          {currentCat && (
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, flexWrap:'wrap' }}>
+              <button onClick={()=>setStack([])} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', padding:0, fontWeight:500 }}>All</button>
+              {breadcrumb.map((cat,i) => (
+                <span key={cat.id} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ color:'#C4C9D4' }}>›</span>
+                  <button onClick={()=>setStack(s=>s.slice(0,i+1))}
+                    style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:i===breadcrumb.length-1?'#2A3042':'#6B7280', fontWeight:i===breadcrumb.length-1?700:500, padding:0 }}>
+                    {cat.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {(showList || categories.length === 0) && (
+          <button onClick={() => setAdding(true)}
+            style={{ fontSize:13, fontWeight:700, padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>
+            + Add appliance
+          </button>
+        )}
       </div>
 
+      {/* Add form */}
       {adding && (
-        <ApplianceForm onCancel={() => setAdding(false)}
-          onSave={saved => { setAppliances(p=>[saved,...p]); setAdding(false); setActive(saved) }} />
+        <ApplianceForm categories={categories} onCancel={() => setAdding(false)}
+          onSave={async saved => { await load(); setAdding(false); setActive(saved) }} />
       )}
 
-      {/* search + filters */}
-      <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:14, marginBottom:16 }}>
-        {/* search */}
-        <div style={{ position:'relative', marginBottom:12 }}>
-          <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF', fontSize:14, pointerEvents:'none' }}>⌕</span>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search brand, model, type…"
-            style={{ width:'100%', padding:'8px 10px 8px 32px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none' }} />
-          {search && <button onClick={()=>setSearch('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16 }}>×</button>}
-        </div>
-
-        <div style={{ display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
-          {/* type filters */}
-          <div style={{ display:'flex', gap:5, flexWrap:'wrap', flex:1 }}>
-            {types.map(t => (
-              <button key={t} onClick={() => setTypeFilter(t)}
-                style={{ fontSize:11, fontWeight:600, padding:'4px 11px', borderRadius:16, border:`1.5px solid ${typeFilter===t?'#5B8AF0':'#E8ECF0'}`, background:typeFilter===t?'#5B8AF0':'#fff', color:typeFilter===t?'#fff':'#6B7280', cursor:'pointer', transition:'all .1s' }}>
-                {t} {t!=='All' && `(${appliances.filter(a=>a.type===t).length})`}
-              </button>
-            ))}
-          </div>
-          {/* sort */}
-          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
-            <span style={{ fontSize:12, color:'#9CA3AF', fontWeight:500 }}>Sort:</span>
-            {[['brand','Brand'],['model','Model'],['type','Type']].map(([k,l]) => (
-              <button key={k} onClick={() => setSortBy(k)}
-                style={{ fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:16, border:`1.5px solid ${sortBy===k?'#2A3042':'#E8ECF0'}`, background:sortBy===k?'#2A3042':'#fff', color:sortBy===k?'#fff':'#6B7280', cursor:'pointer', transition:'all .1s' }}>
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* results count */}
-      {(search || typeFilter!=='All') && (
-        <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:12 }}>
-          {filtered.length} of {appliances.length} appliances
-          {(search || typeFilter!=='All') && <button onClick={()=>{setSearch('');setTypeFilter('All')}} style={{ marginLeft:8, fontSize:11, color:'#E24B4A', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Clear ×</button>}
+      {/* No categories yet — show all appliances in flat list */}
+      {categories.length === 0 && (
+        <div>
+          {appliances.length === 0 && !adding ? (
+            <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
+              No appliances yet — add your first one above
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14 }}>
+              {appliances.map(a => <ApplianceTile key={a.id} app={a} catName={catName} onClick={()=>setActive(a)} />)}
+            </div>
+          )}
         </div>
       )}
 
-      {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
-          {appliances.length === 0 ? 'No appliances yet — add one above' : 'No appliances match your search'}
-        </div>
-      ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:12 }}>
-          {filtered.map(a => (
-            <div key={a.id} onClick={() => setActive(a)}
-              style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
-              onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-1px)'}}
-              onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
-              {/* image or type icon */}
-              <div style={{ width:'100%', height:110, background:a.image_path?'transparent':'#F9FAFB', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {a.image_path
-                  ? <img src={pubUrl(a.image_path)} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }} loading="lazy" alt="" />
-                  : <div style={{ fontSize:40 }}>
-                      {a.type?.includes('Oven')?'🔲':a.type?.includes('Cooktop')?'🍳':a.type?.includes('Rangehood')?'💨':a.type?.includes('Dishwasher')?'🫧':a.type?.includes('Fridge')?'🧊':a.type?.includes('Sink')?'🚿':'🔌'}
-                    </div>
-                }
-              </div>
-              <div style={{ padding:'12px 14px' }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:3 }}>{a.type}</div>
-                <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:1 }}>{a.brand}</div>
-                <div style={{ fontSize:13, color:'#6B7280', marginBottom:10 }}>{a.model}</div>
-                {/* dim summary */}
-                {(a.width||a.height||a.depth) && (
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {[['W',a.width],['H',a.height],['D',a.depth]].filter(([,v])=>v).map(([l,v])=>(
-                      <span key={l} style={{ fontSize:11, fontWeight:600, padding:'2px 7px', borderRadius:7, background:'#EEF2FF', color:'#3730A3' }}>{l} {v}mm</span>
-                    ))}
+      {/* Category tiles — drill down like Materials */}
+      {categories.length > 0 && !showList && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
+          {children.map(cat => {
+            const count = appliances.filter(a => a.category_id === cat.id).length
+            const grandchildren = categories.filter(c => c.parent_id === cat.id)
+            return (
+              <div key={cat.id} onClick={() => setStack(s=>[...s,cat.id])}
+                style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+                <div style={{ width:'100%', height:110, background:'linear-gradient(135deg,#FFF7ED,#FFEDD5)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40 }}>
+                  {cat.name.includes('Oven')||cat.name.includes('oven')?'🔲':
+                   cat.name.includes('Cooktop')||cat.name.includes('cooktop')?'🍳':
+                   cat.name.includes('Hood')||cat.name.includes('hood')||cat.name.includes('Range')?'💨':
+                   cat.name.includes('Dish')||cat.name.includes('dish')?'🫧':
+                   cat.name.includes('Fridge')||cat.name.includes('fridge')?'🧊':
+                   cat.name.includes('Sink')||cat.name.includes('sink')?'🚿':
+                   cat.name.includes('Microwave')?'📡':'🔌'}
+                </div>
+                <div style={{ padding:'10px 14px 12px' }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                    {grandchildren.length > 0
+                      ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
+                      : `${count} appliance${count!==1?'s':''}`}
                   </div>
-                )}
+                </div>
+              </div>
+            )
+          })}
+          {/* Uncategorised tile — only if there are legacy appliances */}
+          {!currentCatId && appliances.some(a=>!a.category_id) && (
+            <div onClick={() => setStack(['__uncategorised__'])}
+              style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', overflow:'hidden', cursor:'pointer', transition:'all .15s' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+              onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+              <div style={{ height:110, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>📋</div>
+              <div style={{ padding:'10px 14px 12px' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#6B7280' }}>Uncategorised</div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>{appliances.filter(a=>!a.category_id).length} appliances</div>
               </div>
             </div>
-          ))}
+          )}
         </div>
       )}
+
+      {/* Appliance list inside a leaf category */}
+      {(showList || stack[0] === '__uncategorised__') && (
+        <div>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+            <div style={{ position:'relative', flex:1, minWidth:200 }}>
+              <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF' }}>⌕</span>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+                style={{ width:'100%', padding:'8px 10px 8px 30px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+            </div>
+            <button onClick={() => setAdding(true)}
+              style={{ fontSize:13, fontWeight:700, padding:'8px 16px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer', flexShrink:0 }}>
+              + Add appliance
+            </button>
+          </div>
+
+          {filtered.length === 0 && !adding && (
+            <div style={{ textAlign:'center', padding:'48px 0', color:'#9CA3AF', fontSize:13 }}>No appliances in this category yet</div>
+          )}
+
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14 }}>
+            {(stack[0] === '__uncategorised__'
+              ? appliances.filter(a=>!a.category_id)
+              : filtered
+            ).map(a => <ApplianceTile key={a.id} app={a} catName={catName} onClick={()=>setActive(a)} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Appliance tile ─────────────────────────────────────────────────
+function ApplianceTile({ app, catName, onClick }) {
+  return (
+    <div onClick={onClick}
+      style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+      onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+      onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+      <div style={{ width:'100%', height:110, overflow:'hidden', background:app.image_path?'transparent':'linear-gradient(135deg,#F3F4F6,#E8ECF0)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {app.image_path
+          ? <img src={pubUrl(app.image_path)} style={{ width:'100%', height:'100%', objectFit:'contain' }} alt="" />
+          : <span style={{ fontSize:32 }}>🔌</span>
+        }
+      </div>
+      <div style={{ padding:'10px 14px 12px' }}>
+        <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:1 }}>{app.brand}</div>
+        <div style={{ fontSize:13, color:'#6B7280', marginBottom:6 }}>{app.model}</div>
+        <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10, background:'#EEF2FF', color:'#3730A3' }}>{catName(app)}</span>
+      </div>
     </div>
   )
 }

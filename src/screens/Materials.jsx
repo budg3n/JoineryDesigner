@@ -986,9 +986,9 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
 // ── Main export ───────────────────────────────────────────────────
 export default function Materials() {
-  const [view,    setView]    = useState('top')   // top | sub | list
-  const [topCat,  setTopCat]  = useState(null)
-  const [subCat,  setSubCat]  = useState(null)
+  // stack = array of category IDs we've drilled into
+  // [] = top level, ['catId'] = inside a category, ['catId','subId'] = inside subcategory, etc.
+  const [stack, setStack]     = useState([])
   const [allCats, setAllCats] = useState([])
   const [loading, setLoading] = useState(true)
   const toast = useToast()
@@ -998,104 +998,111 @@ export default function Materials() {
       .then(({ data }) => { setAllCats(data || []); setLoading(false) })
   }, [])
 
-  // Top-level categories
-  const topCats = allCats.filter(c => !c.parent_id)
-
-  function openTop(cat) { setTopCat(cat); setSubCat(null); setView('sub') }
-  function openSub(cat) { setSubCat(cat); setView('list') }
-  function goBack(to) {
-    if (to === 'top') { setView('top'); setTopCat(null); setSubCat(null) }
-    if (to === 'sub') { setView('sub'); setSubCat(null) }
-  }
+  function pushCat(cat)  { setStack(s => [...s, cat.id]) }
+  function popStack()    { setStack(s => s.slice(0, -1)) }
+  function goToDepth(d)  { setStack(s => s.slice(0, d)) }
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
 
-  // Show list view (materials spreadsheet)
-  if (view === 'list') {
+  // Current category = last item in stack
+  const currentCatId = stack[stack.length - 1] || null
+  const currentCat   = allCats.find(c => c.id === currentCatId) || null
+  const children     = allCats.filter(c => c.parent_id === currentCatId)
+
+  // If current category has no children, show the materials list
+  if (currentCat && children.length === 0) {
+    // Find topCat (first in stack) and subCat (last in stack if different)
+    const topCat = allCats.find(c => c.id === stack[0]) || currentCat
     return (
       <MaterialListView
-        topCat={topCat} subCat={subCat}
+        topCat={topCat}
+        subCat={currentCat.id !== topCat.id ? currentCat : null}
         fields={[]} allCats={allCats}
-        onBack={goBack}
+        onBack={() => popStack()}
         onCatUpdated={updated => setAllCats(prev => prev.map(c => c.id===updated.id ? updated : c))} />
     )
   }
 
-  // Show subcategories of a top-level category
-  if (view === 'sub' && topCat) {
-    const subs = allCats.filter(c => c.parent_id === topCat.id)
-    return (
-      <div>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
-          <button onClick={() => goBack('top')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#6B7280', display:'flex', alignItems:'center', gap:5, padding:0 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            Materials
-          </button>
-          <span style={{ color:'#C4C9D4' }}>›</span>
-          <span style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>{topCat.name}</span>
+  // Breadcrumb
+  const breadcrumbCats = stack.map(id => allCats.find(c => c.id === id)).filter(Boolean)
+
+  return (
+    <div>
+      {/* Breadcrumb */}
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:20, flexWrap:'wrap' }}>
+        <button onClick={() => setStack([])} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color: stack.length===0 ? '#2A3042' : '#6B7280', fontWeight: stack.length===0 ? 700 : 500, padding:0 }}>
+          Materials
+        </button>
+        {breadcrumbCats.map((cat, i) => (
+          <span key={cat.id} style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ color:'#C4C9D4' }}>›</span>
+            <button onClick={() => goToDepth(i+1)}
+              style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color: i===breadcrumbCats.length-1 ? '#2A3042' : '#6B7280', fontWeight: i===breadcrumbCats.length-1 ? 700 : 500, padding:0 }}>
+              {cat.name}
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+        <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>
+          {currentCat ? currentCat.name : 'Materials'}
+        </h1>
+      </div>
+
+      {/* Empty state */}
+      {children.length === 0 && !currentCat && (
+        <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
+          No categories yet — add them in Settings
         </div>
-        {subs.length === 0 ? (
-          // No subcategories — go straight to list
-          <MaterialListView topCat={topCat} subCat={null} fields={[]} allCats={allCats} onBack={goBack} onCatUpdated={()=>{}} />
-        ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
-            {subs.map(cat => (
-              <div key={cat.id} onClick={() => openSub(cat)}
-                style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
-                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
-                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+      )}
+
+      {/* Category tiles grid */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
+        {children.map(cat => {
+          const grandchildren = allCats.filter(c => c.parent_id === cat.id)
+          return (
+            <div key={cat.id} onClick={() => pushCat(cat)}
+              style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+              onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+              <div style={{ width:'100%', height:110, overflow:'hidden', background: cat.image_path ? 'transparent' : 'linear-gradient(135deg,#F3F4F6,#E8ECF0)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                 {cat.image_path
-                  ? <img src={pubUrl(cat.image_path)} style={{ width:60, height:60, borderRadius:10, objectFit:'cover', marginBottom:10 }} alt="" />
-                  : <div style={{ width:60, height:60, borderRadius:10, background:'#F3F4F6', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>📦</div>
+                  ? <img src={pubUrl(cat.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" alt="" />
+                  : <span style={{ fontSize:32 }}>📦</span>
                 }
-                <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
               </div>
-            ))}
-            {/* Also allow viewing all in top cat directly */}
-            <div onClick={() => { setSubCat(null); setView('list') }}
-              style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', transition:'all .15s' }}
-              onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
-              onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-              <div style={{ width:60, height:60, borderRadius:10, background:'#EEF2FF', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>📋</div>
-              <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {topCat.name}</div>
+              <div style={{ padding:'10px 14px 12px' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                  {grandchildren.length > 0
+                    ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
+                    : 'Click to browse'}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        {/* If we're inside a category, also show "Browse all" to view materials directly */}
+        {currentCat && (
+          <div onClick={() => {
+            // Force into list view by temporarily treating this cat as leaf
+            const topCat = allCats.find(c => c.id === stack[0]) || currentCat
+            setStack(s => [...s]) // trigger re-render trick — show list
+          }}
+            style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', overflow:'hidden', cursor:'pointer', transition:'all .15s' }}
+            onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+            onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+            <div style={{ height:110, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>📋</div>
+            <div style={{ padding:'10px 14px 12px' }}>
+              <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {currentCat.name}</div>
+              <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>Browse materials directly</div>
             </div>
           </div>
         )}
       </div>
-    )
-  }
-
-  // Top-level category tiles
-  return (
-    <div>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-        <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>Materials</h1>
-      </div>
-      {topCats.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
-          No categories yet — add them in Settings
-        </div>
-      ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
-          {topCats.map(cat => (
-            <div key={cat.id} onClick={() => openTop(cat)}
-              style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:20, cursor:'pointer', textAlign:'center', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
-              onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
-              onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
-              {cat.image_path
-                ? <img src={pubUrl(cat.image_path)} style={{ width:64, height:64, borderRadius:12, objectFit:'cover', marginBottom:10 }} alt="" />
-                : <div style={{ width:64, height:64, borderRadius:12, background:'#F3F4F6', margin:'0 auto 10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>📦</div>
-              }
-              <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
-              <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                {allCats.filter(c=>c.parent_id===cat.id).length > 0
-                  ? `${allCats.filter(c=>c.parent_id===cat.id).length} subcategories`
-                  : 'Click to browse'}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

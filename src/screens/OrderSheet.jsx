@@ -37,12 +37,33 @@ const DEFAULT_COLS = [
   { key:'notes',      label:'Notes',       w:150, type:'text' },
 ]
 
+// ── Load category fields for dynamic columns ─────────────────────
+function useCategoryFields(catId) {
+  const [extraCols, setExtraCols] = useState([])
+  useEffect(() => {
+    if (!catId) { setExtraCols([]); return }
+    supabase.from('category_fields').select('*').eq('category_id', catId).eq('show_in_orders', true).order('sort_order')
+      .then(({ data }) => {
+        setExtraCols((data||[]).map(f => ({
+          key: '_cf_' + f.id,
+          label: f.label,
+          w: f.field_type==='number'||f.field_type==='price' ? 80 : f.field_type==='toggle' ? 70 : 110,
+          type: f.field_type==='price' ? 'price' : f.field_type==='number' ? 'number' : f.field_type==='toggle' ? 'toggle' : f.field_type==='select' ? 'select' : 'text',
+          options: f.field_type==='select' && f.options ? JSON.parse(f.options) : undefined,
+          fieldId: f.id,
+          isCustom: true,
+        })))
+      })
+  }, [catId])
+  return extraCols
+}
+
 function makeRow(overrides={}) {
   return {
     id:          Date.now().toString(36)+Math.random().toString(36).slice(2),
     item:'', supplier:'', panel_type:'', thickness:'', colour:'', finish:'',
     dimensions:'', qty:'', unit:'sheets', sku:'', price:'', po_number:'', notes:'',
-    category:'Board', status:'To order', needed:'', material_id:null, room_id:null,
+    category:'Board', status:'To order', needed:'', material_id:null, room_id:null, appliance_id:null,
     ...overrides,
   }
 }
@@ -89,6 +110,19 @@ function Cell({ value='', onChange, col }) {
         style={{ border:'none', outline:'none', background:'transparent', fontSize:11, color:val?'#5B8AF0':'#C4C9D4', cursor:'pointer', width:'100%' }} />
     </div>
   )
+
+  if (col.type === 'toggle') {
+    const v = value === true || value === 'true' || value === '1'
+    return editing ? (
+      <div style={{ ...base, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <input type="checkbox" checked={v} onChange={e => { onChange(e.target.checked ? 'yes' : ''); setEditing(false) }} autoFocus />
+      </div>
+    ) : (
+      <div style={{ ...base, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => { onChange(v ? '' : 'yes') }}>
+        <span style={{ fontSize:16 }}>{v ? '✓' : '—'}</span>
+      </div>
+    )
+  }
 
   if (col.type === 'number' || col.type === 'price') return (
     <div style={{...base, justifyContent:'flex-end'}} onClick={()=>setEditing(true)}>
@@ -317,7 +351,10 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
           </div>
         )
         return (
-          <Cell key={col.key} col={col} value={row[col.key]||''}
+          <Cell key={col.key} col={col}
+            value={col.key.startsWith('_cf_')
+              ? (()=>{ try { const cf=JSON.parse(row.custom_fields||'{}'); return cf[col.key.replace('_cf_','')]||'' } catch{ return '' } })()
+              : (row[col.key]||'')}
             onChange={v=>onUpdate(row.id,{[col.key]:v})} />
         )
       })}
@@ -348,7 +385,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
 }
 
 // ── Group section ─────────────────────────────────────────────────
-function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms }) {
+function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms, selectedCatId, onSelectCat, extraCols }) {
   const [collapsed, setCollapsed] = useState(false)
   const toOrder = rows.filter(r=>r.status==='To order').length
   const subtotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
@@ -412,6 +449,9 @@ export default function OrderSheet() {
   const [filter,    setFilter]    = useState('All')
   const [cols,      setCols]      = useState(DEFAULT_COLS)
   const [copyFormat, setCopyFormat] = useState({ tokens:[], separator:' ' })
+  const [selectedCatId, setSelectedCatId] = useState(null)
+  const [allCats,   setAllCats]   = useState([])
+  const extraCols = useCategoryFields(selectedCatId)
   const { getHeaderProps } = useDragColumns(cols, setCols)
   const [showColMenu, setShowColMenu] = useState(false)
   const saveTimer = useRef()
@@ -425,11 +465,60 @@ export default function OrderSheet() {
       supabase.from('materials').select('*').order('name'),
       supabase.from('order_items').select('*').eq('job_id',id).order('created_at'),
       supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
-    ]).then(([{data:j},{data:m},{data:o},{data:r}])=>{
+      supabase.from('material_categories').select('id,name,parent_id').order('name'),
+      supabase.from('room_materials').select('*,materials(*),rooms!inner(id,name,job_id)').eq('rooms.job_id',id),
+      supabase.from('room_appliances').select('*,appliances(*),rooms!inner(id,name,job_id)').eq('rooms.job_id',id),
+    ]).then(([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:rm},{data:ra}])=>{
       setJob(j)
       setMaterials(m||[])
       setRooms(r||[])
-      setRows(o||[])
+      setAllCats(cats||[])
+
+      // Convert room_materials → order_item rows (only if not already in order_items)
+      const existingMatIds  = new Set((o||[]).map(row=>row.material_id).filter(Boolean))
+      const existingAppIds  = new Set((o||[]).map(row=>row.appliance_id).filter(Boolean))
+
+      const fromRoomMats = (rm||[])
+        .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
+        .map(entry => {
+          const mat  = entry.materials
+          const room = entry.rooms
+          return makeRow({
+            item:        mat.name || '',
+            supplier:    mat.supplier || '',
+            panel_type:  mat.panel_type || '',
+            thickness:   mat.thickness ? String(mat.thickness) : '',
+            colour:      mat.colour_code || '',
+            finish:      mat.finish || '',
+            sku:         mat.sku || '',
+            price:       mat.price ? String(mat.price) : '',
+            category:    mat.panel_type ? 'Board' : 'Hardware',
+            material_id: entry.material_id,
+            room_id:     entry.room_id,
+            _fromRoom:   true,
+          })
+        })
+
+      const fromRoomApps = (ra||[])
+        .filter(entry => entry.appliances && !existingAppIds.has(entry.appliance_id))
+        .map(entry => {
+          const app  = entry.appliances
+          const room = entry.rooms
+          return makeRow({
+            item:         `${app.brand||''} ${app.model||''}`.trim() || app.type || '',
+            supplier:     app.supplier || '',
+            panel_type:   '',
+            category:     'Appliance',
+            sku:          app.sku || '',
+            price:        app.price ? String(app.price) : '',
+            appliance_id: entry.appliance_id,
+            room_id:      entry.room_id,
+            _fromRoom:    true,
+          })
+        })
+
+      // Merge: existing order_items first, then room-sourced rows
+      setRows([...(o||[]), ...fromRoomMats, ...fromRoomApps])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
@@ -445,7 +534,10 @@ export default function OrderSheet() {
     setSaving(true)
     const toSave = rowsToSave
       .filter(r => r.item && r.item.trim())
-      .map(r => ({ ...r, job_id: id, updated_at: new Date().toISOString() }))
+      .map(r => {
+        const { _fromRoom, ...row } = r
+        return { ...row, job_id: id, updated_at: new Date().toISOString() }
+      })
     if (toSave.length > 0) {
       const { error } = await supabase.from('order_items').upsert(toSave, { onConflict:'id' })
       if (error) { toast(error.message, 'error'); setSaving(false); return }
@@ -456,7 +548,21 @@ export default function OrderSheet() {
 
   function updateRow(rowId, patch) {
     setRows(prev=>{
-      const updated = prev.map(r=>r.id===rowId?{...r,...patch}:r)
+      const updated = prev.map(r => {
+        if (r.id !== rowId) return r
+        // Custom field columns have _cf_ prefix — store in custom_fields JSON
+        const cfPatch = {}, regularPatch = {}
+        Object.entries(patch).forEach(([k,v]) => {
+          if (k.startsWith('_cf_')) cfPatch[k.replace('_cf_','')] = v
+          else regularPatch[k] = v
+        })
+        const base = { ...r, ...regularPatch }
+        if (Object.keys(cfPatch).length > 0) {
+          const existing = typeof r.custom_fields==='string' ? JSON.parse(r.custom_fields||'{}') : (r.custom_fields||{})
+          base.custom_fields = JSON.stringify({ ...existing, ...cfPatch })
+        }
+        return base
+      })
       triggerSave(updated)
       return updated
     })
@@ -573,6 +679,22 @@ export default function OrderSheet() {
               💾 Save
             </button>
           </div>
+          {/* category field columns selector */}
+          {allCats.filter(c=>!c.parent_id).length > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ fontSize:11, fontWeight:600, color:'#9CA3AF' }}>Category fields:</span>
+              <select value={selectedCatId||''} onChange={e=>setSelectedCatId(e.target.value||null)}
+                style={{ fontSize:12, padding:'5px 8px', borderRadius:7, border:'1px solid #E8ECF0', background:'#fff', outline:'none', color:'#374151' }}>
+                <option value="">None</option>
+                {allCats.map(cat=>(
+                  <option key={cat.id} value={cat.id}>{'  '.repeat(cat.parent_id?1:0)}{cat.parent_id?'└ ':''}{cat.name}</option>
+                ))}
+              </select>
+              {selectedCatId && extraCols.length > 0 && (
+                <span style={{ fontSize:11, color:'#5B8AF0', fontWeight:600 }}>+{extraCols.length} column{extraCols.length!==1?'s':''}</span>
+              )}
+            </div>
+          )}
           {/* group by */}
           <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:9, padding:3 }}>
             {GROUP_OPTIONS.map(g=>(
@@ -644,7 +766,8 @@ export default function OrderSheet() {
           {groups.map(([groupTitle, groupRows])=>(
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
               materials={materials} onUpdate={updateRow} onDelete={deleteRow}
-              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} rooms={rooms} />
+              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} rooms={rooms}
+              selectedCatId={selectedCatId} onSelectCat={setSelectedCatId} extraCols={extraCols} />
           ))}
 
           {groups.length===0 && (

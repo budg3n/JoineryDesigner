@@ -9,6 +9,8 @@ import Sketch from './screens/Sketch'
 import Calendar from './screens/Calendar'
 import Settings from './screens/Settings'
 import Materials from './screens/Materials'
+import MaterialSettings from './screens/MaterialSettings'
+import ApplianceSettings from './screens/ApplianceSettings'
 import Customers from './screens/Customers'
 import Team from './screens/Team'
 import Appliances from './screens/Appliances'
@@ -21,6 +23,8 @@ import FormulaWriter from './screens/FormulaWriter'
 import ProductionDashboard from './screens/ProductionDashboard'
 import JobFeedback from './screens/JobFeedback'
 import PdfMarkup from './screens/PdfMarkup'
+import SpecList from './screens/SpecList'
+import SpecBuilder from './screens/SpecBuilder'
 
 function RequireAuth({ children }) {
   const { user, loading, profile } = useApp()
@@ -42,8 +46,9 @@ function RequireAuth({ children }) {
 }
 
 function RoleRouter() {
-  const { profile } = useApp()
-  if (profile?.role === 'Production Team') return <ProductionDashboard />
+  const { profile, previewRole } = useApp()
+  const effectiveRole = previewRole || profile?.role
+  if (effectiveRole === 'Production Team') return <ProductionDashboard />
   return <Dashboard />
 }
 
@@ -66,7 +71,10 @@ export default function App() {
         <Route path="job/:id/sketch/:attId" element={<Sketch />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="settings" element={<Settings />} />
-        <Route path="settings/materials" element={<Materials />} />
+        <Route path="settings/materials" element={<MaterialSettings />} />
+        <Route path="settings/materials/library" element={<Materials />} />
+        <Route path="settings/appliances" element={<ApplianceSettings />} />
+        <Route path="settings/appliances/library" element={<Appliances />} />
         <Route path="settings/customers" element={<Customers />} />
         <Route path="settings/team" element={<Team />} />
         <Route path="settings/appliances" element={<Appliances />} />
@@ -79,6 +87,8 @@ export default function App() {
         <Route path="job/:id/orders" element={<OrderSheet />} />
         <Route path="job/:id/feedback" element={<JobFeedback />} />
         <Route path="job/:id/markup/:attachmentId" element={<PdfMarkup />} />
+        <Route path="spec-builder" element={<SpecList />} />
+        <Route path="spec-builder/:id" element={<SpecBuilder />} />
       </Route>
     </Routes>
     </>

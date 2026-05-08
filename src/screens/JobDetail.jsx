@@ -2152,6 +2152,7 @@ export default function JobDetail() {
   const [processes, setProcesses]     = useState([])
   const [timeHistory, setTimeHistory] = useState([])
   const [feedback, setFeedback]       = useState([])
+  const [specs, setSpecs]             = useState([])
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
@@ -2212,6 +2213,7 @@ export default function JobDetail() {
     supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
     // Load feedback
     supabase.from('job_feedback').select('*, profiles(id,full_name,email)').eq('job_id', id).order('created_at',{ascending:false}).then(({data})=>setFeedback(data||[]))
+    supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error) setSpecs(data||[]) })
     // Load active entries at job level so both panels stay in sync
     supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
       .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
@@ -2613,6 +2615,7 @@ export default function JobDetail() {
           { key:'orders',     label:'Orders',    badge: unorderedCount||null },
           { key:'files',      label:'Files',     badge: atts.length||null },
           { key:'feedback',   label:'Feedback',  badge: feedback.filter(f=>f.status==='Open').length||null },
+          { key:'specs',      label:'Specs',     badge: specs.length||null },
         ].map(t => (
           <button key={t.key} onClick={() => setJobTab(t.key)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
@@ -2939,6 +2942,47 @@ export default function JobDetail() {
               </div>
           }
         </div>
+      </div>}
+
+      {/* SPECS */}
+      {jobTab === 'specs' && <div>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+          <div style={{ fontSize:13, color:'#9CA3AF' }}>Specs linked to this job</div>
+          <a href="/spec-builder/new" style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, background:'#5B8AF0', color:'#fff', textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New spec
+          </a>
+        </div>
+        {specs.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'40px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', color:'#9CA3AF' }}>
+            <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
+            <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:4 }}>No specs yet</div>
+            <div style={{ fontSize:13 }}>Create a spec and link it to this job</div>
+          </div>
+        ) : specs.map(spec => {
+          const rooms = typeof spec.rooms==='string'?JSON.parse(spec.rooms||'[]'):(spec.rooms||[])
+          const matCount = rooms.reduce((s,r)=>s+(r.materials||[]).length,0)
+          const appCount = rooms.reduce((s,r)=>s+(r.appliances||[]).length,0)
+          const ss = spec.status==='Submitted'?{bg:'#DCFCE7',color:'#166534'}:{bg:'#F3F4F6',color:'#6B7280'}
+          return (
+            <a key={spec.id} href={`/spec-builder/${spec.id}`}
+              style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', marginBottom:10, textDecoration:'none', cursor:'pointer' }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor='#C4D4F8';e.currentTarget.style.background='#F9FAFB'}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor='#E8ECF0';e.currentTarget.style.background='#fff'}}>
+              <div style={{ width:36,height:36,borderRadius:9,background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0 }}>📋</div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <div style={{ fontSize:13,fontWeight:700,color:'#2A3042' }}>{spec.title||'Untitled spec'}</div>
+                <div style={{ fontSize:11,color:'#9CA3AF',marginTop:2 }}>
+                  {rooms.length} room{rooms.length!==1?'s':''}
+                  {matCount>0?` · ${matCount} material${matCount!==1?'s':''}` : ''}
+                  {appCount>0?` · ${appCount} appliance${appCount!==1?'s':''}` : ''}
+                </div>
+              </div>
+              <span style={{ fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:20,background:ss.bg,color:ss.color,flexShrink:0 }}>{spec.status||'Draft'}</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </a>
+          )
+        })}
       </div>}
 
       {/* FEEDBACK */}

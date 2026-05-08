@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 
 const AppContext = createContext(null)
 
-export const ROLES = ['Admin', 'Project Manager', 'Setout', 'Production Manager', 'Production Team']
+export const ROLES = ['Admin', 'Project Manager', 'Setout', 'Designer', 'Production Manager', 'Production Team']
 
 const PERMISSIONS = {
   createJob:   ['Admin', 'Project Manager'],
@@ -14,13 +14,23 @@ const PERMISSIONS = {
   addSketch:   ['Admin', 'Project Manager', 'Setout'],
   settings:    ['Admin'],
   team:        ['Admin'],
-  seeAllJobs:  ['Admin', 'Project Manager', 'Setout', 'Production Manager'],
+  seeAllJobs:  ['Admin', 'Project Manager', 'Setout', 'Designer', 'Production Manager'],
+  useSpecBuilder: ['Admin', 'Project Manager', 'Designer'],
   deleteJob:   ['Admin'],
 }
 
 export function AppProvider({ children }) {
   const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
+  const [previewRole, setPreviewRoleState] = useState(
+    () => sessionStorage.getItem('preview_role') || null
+  )
+
+  function setPreviewRole(role) {
+    if (role) sessionStorage.setItem('preview_role', role)
+    else sessionStorage.removeItem('preview_role')
+    setPreviewRoleState(role)
+  }
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -113,16 +123,18 @@ export function AppProvider({ children }) {
   }
 
   function can(action) {
-    const role = profile?.role || 'Production Team'
+    const role = previewRole || profile?.role || 'Production Team'
     return (PERMISSIONS[action] || []).includes(role)
   }
 
   async function signOut() {
+    sessionStorage.removeItem('preview_role')
+    setPreviewRoleState(null)
     await supabase.auth.signOut()
   }
 
   return (
-    <AppContext.Provider value={{ user, profile, loading, can, signOut }}>
+    <AppContext.Provider value={{ user, profile, loading, can, signOut, previewRole, setPreviewRole }}>
       {children}
     </AppContext.Provider>
   )
