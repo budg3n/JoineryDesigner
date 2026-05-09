@@ -4,7 +4,7 @@ const fmtNZTime = dt => { const s = String(dt).endsWith('Z')||String(dt).include
 
 // ── NZ time formatter — module level, pure arithmetic, no Intl ────
 
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
@@ -13,6 +13,8 @@ import RoomDetail from './RoomDetail'
 import { ActiveProcessBanner } from './JobProcesses'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
+import NotionNotes from '../components/NotionNotes'
+import InlineSpecBuilder from './InlineSpecBuilder'
 import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
@@ -2116,6 +2118,7 @@ function FileRenameModal({ pending, fileTypes, onConfirm, onCancel }) {
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const toast    = useToast()
   const { can, profile } = useApp()
 
@@ -2153,6 +2156,7 @@ export default function JobDetail() {
   const [timeHistory, setTimeHistory] = useState([])
   const [feedback, setFeedback]       = useState([])
   const [specs, setSpecs]             = useState([])
+  const [activeSpecId, setActiveSpecId] = useState(null)
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
@@ -2161,7 +2165,7 @@ export default function JobDetail() {
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
-  const [jobTab, setJobTab] = useState('details')
+  const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'details')
   // Persist edits to sessionStorage — survives page reload
   const _jobRef = React.useRef(job)
   _jobRef.current = job
@@ -2213,7 +2217,7 @@ export default function JobDetail() {
     supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
     // Load feedback
     supabase.from('job_feedback').select('*, profiles(id,full_name,email)').eq('job_id', id).order('created_at',{ascending:false}).then(({data})=>setFeedback(data||[]))
-    supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error) setSpecs(data||[]) })
+    supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error){ setSpecs(data||[]); if(data?.length) setActiveSpecId(data[0].id) } })
     // Load active entries at job level so both panels stay in sync
     supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
       .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
@@ -2612,6 +2616,7 @@ export default function JobDetail() {
           { key:'appliances', label:'Appliances' },
           { key:'processes',  label:'Processes', badge: processes.filter(p=>p.status!=='Complete').length||null },
           { key:'startup',    label:'Startup' },
+          { key:'notes',      label:'Notes' },
           { key:'orders',     label:'Orders',    badge: unorderedCount||null },
           { key:'files',      label:'Files',     badge: atts.length||null },
           { key:'feedback',   label:'Feedback',  badge: feedback.filter(f=>f.status==='Open').length||null },
@@ -2857,6 +2862,17 @@ export default function JobDetail() {
         />
       )}
 
+      {/* NOTES TAB */}
+      {jobTab === 'notes' && (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:20, minHeight:300 }}>
+          <NotionNotes
+            jobId={id}
+            context="job-notes"
+            minHeight={300}
+          />
+        </div>
+      )}
+
       {/* ORDERS TAB */}
       {jobTab === 'orders' && <div>
         {unorderedCount > 0 && (
@@ -2946,43 +2962,64 @@ export default function JobDetail() {
 
       {/* SPECS */}
       {jobTab === 'specs' && <div>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
-          <div style={{ fontSize:13, color:'#9CA3AF' }}>Specs linked to this job</div>
-          <a href="/spec-builder/new" style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, background:'#5B8AF0', color:'#fff', textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+        {/* Spec selector — compact list at top */}
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14, flexWrap:'wrap' }}>
+          {specs.map(spec => {
+            const ss = spec.status==='Submitted'?{bg:'#DCFCE7',color:'#166534',border:'#86EFAC'}:
+                       spec.status==='Draft'?{bg:'#F3F4F6',color:'#6B7280',border:'#E8ECF0'}:
+                       {bg:'#DBEAFE',color:'#1E40AF',border:'#BFDBFE'}
+            return (
+              <button key={spec.id} onClick={()=>setActiveSpecId(spec.id)}
+                style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 12px', borderRadius:9,
+                  border:`1.5px solid ${activeSpecId===spec.id?'#5B8AF0':ss.border}`,
+                  background:activeSpecId===spec.id?'#5B8AF0':ss.bg,
+                  color:activeSpecId===spec.id?'#fff':ss.color,
+                  cursor:'pointer', fontSize:12, fontWeight:600 }}>
+                📋 {spec.title||'Untitled'}
+                <span style={{ fontSize:10, opacity:0.8 }}>{spec.status}</span>
+              </button>
+            )
+          })}
+          <button onClick={async () => {
+            const { data } = await supabase.from('specs').insert({
+              title:'New spec', status:'Draft', rooms:'[]', job_id:id,
+              updated_at: new Date().toISOString()
+            }).select().single()
+            if (data) { setSpecs(p=>[...p, data]); setActiveSpecId(data.id) }
+          }} style={{ fontSize:12, fontWeight:700, padding:'6px 12px', borderRadius:9, border:'1px dashed #C4D4F8', background:'transparent', color:'#5B8AF0', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             New spec
-          </a>
+          </button>
         </div>
-        {specs.length === 0 ? (
-          <div style={{ textAlign:'center', padding:'40px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', color:'#9CA3AF' }}>
+
+        {/* Inline spec builder — shown directly */}
+        {specs.length === 0 && !activeSpecId ? (
+          <div style={{ textAlign:'center', padding:'40px 16px', background:'#F9FAFB', borderRadius:12, border:'1px dashed #E8ECF0', color:'#9CA3AF' }}>
             <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
             <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:4 }}>No specs yet</div>
-            <div style={{ fontSize:13 }}>Create a spec and link it to this job</div>
+            <div style={{ fontSize:13, marginBottom:16 }}>Create a spec to compile materials and appliances for this job</div>
+            <button onClick={async () => {
+              const { data } = await supabase.from('specs').insert({
+                title:'New spec', status:'Draft', rooms:'[]', job_id:id,
+                updated_at: new Date().toISOString()
+              }).select().single()
+              if (data) { setSpecs(p=>[...p, data]); setActiveSpecId(data.id) }
+            }} style={{ fontSize:13, fontWeight:700, padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>+ Create first spec</button>
           </div>
-        ) : specs.map(spec => {
-          const rooms = typeof spec.rooms==='string'?JSON.parse(spec.rooms||'[]'):(spec.rooms||[])
-          const matCount = rooms.reduce((s,r)=>s+(r.materials||[]).length,0)
-          const appCount = rooms.reduce((s,r)=>s+(r.appliances||[]).length,0)
-          const ss = spec.status==='Submitted'?{bg:'#DCFCE7',color:'#166534'}:{bg:'#F3F4F6',color:'#6B7280'}
-          return (
-            <a key={spec.id} href={`/spec-builder/${spec.id}`}
-              style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', marginBottom:10, textDecoration:'none', cursor:'pointer' }}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor='#C4D4F8';e.currentTarget.style.background='#F9FAFB'}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor='#E8ECF0';e.currentTarget.style.background='#fff'}}>
-              <div style={{ width:36,height:36,borderRadius:9,background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0 }}>📋</div>
-              <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ fontSize:13,fontWeight:700,color:'#2A3042' }}>{spec.title||'Untitled spec'}</div>
-                <div style={{ fontSize:11,color:'#9CA3AF',marginTop:2 }}>
-                  {rooms.length} room{rooms.length!==1?'s':''}
-                  {matCount>0?` · ${matCount} material${matCount!==1?'s':''}` : ''}
-                  {appCount>0?` · ${appCount} appliance${appCount!==1?'s':''}` : ''}
-                </div>
-              </div>
-              <span style={{ fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:20,background:ss.bg,color:ss.color,flexShrink:0 }}>{spec.status||'Draft'}</span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-            </a>
-          )
-        })}
+        ) : activeSpecId ? (
+          <InlineSpecBuilder
+            key={activeSpecId}
+            specId={activeSpecId}
+            jobId={id}
+            onBack={() => {
+              supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id)
+                .order('updated_at',{ascending:false}).then(({data})=>{ if(data) setSpecs(data) })
+            }}
+          />
+        ) : specs.length > 0 ? (
+          // Auto-select first spec
+          (() => { if(!activeSpecId && specs[0]) setTimeout(()=>setActiveSpecId(specs[0].id),0); return null })()
+        ) : null}
       </div>}
 
       {/* FEEDBACK */}

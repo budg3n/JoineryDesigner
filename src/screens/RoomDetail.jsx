@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
+import NotionNotes from '../components/NotionNotes'
 
 const ROOM_TYPES = ['Kitchen', 'Laundry', 'Butler\'s Pantry', 'Ensuite', 'Bathroom', 'Bedroom', 'Living', 'Office', 'Garage', 'Other']
 
@@ -580,9 +581,13 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
             <div>
               <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:16, marginBottom:12 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Notes</div>
-                <textarea value={room.notes||''} onChange={e=>setField('notes',e.target.value)}
+                <NotionNotes
+                  jobId={room.job_id}
+                  roomId={room.id}
+                  context="room-notes"
                   placeholder="Room notes, observations, specs…"
-                  style={{ width:'100%', border:'none', outline:'none', fontSize:13, color:'#374151', resize:'vertical', minHeight:80, fontFamily:'inherit', background:'transparent', lineHeight:1.6, boxSizing:'border-box' }} />
+                  minHeight={100}
+                />
               </div>
               {/* summary cards */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 
@@ -17,7 +18,11 @@ export default function Calendar() {
 
   const [jobs, setJobs]       = useState([])
   const [loading, setLoading] = useState(true)
-  const [view, setView]       = useState('gantt')
+  const [assignments, setAssignments] = useState([])  // {job_id, user_id}
+  const [profiles, setProfiles]   = useState({})
+  const { profile } = useApp()
+  const [weekOffset, setWeekOffset] = useState(0)  // 0=current week, -1=prev, +1=next
+  const [view, setView]       = useState(() => new URLSearchParams(window.location.search).get('view') || 'gantt')
   const [calYear, setCalYear] = useState(TODAY.getFullYear())
   const [calMonth, setCalMonth] = useState(TODAY.getMonth())
   const [clockJobId, setClockJobId] = useState(null)
@@ -29,6 +34,12 @@ export default function Calendar() {
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
 
   useEffect(() => {
+    supabase.from('job_assignments').select('job_id,user_id').then(({data})=>setAssignments(data||[]))
+    supabase.from('profiles').select('id,full_name,email').then(({data})=>{
+      const map = {}
+      ;(data||[]).forEach(p=>{ map[p.id] = p.full_name || p.email || '?' })
+      setProfiles(map)
+    })
     supabase.from('jobs').select('*').order('created_at',{ascending:false}).then(({ data }) => {
       setJobs(data || [])
       setLoading(false)
@@ -201,7 +212,7 @@ export default function Calendar() {
             <h1 className="text-xl font-bold text-[#2A3042]">Schedule</h1>
           </div>
           <div className="flex border border-[#E8ECF0] rounded-xl overflow-hidden">
-            {[['gantt','Gantt'],['clock','Time clock'],['tasks','Tasks']].map(([v,l]) => (
+            {[['gantt','Gantt'],['month','Monthly'],['week','My week'],['clock','Time clock'],['tasks','Tasks']].map(([v,l]) => (
               <button key={v} onClick={() => setView(v)}
                 className={`text-xs px-4 py-2 border-none cursor-pointer transition-colors
                   ${view===v ? 'bg-white text-[#2A3042] font-semibold' : 'bg-[#F0F2F5] text-[#6B7280] hover:bg-[#E8ECF0]'}`}>
@@ -211,7 +222,218 @@ export default function Calendar() {
           </div>
         </div>
 
-        {/* stats */}
+        {/* ── MONTHLY BOARD ── */}
+        {view === 'month' && (() => {
+          const year = calYear, month = calMonth
+          const firstDay = new Date(year, month, 1)
+          const lastDay  = new Date(year, month + 1, 0)
+          const startDow = firstDay.getDay() // 0=Sun
+          // Build grid cells (pad start with empty days)
+          const cells = []
+          for (let i = 0; i < startDow; i++) cells.push(null)
+          for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(year, month, d))
+
+          const STATUS_COLORS = {
+            'In progress': { bg:'#DBEAFE', color:'#1E40AF', dot:'#3B82F6' },
+            'Complete':    { bg:'#DCFCE7', color:'#166534', dot:'#22C55E' },
+            'On hold':     { bg:'#FEF9C3', color:'#854D0E', dot:'#EAB308' },
+            'Cancelled':   { bg:'#F3F4F6', color:'#6B7280', dot:'#9CA3AF' },
+            'Pending':     { bg:'#FEF2F2', color:'#991B1B', dot:'#EF4444' },
+          }
+
+          function jobsForDay(date) {
+            if (!date) return []
+            const ds = date.toISOString().slice(0,10)
+            return jobs.filter(j => {
+              if (!j.start_date && !j.due_date) return false
+              const s = j.start_date ? j.start_date.slice(0,10) : ds
+              const e = j.due_date   ? j.due_date.slice(0,10)   : s
+              return ds >= s && ds <= e
+            })
+          }
+
+          const isToday = d => d && d.toDateString() === TODAY.toDateString()
+
+          return (
+            <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+              {/* Month nav */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 20px', borderBottom:'1px solid #F3F4F6' }}>
+                <button onClick={()=>changeMonth(-1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', fontSize:18, padding:'2px 8px', borderRadius:8 }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'} onMouseLeave={e=>e.currentTarget.style.background='none'}>‹</button>
+                <div style={{ fontSize:16, fontWeight:800, color:'#2A3042' }}>
+                  {firstDay.toLocaleDateString('en-NZ',{month:'long',year:'numeric'})}
+                </div>
+                <button onClick={()=>changeMonth(1)} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', fontSize:18, padding:'2px 8px', borderRadius:8 }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'} onMouseLeave={e=>e.currentTarget.style.background='none'}>›</button>
+              </div>
+              {/* Day headers */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', borderBottom:'1px solid #F3F4F6' }}>
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
+                  <div key={d} style={{ padding:'8px 0', textAlign:'center', fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>{d}</div>
+                ))}
+              </div>
+              {/* Calendar grid */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+                {cells.map((date, i) => {
+                  const dayJobs = jobsForDay(date)
+                  const today   = isToday(date)
+                  return (
+                    <div key={i} style={{ minHeight:100, padding:'6px', borderRight:i%7!==6?'1px solid #F3F4F6':'none', borderBottom:'1px solid #F3F4F6', background:today?'#F0F7FF':'#fff', position:'relative' }}>
+                      {date && (
+                        <>
+                          <div style={{ fontSize:12, fontWeight:today?800:500, width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:today?'#5B8AF0':'transparent', color:today?'#fff':'#6B7280', marginBottom:4 }}>
+                            {date.getDate()}
+                          </div>
+                          <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                            {dayJobs.slice(0,3).map(j => {
+                              const sc = STATUS_COLORS[j.status] || STATUS_COLORS['Pending']
+                              const assignedUsers = assignments.filter(a=>a.job_id===j.id).map(a=>profiles[a.user_id]||'').filter(Boolean)
+                              return (
+                                <div key={j.id} title={`${j.name}${assignedUsers.length?` — ${assignedUsers.join(', ')}`:''}`}
+                                  style={{ fontSize:10, fontWeight:600, padding:'2px 6px', borderRadius:5, background:sc.bg, color:sc.color, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor:'default', borderLeft:`3px solid ${sc.dot}` }}>
+                                  {j.job_number ? `#${j.job_number} ` : ''}{j.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || j.name}
+                                </div>
+                              )
+                            })}
+                            {dayJobs.length > 3 && (
+                              <div style={{ fontSize:10, color:'#9CA3AF', fontWeight:600, paddingLeft:2 }}>+{dayJobs.length-3} more</div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {/* Legend */}
+              <div style={{ padding:'10px 16px', borderTop:'1px solid #F3F4F6', display:'flex', flexWrap:'wrap', gap:12 }}>
+                {Object.entries(STATUS_COLORS).map(([s,c])=>(
+                  <div key={s} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'#6B7280' }}>
+                    <div style={{ width:8, height:8, borderRadius:'50%', background:c.dot }} />
+                    {s}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* ── MY WEEK ── */}
+        {view === 'week' && (() => {
+          // Week starting Monday
+          const now = new Date(TODAY)
+          const dow = now.getDay() // 0=Sun
+          const monday = new Date(now)
+          monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + (weekOffset * 7))
+
+          const days = Array.from({length:7}, (_,i) => {
+            const d = new Date(monday)
+            d.setDate(monday.getDate() + i)
+            return d
+          })
+
+          const myJobIds = new Set(assignments.filter(a=>a.user_id===profile?.id).map(a=>a.job_id))
+
+          function myJobsForDay(date) {
+            const ds = date.toISOString().slice(0,10)
+            return jobs.filter(j => {
+              if (!myJobIds.has(j.id)) return false
+              const s = j.start_date ? j.start_date.slice(0,10) : null
+              const e = j.due_date   ? j.due_date.slice(0,10)   : null
+              if (!s && !e) return false
+              const start = s || e, end = e || s
+              return ds >= start && ds <= end
+            })
+          }
+
+          const STATUS_COLORS = {
+            'In progress': { bg:'#DBEAFE', color:'#1E40AF', border:'#93C5FD', dot:'#3B82F6' },
+            'Complete':    { bg:'#DCFCE7', color:'#166534', border:'#86EFAC', dot:'#22C55E' },
+            'On hold':     { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A', dot:'#EAB308' },
+            'Pending':     { bg:'#FEF2F2', color:'#991B1B', border:'#FCA5A5', dot:'#EF4444' },
+            'Cancelled':   { bg:'#F3F4F6', color:'#6B7280', border:'#E5E7EB', dot:'#9CA3AF' },
+          }
+
+          const weekLabel = () => {
+            const s = days[0].toLocaleDateString('en-NZ',{day:'numeric',month:'short'})
+            const e = days[6].toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})
+            return `${s} – ${e}`
+          }
+
+          const hasAny = days.some(d => myJobsForDay(d).length > 0)
+
+          return (
+            <div>
+              {/* Week nav */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+                <div style={{ fontSize:15, fontWeight:800, color:'#2A3042' }}>{weekLabel()}</div>
+                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                  <button onClick={()=>setWeekOffset(w=>w-1)} style={{ padding:'6px 12px', border:'1px solid #E8ECF0', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:12, fontWeight:600, color:'#6B7280' }}>← Prev week</button>
+                  {weekOffset !== 0 && <button onClick={()=>setWeekOffset(0)} style={{ padding:'6px 12px', border:'1px solid #5B8AF0', borderRadius:8, background:'#EEF2FF', cursor:'pointer', fontSize:12, fontWeight:700, color:'#5B8AF0' }}>This week</button>}
+                  <button onClick={()=>setWeekOffset(w=>w+1)} style={{ padding:'6px 12px', border:'1px solid #E8ECF0', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:12, fontWeight:600, color:'#6B7280' }}>Next week →</button>
+                </div>
+              </div>
+
+              {!hasAny && (
+                <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'48px 24px', textAlign:'center', color:'#9CA3AF' }}>
+                  <div style={{ fontSize:28, marginBottom:8 }}>📅</div>
+                  <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:4 }}>No jobs assigned this week</div>
+                  <div style={{ fontSize:13 }}>Jobs assigned to you will appear here</div>
+                </div>
+              )}
+
+              {/* Day columns */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8 }}>
+                {days.map((date, i) => {
+                  const dayJobs   = myJobsForDay(date)
+                  const isToday   = date.toDateString() === TODAY.toDateString()
+                  const isWeekend = date.getDay() === 0 || date.getDay() === 6
+                  return (
+                    <div key={i} style={{ background:isToday?'#F0F7FF':isWeekend?'#FAFAFA':'#fff', borderRadius:12, border:`1.5px solid ${isToday?'#93C5FD':'#E8ECF0'}`, overflow:'hidden', minHeight:160 }}>
+                      {/* Day header */}
+                      <div style={{ padding:'8px 10px', borderBottom:'1px solid #F3F4F6', background:isToday?'#DBEAFE':isWeekend?'#F3F4F6':'#F9FAFB' }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:isToday?'#1E40AF':'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em' }}>
+                          {date.toLocaleDateString('en-NZ',{weekday:'short'})}
+                        </div>
+                        <div style={{ fontSize:18, fontWeight:800, color:isToday?'#1E40AF':'#2A3042', lineHeight:1.2 }}>
+                          {date.getDate()}
+                        </div>
+                        <div style={{ fontSize:10, color:'#9CA3AF' }}>{date.toLocaleDateString('en-NZ',{month:'short'})}</div>
+                      </div>
+                      {/* Jobs */}
+                      <div style={{ padding:'6px 8px', display:'flex', flexDirection:'column', gap:4 }}>
+                        {dayJobs.length === 0 ? (
+                          <div style={{ fontSize:10, color:'#D1D5DB', textAlign:'center', padding:'12px 0' }}>—</div>
+                        ) : dayJobs.map(j => {
+                          const sc = STATUS_COLORS[j.status] || STATUS_COLORS['Pending']
+                          const isDue = j.due_date?.slice(0,10) === date.toISOString().slice(0,10)
+                          return (
+                            <div key={j.id} style={{ background:sc.bg, borderRadius:7, border:`1px solid ${sc.border}`, padding:'6px 8px', borderLeft:`3px solid ${sc.dot}` }}>
+                              <div style={{ fontSize:11, fontWeight:700, color:sc.color, lineHeight:1.3, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+                                {j.job_number && <span style={{ opacity:0.7, marginRight:3 }}>#{j.job_number}</span>}
+                                {j.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || j.name}
+                              </div>
+                              <div style={{ display:'flex', gap:4, marginTop:4, flexWrap:'wrap' }}>
+                                <span style={{ fontSize:10, color:sc.color, opacity:0.8 }}>{j.status}</span>
+                                {isDue && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:20, background:sc.dot, color:'#fff' }}>Due</span>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div style={{ marginTop:12, fontSize:12, color:'#9CA3AF', textAlign:'center' }}>
+                Showing jobs assigned to you — assign jobs from the job card
+              </div>
+            </div>
+          )
+        })()}
+
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">Active jobs</div><div className="text-xl font-bold text-[#2A3042]">{active.length}</div></div>
           <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", padding:14 }}><div className="text-xs text-[#9CA3AF] mb-1">Tasks open</div><div className="text-xl font-bold text-[#2A3042]">{totalOpen}</div>{totalOver>0 && <div className="text-xs text-red-600">{totalOver} overdue</div>}</div>

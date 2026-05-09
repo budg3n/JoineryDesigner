@@ -43,8 +43,10 @@ export default function SpecList() {
     const matCount = rooms.reduce((s,r)=>s+(r.materials||[]).length,0)
     const appCount = rooms.reduce((s,r)=>s+(r.appliances||[]).length,0)
     const ss = STATUS_STYLE[spec.status] || STATUS_STYLE.Draft
+    // If linked to a job, go to the job card specs tab
+    const destination = spec.job_id ? `/job/${spec.job_id}?tab=specs` : `/spec-builder/${spec.id}`
     return (
-      <div onClick={()=>navigate(`/spec-builder/${spec.id}`)}
+      <div onClick={()=>navigate(destination)}
         style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', cursor:'pointer', transition:'all .12s' }}
         onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)';e.currentTarget.style.borderColor='#C4D4F8'}}
         onMouseLeave={e=>{e.currentTarget.style.boxShadow='none';e.currentTarget.style.borderColor='#E8ECF0'}}>
@@ -59,6 +61,17 @@ export default function SpecList() {
           </div>
         </div>
         <span style={{ fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:20,background:ss.bg,color:ss.color,flexShrink:0 }}>{spec.status||'Draft'}</span>
+        {/* If linked to job, show a secondary link to standalone builder */}
+        {spec.job_id && (
+          <button onClick={e=>{e.stopPropagation();navigate(`/spec-builder/${spec.id}`)}}
+            title="Open in spec builder"
+            style={{ background:'none',border:'1px solid #E8ECF0',borderRadius:7,cursor:'pointer',color:'#9CA3AF',padding:'4px 8px',fontSize:11,fontWeight:600,flexShrink:0,display:'flex',alignItems:'center',gap:3 }}
+            onMouseEnter={e=>{e.currentTarget.style.background='#EEF2FF';e.currentTarget.style.color='#5B8AF0';e.currentTarget.style.borderColor='#C4D4F8'}}
+            onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color='#9CA3AF';e.currentTarget.style.borderColor='#E8ECF0'}}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit
+          </button>
+        )}
         <button onClick={e=>deleteSpec(e,spec.id,spec.title)}
           style={{ background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:16,flexShrink:0 }}
           onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>

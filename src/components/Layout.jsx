@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import JobProcessesDropdown from '../screens/JobProcesses'
 import NotificationBell from './NotificationBell'
 import TaskCounter from './TaskCounter'
+import WeekSnapshot from './WeekSnapshot'
 
 function SbIcon({ children }) {
   return (
@@ -20,6 +21,7 @@ const NAV = [
     { label:'Spec Builder',   to:'/spec-builder',       icon:<SbIcon><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></SbIcon>, roles:['Admin','Project Manager','Designer'] },
     { label:'Notes',          to:'/notes',              icon:<SbIcon><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></SbIcon> },
     { label:'Formula Writer', to:'/formula-writer',       icon:<SbIcon><path d="M4 7h4"/><path d="M4 12h4"/><path d="M4 17h4"/><path d="M11 7l2 10"/><path d="M17 7l2 10"/><path d="M10 10h8"/><path d="M11 14h6"/></SbIcon> },
+    { label:'Reports',  to:'/reports',             icon:<SbIcon><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></SbIcon>, roles:['Admin','Project Manager'] },
     { label:'Customers', to:'/settings/customers',   icon:<SbIcon><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></SbIcon> },
   ]},
   { section:'Library', items:[
@@ -44,7 +46,7 @@ const PAGE_TITLES = {
   '/formula-writer':'Formula Writer',
   '/settings':'Settings','/settings/materials':'Materials library','/settings/materials/library':'Materials',
   '/settings/appliances':'Appliances','/settings/appliances/library':'Appliance library',
-  '/spec-builder':'Spec Builder',
+  '/reports':'Reports','/spec-builder':'Spec Builder',
   '/settings/customers':'Customers','/settings/team':'Team',
   '/settings/file-types':'File types',
 }
@@ -321,6 +323,7 @@ export default function Layout() {
             </>)}
 
             <TaskCounter />
+            <WeekSnapshot />
             <NotificationBell />
             {isDash && can('createJob') && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('open-new-job'))}

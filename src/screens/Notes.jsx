@@ -211,6 +211,9 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
   const [slashFilter, setSlashFilter] = useState('')
   const [showLinkPicker, setShowLinkPicker] = useState(false)
   const [linkSearch, setLinkSearch] = useState('')
+  const [showMention, setShowMention] = useState(false)
+  const [mentionFilter, setMentionFilter] = useState('')
+  const [mentionSel, setMentionSel] = useState(0)
   const navigate = useNavigate()
 
   // Set innerHTML ONCE on mount only — never let React update it
@@ -248,9 +251,20 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     if (lastSlash >= 0 && !before.slice(lastSlash + 1).includes(' ')) {
       setSlashFilter(before.slice(lastSlash + 1))
       setShowSlash(true)
+      setShowMention(false)
     } else {
       setShowSlash(false)
       setSlashFilter('')
+    }
+    // @ mention detection
+    const lastAt = before.lastIndexOf('@')
+    if (lastAt >= 0 && !before.slice(lastAt + 1).includes(' ')) {
+      setMentionFilter(before.slice(lastAt + 1))
+      setShowMention(true)
+      setMentionSel(0)
+    } else {
+      setShowMention(false)
+      setMentionFilter('')
     }
   }
 
@@ -270,7 +284,42 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
       if (sel?.anchorOffset === 0) { e.preventDefault(); onArrowUp(index) }
     }
     if (e.key === 'ArrowDown') onArrowDown(index)
-    if (e.key === 'Escape') { setShowSlash(false); setSlashFilter('') }
+    if (e.key === 'Escape') { setShowSlash(false); setSlashFilter(''); setShowMention(false); setMentionFilter('') }
+    if (showMention) {
+      const filtered = (profiles||[]).filter(p => !mentionFilter || (p.full_name||p.email||'').toLowerCase().includes(mentionFilter.toLowerCase()))
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionSel(s=>Math.min(s+1,filtered.length-1)) }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionSel(s=>Math.max(s-1,0)) }
+      if (e.key === 'Enter' && filtered[mentionSel]) { e.preventDefault(); insertMention(filtered[mentionSel]) }
+    }
+  }
+
+  function insertMention(user) {
+    const text = ref.current?.textContent || ''
+    const lastAt = text.lastIndexOf('@')
+    const before = lastAt >= 0 ? text.slice(0, lastAt) : text
+    const mentionText = `@${user.full_name||user.email} `
+    // Insert styled mention span into contenteditable
+    if (ref.current) {
+      const sel = window.getSelection()
+      // Remove the @query text and insert mention span
+      const newHtml = (before + `<span class="mention" data-user-id="${user.id}" contenteditable="false" style="color:#5B8AF0;background:#EEF2FF;border-radius:4px;padding:1px 5px;font-weight:600;cursor:default">@${user.full_name||user.email}</span>&nbsp;`).replace(/</g, '<').replace(/>/g, '>')
+      // Use execCommand for proper cursor placement
+      ref.current.innerHTML = before + `<span class="mention" data-user-id="${user.id}" contenteditable="false" style="color:#5B8AF0;background:#EEF2FF;border-radius:4px;padding:1px 5px;font-weight:600;cursor:default;user-select:none">@${user.full_name||user.email}</span>&nbsp;`
+      // Move cursor to end
+      const range = document.createRange()
+      range.selectNodeContents(ref.current)
+      range.collapse(false)
+      const s = window.getSelection()
+      s.removeAllRanges()
+      s.addRange(range)
+      // Update block content with mention marker
+      const raw = ref.current.textContent || ''
+      onChange(block.id, { content: raw, mentions: [...(block.mentions||[]), user.id] })
+    }
+    setShowMention(false)
+    setMentionFilter('')
+    // Fire notification
+    if (onMention) onMention(user.id)
   }
 
   function selectBlockType(type) {
@@ -458,6 +507,25 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
         </div>
       </div>
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+      {showMention && profiles?.length > 0 && (() => {
+        const mFiltered = profiles.filter(p => !mentionFilter || (p.full_name||p.email||'').toLowerCase().includes(mentionFilter.toLowerCase()))
+        if (!mFiltered.length) return null
+        return (
+          <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:220, overflow:'hidden' }}>
+            <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6', background:'#F8FAFF' }}>Mention</div>
+            {mFiltered.map((p, i) => (
+              <div key={p.id} onClick={()=>insertMention(p)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background:i===mentionSel?'#EEF2FF':'transparent' }}
+                onMouseEnter={()=>setMentionSel(i)}>
+                <div style={{ width:28, height:28, borderRadius:'50%', background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#5B8AF0', flexShrink:0 }}>
+                  {((p.full_name||p.email||'?')[0]).toUpperCase()}
+                </div>
+                <div><div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{p.full_name||'—'}</div><div style={{ fontSize:11, color:'#9CA3AF' }}>{p.email}</div></div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 
@@ -470,6 +538,25 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
         onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
         style={{ ...baseStyle, ...STYLES.paragraph, flex:1 }} />
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+      {showMention && profiles?.length > 0 && (() => {
+        const mFiltered = profiles.filter(p => !mentionFilter || (p.full_name||p.email||'').toLowerCase().includes(mentionFilter.toLowerCase()))
+        if (!mFiltered.length) return null
+        return (
+          <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:220, overflow:'hidden' }}>
+            <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6', background:'#F8FAFF' }}>Mention</div>
+            {mFiltered.map((p, i) => (
+              <div key={p.id} onClick={()=>insertMention(p)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background:i===mentionSel?'#EEF2FF':'transparent' }}
+                onMouseEnter={()=>setMentionSel(i)}>
+                <div style={{ width:28, height:28, borderRadius:'50%', background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#5B8AF0', flexShrink:0 }}>
+                  {((p.full_name||p.email||'?')[0]).toUpperCase()}
+                </div>
+                <div><div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{p.full_name||'—'}</div><div style={{ fontSize:11, color:'#9CA3AF' }}>{p.email}</div></div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 
@@ -478,9 +565,28 @@ function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnte
     <div style={{ position:'relative' }}>
       <div ref={ref} contentEditable suppressContentEditableWarning
         onInput={handleInput} onKeyDown={handleKey} onFocus={() => onFocus(index)}
-        data-placeholder={block.type==='paragraph' ? "Type '/' for commands…" : ''}
+        data-placeholder={block.type==='paragraph' ? "Type '/' for commands, '@' to mention…" : ''}
         style={{ ...baseStyle, ...style }} />
       {showSlash && <SlashMenu filter={slashFilter} onSelect={selectBlockType} onClose={()=>setShowSlash(false)} />}
+      {showMention && profiles?.length > 0 && (() => {
+        const mFiltered = profiles.filter(p => !mentionFilter || (p.full_name||p.email||'').toLowerCase().includes(mentionFilter.toLowerCase()))
+        if (!mFiltered.length) return null
+        return (
+          <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E8ECF0', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', minWidth:220, overflow:'hidden' }}>
+            <div style={{ padding:'6px 10px', fontSize:10, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.06em', borderBottom:'1px solid #F3F4F6', background:'#F8FAFF' }}>Mention</div>
+            {mFiltered.map((p, i) => (
+              <div key={p.id} onClick={()=>insertMention(p)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', cursor:'pointer', background:i===mentionSel?'#EEF2FF':'transparent' }}
+                onMouseEnter={()=>setMentionSel(i)}>
+                <div style={{ width:28, height:28, borderRadius:'50%', background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#5B8AF0', flexShrink:0 }}>
+                  {((p.full_name||p.email||'?')[0]).toUpperCase()}
+                </div>
+                <div><div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{p.full_name||'—'}</div><div style={{ fontSize:11, color:'#9CA3AF' }}>{p.email}</div></div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -508,6 +614,8 @@ export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floa
   const [jobId, setJobId]       = useState(note?.job_id || '')
   const [focusedIdx, setFocusedIdx] = useState(0)
   const [saving, setSaving]     = useState(false)
+  const [teamProfiles, setTeamProfiles] = useState([])
+  const mentionedUsers = useRef(new Set())  // track who was mentioned in this session
   const [lastSaved, setLastSaved] = useState(null)
   const [dirty, setDirty]       = useState(false)
   const titleRef = useRef()
@@ -515,6 +623,12 @@ export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floa
   const savedNoteId = useRef(note?.id || null)
   // Map of blockId -> DOM element for reading latest content at save time
   const blockRefsMap = useRef({})
+
+  // Load team profiles for @ mentions
+  useEffect(() => {
+    supabase.from('profiles').select('id,full_name,email').order('full_name')
+      .then(({ data }) => setTeamProfiles(data||[]))
+  }, [])
 
   // Auto-save new startup note immediately on mount so it gets an ID
   // Hydrate todo + spec blocks from job on mount
@@ -642,7 +756,10 @@ export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floa
       return b
     })
     const isStartup = note?.is_startup || false
-    const row = { title: title||'Untitled', content: { blocks: flushed }, is_public: isPublic, job_id: jobId||null, is_startup: isStartup, updated_at: new Date().toISOString() }
+    const row = { title: title||'Untitled', content: { blocks: flushed }, is_public: isPublic, job_id: jobId||null, is_startup: isStartup,
+      ...(note?.room_id   ? { room_id: note.room_id }   : {}),
+      ...(note?.context   ? { context: note.context }   : {}),
+      updated_at: new Date().toISOString() }
     let saved
     if (savedNoteId.current) {
       const { data } = await supabase.from('notes').update(row).eq('id', savedNoteId.current).select().single()
@@ -693,6 +810,22 @@ export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floa
   }
 
   function markDirty() { setDirty(true) }
+
+  async function handleMention(userId) {
+    // Don't double-notify same user in same session
+    if (mentionedUsers.current.has(userId) || !profile?.id) return
+    mentionedUsers.current.add(userId)
+    // Don't notify yourself
+    if (userId === profile.id) return
+    await supabase.from('notifications').insert({
+      user_id:   userId,
+      type:      'mention',
+      title:     `${profile.full_name || profile.email} mentioned you`,
+      body:      `in note: "${title || 'Untitled'}"`,
+      job_id:    jobId || null,
+      read:      false,
+    })
+  }
 
   function changeBlock(id, patch) {
     setBlocks(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b))
@@ -828,6 +961,8 @@ export function NoteEditor({ note, allNotes, jobs, onSave, onBack, onClose, floa
                   focused={focusedIdx === idx}
                   dragHandlers={{}}
                   registerRef={(el) => { if (el) blockRefsMap.current[block.id] = el; else delete blockRefsMap.current[block.id] }}
+                  profiles={teamProfiles}
+                  onMention={handleMention}
                 />
               </div>
             </div>

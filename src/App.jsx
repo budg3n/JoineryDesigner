@@ -24,6 +24,7 @@ import ProductionDashboard from './screens/ProductionDashboard'
 import JobFeedback from './screens/JobFeedback'
 import PdfMarkup from './screens/PdfMarkup'
 import SpecList from './screens/SpecList'
+import Reports from './screens/Reports'
 import SpecBuilder from './screens/SpecBuilder'
 
 function RequireAuth({ children }) {
@@ -87,6 +88,7 @@ export default function App() {
         <Route path="job/:id/orders" element={<OrderSheet />} />
         <Route path="job/:id/feedback" element={<JobFeedback />} />
         <Route path="job/:id/markup/:attachmentId" element={<PdfMarkup />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="spec-builder" element={<SpecList />} />
         <Route path="spec-builder/:id" element={<SpecBuilder />} />
       </Route>
