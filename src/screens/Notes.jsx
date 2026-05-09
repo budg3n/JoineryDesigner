@@ -205,7 +205,7 @@ function StartupBlock({ jobId, onDelete }) {
   )
 }
 
-function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers, registerRef }) {
+function Block({ block, index, total, allNotes, jobs, onChange, onDelete, onEnter, onArrowUp, onArrowDown, onFocus, focused, dragHandlers, registerRef, profiles, onMention }) {
   const ref = useRef()
   const [showSlash, setShowSlash] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')

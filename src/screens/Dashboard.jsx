@@ -247,10 +247,11 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
 
 
   const STATUS_BADGE = {
+    'Pending':     { bg:'#F3F4F6', color:'#6B7280' },
     'In progress': { bg:'#EEF2FF', color:'#3730A3' },
     'Review':      { bg:'#FEF3C7', color:'#92400E' },
     'Complete':    { bg:'#ECFDF5', color:'#065F46' },
-    'On hold':     { bg:'#F3F4F6', color:'#6B7280' },
+    'On hold':     { bg:'#FEF9C3', color:'#854D0E' },
   }
   const badge = STATUS_BADGE[job.status] || STATUS_BADGE['On hold']
 
@@ -329,11 +330,12 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
 }
 
 const TABS = [
-  { key:'active',    label:'Active',               f: j => j.status === 'In progress' },
-  { key:'submitted', label:'Submitted for approval',f: j => j.status === 'Submitted for approval' },
-  { key:'review',    label:'Review',               f: j => j.status === 'Review' },
-  { key:'hold',      label:'On hold',              f: j => j.status === 'On hold' },
-  { key:'done',      label:'Done',                 f: j => j.status === 'Complete', hideCount: true },
+  { key:'pending',    label:'Pending',              f: j => j.status === 'Pending' },
+  { key:'active',     label:'Active',               f: j => j.status === 'In progress' },
+  { key:'submitted',  label:'Submitted for approval',f: j => j.status === 'Submitted for approval' },
+  { key:'review',     label:'Review',               f: j => j.status === 'Review' },
+  { key:'hold',       label:'On hold',              f: j => j.status === 'On hold' },
+  { key:'done',       label:'Done',                 f: j => j.status === 'Complete', hideCount: true },
 ]
 
 export default function Dashboard() {
@@ -452,6 +454,7 @@ export default function Dashboard() {
   })
 
   const stats = {
+    pending:  jobs.filter(j => j.status === 'Pending').length,
     active:   jobs.filter(j => j.status === 'In progress').length,
     review:   jobs.filter(j => j.status === 'Review').length,
     hold:     jobs.filter(j => j.status === 'On hold').length,

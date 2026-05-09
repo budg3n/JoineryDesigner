@@ -18,6 +18,7 @@ export default function WeekSnapshot() {
   const [open, setOpen]         = useState(false)
   const [jobs, setJobs]         = useState([])
   const [myJobIds, setMyJobIds] = useState(new Set())
+  const [myProcesses, setMyProcesses] = useState([])
   const [loading, setLoading]   = useState(true)
   const [weekOffset, setWeekOffset] = useState(0)
   const { profile } = useApp()
@@ -31,17 +32,25 @@ export default function WeekSnapshot() {
     return () => document.removeEventListener('mousedown', handle)
   }, [])
 
-  // Load data when first opened
+  // Load data when first opened, and re-fetch on process changes
   useEffect(() => {
     if (!open || !profile?.id) return
-    Promise.all([
-      supabase.from('jobs').select('id,name,job_number,status,start_date,due_date').neq('status','Cancelled'),
-      supabase.from('job_assignments').select('job_id').eq('user_id', profile.id),
-    ]).then(([{data:j},{data:a}]) => {
-      setJobs(j||[])
-      setMyJobIds(new Set((a||[]).map(x=>x.job_id)))
-      setLoading(false)
-    })
+    function fetchData() {
+      Promise.all([
+        supabase.from('jobs').select('id,name,job_number,status,start_date,due_date').neq('status','Cancelled'),
+        supabase.from('job_assignments').select('job_id').eq('user_id', profile.id),
+        supabase.from('job_processes').select('id,name,job_id,assigned_to,status,due_date,jobs(id,name,job_number,start_date,due_date)')
+          .eq('assigned_to', profile.id).neq('status','Complete'),
+      ]).then(([{data:j},{data:a},{data:p}]) => {
+        setJobs(j||[])
+        setMyJobIds(new Set((a||[]).map(x=>x.job_id)))
+        setMyProcesses(p||[])
+        setLoading(false)
+      })
+    }
+    fetchData()
+    window.addEventListener('processes-updated', fetchData)
+    return () => window.removeEventListener('processes-updated', fetchData)
   }, [open, profile?.id])
 
   // Compute week days (Mon–Sun)
@@ -59,13 +68,28 @@ export default function WeekSnapshot() {
     return d
   })
 
+  const allMyJobIds = new Set([...myJobIds, ...myProcesses.map(p=>p.job_id)])
+
   function jobsForDay(date) {
     const ds = date.toISOString().slice(0,10)
     return jobs.filter(j => {
-      if (!myJobIds.has(j.id)) return false
+      if (!allMyJobIds.has(j.id)) return false
       const s = j.start_date?.slice(0,10) || ds
       const e = j.due_date?.slice(0,10)   || s
       return ds >= s && ds <= e
+    })
+  }
+
+  function processesForDay(date) {
+    const ds = date.toISOString().slice(0,10)
+    return myProcesses.filter(p => {
+      // Use process's own due_date if set — shows on that specific day
+      if (p.due_date) return p.due_date.slice(0,10) === ds
+      // Fall back to job date range
+      const j = p.jobs; if (!j) return false
+      const s = j.start_date?.slice(0,10), e = j.due_date?.slice(0,10)
+      if (!s && !e) return false
+      return ds >= (s||e) && ds <= (e||s)
     })
   }
 
@@ -155,10 +179,10 @@ export default function WeekSnapshot() {
                       </div>
                       {/* Jobs */}
                       <div style={{ flex:1, minWidth:0, paddingTop:2 }}>
-                        {isEmpty ? (
+                        {isEmpty && processesForDay(date).length === 0 ? (
                           <div style={{ fontSize:11, color:'#D1D5DB', paddingTop:6 }}>No jobs</div>
                         ) : (
-                          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                          <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
                             {dayJobs.map(j => {
                               const sc = STATUS_COLORS[j.status] || STATUS_COLORS['Pending']
                               const isDue = j.due_date?.slice(0,10) === date.toISOString().slice(0,10)
@@ -181,6 +205,22 @@ export default function WeekSnapshot() {
                                 </div>
                               )
                             })}
+                            {processesForDay(date).map(p => (
+                              <div key={p.id} onClick={()=>{ navigate(`/job/${p.job_id}?tab=processes`); setOpen(false) }}
+                                style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 7px', borderRadius:7,
+                                  background:'#F5F3FF', cursor:'pointer', borderLeft:'3px solid #7C3AED', transition:'filter .1s' }}
+                                onMouseEnter={e=>e.currentTarget.style.filter='brightness(0.95)'}
+                                onMouseLeave={e=>e.currentTarget.style.filter='none'}>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:10, fontWeight:700, color:'#5B21B6', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                    ⚙️ {p.name}
+                                  </div>
+                                  <div style={{ fontSize:9, color:'#6D28D9', opacity:0.8, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                    {p.jobs?.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || p.jobs?.name}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -188,7 +228,7 @@ export default function WeekSnapshot() {
                   </div>
                 )
               })}
-              {days.every(d=>jobsForDay(d).length===0) && (
+              {days.every(d=>jobsForDay(d).length===0 && processesForDay(d).length===0) && (
                 <div style={{ padding:'32px 16px', textAlign:'center', color:'#9CA3AF' }}>
                   <div style={{ fontSize:22, marginBottom:8 }}>📅</div>
                   <div style={{ fontSize:13, fontWeight:600, color:'#374151', marginBottom:4 }}>No jobs this week</div>

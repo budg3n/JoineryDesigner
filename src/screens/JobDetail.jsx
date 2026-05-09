@@ -18,7 +18,7 @@ import InlineSpecBuilder from './InlineSpecBuilder'
 import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
-const STATUSES = ['In progress','Submitted for approval','Review','Complete','On hold']
+const STATUSES = ['Pending','In progress','Submitted for approval','Review','Complete','On hold']
 
 // Module-level cache — persists across navigations within the session
 // so re-opening a job doesn't re-fetch the materials library
@@ -1002,10 +1002,11 @@ const PROC_STATUS_STYLE = {
   'On hold':      { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A' },
 }
 
-function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, onHistoryRefresh, activeEntries={}, onActiveEntriesChange }) {
+function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, onHistoryRefresh, activeEntries={}, onActiveEntriesChange, canDeleteProcesses=false }) {
   const [templates, setTemplates]     = React.useState([])
+  const [teamProfiles, setTeamProfiles] = React.useState([])
   const [showAdd, setShowAdd]         = React.useState(false)
-  const [newProc, setNewProc]         = React.useState({ name:'', hours:'' })
+  const [newProc, setNewProc]         = React.useState({ name:'', hours:'', due_date:'' })
   const saveTimer = React.useRef()
 
   // Use setter from parent if provided, otherwise local (fallback)
@@ -1013,12 +1014,43 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
 
   React.useEffect(() => {
     supabase.from('process_templates').select('*').order('sort_order').then(({data})=>setTemplates(data||[]))
+    supabase.from('profiles').select('id,full_name,email').order('full_name').then(({data})=>setTeamProfiles(data||[]))
   },[jobId])
 
-  function update(id, patch) {
+  async function update(id, patch) {
+    // Update local state immediately
     onProcessesChange(p=>p.map(x=>x.id===id?{...x,...patch}:x))
-    clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(()=>supabase.from('job_processes').update(patch).eq('id',id),500)
+
+    // assigned_to and due_date: save immediately with feedback
+    if ('assigned_to' in patch || 'due_date' in patch) {
+      const { error } = await supabase.from('job_processes').update(patch).eq('id', id)
+      if (error) {
+        toast(error.message, 'error')
+        console.error('Process update error:', error)
+        return
+      }
+      if ('assigned_to' in patch) {
+        const name = patch.assigned_to
+          ? (teamProfiles.find(p=>p.id===patch.assigned_to)?.full_name || 'user')
+          : null
+        if (name) {
+          const procName = processes.find(p=>p.id===id)?.name || 'Process'
+          toast(`${procName} assigned to ${name} ✓`)
+        }
+      }
+      if ('due_date' in patch && patch.due_date) {
+        toast('Due date saved ✓')
+      }
+      window.dispatchEvent(new CustomEvent('processes-updated'))
+    } else {
+      // Debounce for text/number fields
+      clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(async () => {
+        const { error } = await supabase.from('job_processes').update(patch).eq('id', id)
+        if (error) console.error('Process update error:', error)
+        else window.dispatchEvent(new CustomEvent('processes-updated'))
+      }, 500)
+    }
   }
 
   async function clockIn(proc) {
@@ -1035,16 +1067,19 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     }).select().single()
     if(error){toast(error.message,'error');return}
     setActiveEntries({[proc.id]:data})
-    // Write status immediately
+    // Write process status immediately
     onProcessesChange(p=>p.map(x=>x.id===proc.id?{...x,status:'In progress',assigned_to:profile.id}:x))
     await supabase.from('job_processes').update({status:'In progress',assigned_to:profile.id}).eq('id',proc.id)
+    // Promote the job itself to In progress on first clock-in
+    await supabase.from('jobs').update({status:'In progress'}).eq('id',jobId).in('status',['Pending','Not started'])
     toast(`▶ ${proc.name} started`)
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
   }
 
   async function clockOut(proc, newStatus) {
     const entry=activeEntries[proc.id]; if(!entry) return
-    const mins=(Date.now()-new Date(entry.clocked_in_at).getTime())/60000
+    const inAt = String(entry.clocked_in_at).endsWith('Z') ? entry.clocked_in_at : entry.clocked_in_at+'Z'
+    const mins=(Date.now()-new Date(inAt).getTime())/60000
     await supabase.from('time_entries').update({clocked_out_at:new Date().toISOString(),duration_minutes:Math.round(mins)}).eq('id',entry.id)
     const newLogged=parseFloat(((proc.time_logged||0)+mins/60).toFixed(2))
     const patch = {time_logged:newLogged,...(newStatus?{status:newStatus,assigned_to:profile.id}:{})}
@@ -1057,6 +1092,14 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     if(onHistoryRefresh) setTimeout(onHistoryRefresh,500)
   }
 
+  async function deleteProcess(proc) {
+    if (!confirm(`Remove "${proc.name}" from this job?`)) return
+    await supabase.from('job_processes').delete().eq('id', proc.id)
+    onProcessesChange(p => p.filter(x => x.id !== proc.id))
+    toast(`${proc.name} removed`)
+    window.dispatchEvent(new CustomEvent('processes-updated'))
+  }
+
   async function addFromTemplate(t) {
     const {data,error}=await supabase.from('job_processes').insert({
       job_id:jobId,template_id:t.id,name:t.name,
@@ -1065,17 +1108,20 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
     }).select().single()
     if(error){toast(error.message,'error');return}
     onProcessesChange(p=>[...p,data]); toast(`${t.name} added ✓`)
+    window.dispatchEvent(new CustomEvent('processes-updated'))
   }
 
   async function addCustom() {
     if(!newProc.name.trim()) return
     const {data,error}=await supabase.from('job_processes').insert({
       job_id:jobId,name:newProc.name,allocated_hours:parseFloat(newProc.hours)||0,
-      color:'#9CA3AF',status:'Not started',time_logged:0,sort_order:processes.length
+      color:'#9CA3AF',status:'Not started',time_logged:0,sort_order:processes.length,
+      due_date: newProc.due_date || null,
     }).select().single()
     if(error){toast(error.message,'error');return}
-    onProcessesChange(p=>[...p,data]); setNewProc({name:'',hours:''}); setShowAdd(false)
+    onProcessesChange(p=>[...p,data]); setNewProc({name:'',hours:'',due_date:''}); setShowAdd(false)
     toast(`${data.name} added ✓`)
+    window.dispatchEvent(new CustomEvent('processes-updated'))
   }
 
   const already = processes.map(p=>p.template_id)
@@ -1110,7 +1156,7 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
                 opacity: isDone ? 0.55 : 1,
               }}>
                 {/* name + status */}
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:isDone?0:6}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
                   <div style={{width:10,height:10,borderRadius:'50%',
                     background: isDone ? '#C4C9D4' : (proc.color||'#9CA3AF'),
                     flexShrink:0,
@@ -1119,6 +1165,24 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
                   <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:8,background:ss.bg,color:ss.color,border:`1px solid ${ss.border}`}}>
                     {isActive?'● Active':proc.status}
                   </span>
+                </div>
+                {/* assignee + due date */}
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:isDone?0:6,flexWrap:'wrap'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:5,flex:1,minWidth:120}}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={proc.assigned_to?'#5B8AF0':'#9CA3AF'} strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                    <select value={proc.assigned_to||''} onChange={e=>update(proc.id,{assigned_to:e.target.value||null})}
+                      style={{fontSize:11,color:proc.assigned_to?'#2A3042':'#9CA3AF',border:'none',background:'transparent',outline:'none',cursor:'pointer',fontFamily:'inherit',maxWidth:140,fontWeight:proc.assigned_to?600:400}}>
+                      <option value="">Unassigned</option>
+                      {teamProfiles.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}
+                    </select>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:5}}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={proc.due_date?'#EF9F27':'#9CA3AF'} strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <input type="date" value={proc.due_date?.slice(0,10)||''} onChange={e=>update(proc.id,{due_date:e.target.value||null})}
+                      title="Required by date"
+                      style={{fontSize:11,border:'none',background:'transparent',outline:'none',cursor:'pointer',fontFamily:'inherit',color:proc.due_date?'#854D0E':'#9CA3AF',padding:0,width:proc.due_date?100:85}}/>
+                    {!proc.due_date && <span style={{fontSize:10,color:'#9CA3AF'}}>Set date</span>}
+                  </div>
                 </div>
                 {/* progress */}
                 {!isDone && (allocated>0||logged>0) && (
@@ -1142,10 +1206,17 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
                     <button onClick={()=>clockOut(proc)}
                       style={{flex:1,fontSize:11,fontWeight:700,padding:'5px 6px',borderRadius:7,border:'none',background:'#374151',color:'#fff',cursor:'pointer'}}>■ Stop</button>
                   </>) : proc.status==='Complete' ? (
-                    <div style={{fontSize:11,color:'#9CA3AF',textAlign:'center',width:'100%',padding:'4px 0'}}>Completed ✓</div>
+                    <div style={{fontSize:11,color:'#9CA3AF',textAlign:'center',flex:1,padding:'4px 0'}}>Completed ✓</div>
                   ) : (
-                    <button onClick={()=>clockIn(proc)} style={{width:'100%',fontSize:12,fontWeight:700,padding:'6px',borderRadius:7,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer'}}>
+                    <button onClick={()=>clockIn(proc)} style={{flex:1,fontSize:12,fontWeight:700,padding:'6px',borderRadius:7,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer'}}>
                       {proc.status==='On hold'?'▶ Resume':'▶ Start'}
+                    </button>
+                  )}
+                  {canDeleteProcesses && (
+                    <button onClick={()=>deleteProcess(proc)} title="Remove process"
+                      style={{fontSize:12,padding:'5px 8px',borderRadius:7,border:'1px solid #FCA5A5',background:'#FEF2F2',color:'#E24B4A',cursor:'pointer',flexShrink:0}}
+                      onMouseEnter={e=>e.currentTarget.style.background='#FEE2E2'} onMouseLeave={e=>e.currentTarget.style.background='#FEF2F2'}>
+                      ×
                     </button>
                   )}
                 </div>
@@ -1177,14 +1248,18 @@ function ProcessesPanel({ jobId, processes, onProcessesChange, profile, toast, o
               <div style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',margin:'8px 0 6px'}}>Custom</div>
             </>
           )}
-          <div style={{display:'flex',gap:6}}>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             <input value={newProc.name} onChange={e=>setNewProc(p=>({...p,name:e.target.value}))}
               onKeyDown={e=>e.key==='Enter'&&addCustom()} placeholder="Process name" autoFocus
-              style={{flex:1,padding:'6px 9px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none'}}/>
+              style={{flex:1,minWidth:120,padding:'6px 9px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none'}}/>
             <input type="number" value={newProc.hours} onChange={e=>setNewProc(p=>({...p,hours:e.target.value}))}
               placeholder="hrs" style={{width:50,padding:'6px 8px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none',textAlign:'center'}}/>
+            <input type="date" value={newProc.due_date} onChange={e=>setNewProc(p=>({...p,due_date:e.target.value}))}
+              title="Required by date"
+              style={{padding:'6px 8px',border:'1px solid #DDE3EC',borderRadius:7,fontSize:12,outline:'none',color:newProc.due_date?'#374151':'#9CA3AF'}}/>
             <button onClick={addCustom} style={{padding:'6px 12px',borderRadius:7,border:'none',background:'#5B8AF0',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>Add</button>
           </div>
+          {!newProc.due_date && <div style={{fontSize:10,color:'#9CA3AF',marginTop:4}}>⚠ Set a "Required by" date so it shows in the calendar</div>}
         </div>
       )}
     </div>
@@ -2337,39 +2412,64 @@ export default function JobDetail() {
 
   async function saveJob() {
     setSaving(true)
+    const num = String(job.job_number || '').trim()
+    // Strip any existing number prefix from name before recomposing
+    const rawName = String(job.name || '').replace(/^\d+\s*[-–—]\s*/,'').trim()
+    const fullName = num ? `${num} - ${rawName}` : rawName
+
+    console.log('Saving job:', { id, job_number: num, name: rawName, fullName })
+
     const { error } = await supabase.from('jobs').update({
-      name: job.name, client: job.client, type: job.type, status: job.status,
-      notes: job.notes, mvnum: job.mvnum, job_number: job.job_number ? String(job.job_number) : null, start_date: job.start_date,
-      due_date: job.due_date, budget_hours: job.budget_hours, delivery_address: job.delivery_address,
-      kitchen_specs: specsRef.current && Object.keys(specsRef.current).length > 0 ? JSON.stringify(specsRef.current) : (job.kitchen_specs || null),
+      name:             fullName,
+      job_number:       num || null,
+      client:           job.client        || null,
+      type:             job.type          || 'Kitchen',
+      status:           job.status        || 'In progress',
+      notes:            job.notes         || null,
+      start_date:       job.start_date    || null,
+      due_date:         job.due_date      || null,
+      budget_hours:     job.budget_hours  ? parseFloat(job.budget_hours) : null,
+      delivery_address: job.delivery_address || null,
+      kitchen_specs:    specsRef.current && Object.keys(specsRef.current).length > 0
+                          ? JSON.stringify(specsRef.current)
+                          : (job.kitchen_specs || null),
     }).eq('id', id)
+
+    if (error) {
+      console.error('Job save error:', error)
+      toast(error.message, 'error')
+      setSaving(false)
+      return
+    }
+
+    // Update local state so header reflects the composed name
+    setJob(j => ({ ...j, name: fullName, job_number: num || j.job_number }))
     setSaving(false)
-    if (error) toast(error.message, 'error')
-    else {
-      toast('Saved ✓'); setDirty(false)
-      // Push kitchen_specs back to any linked notes with spec_field blocks
-      if (job.kitchen_specs) {
-        const specs = typeof job.kitchen_specs === 'string'
-          ? JSON.parse(job.kitchen_specs) : (job.kitchen_specs || {})
-        const { data: linkedNotes } = await supabase
-          .from('notes').select('id,content').eq('job_id', id)
-        if (linkedNotes?.length) {
-          for (const note of linkedNotes) {
-            const blocks = note.content?.blocks || []
-            let changed = false
-            const updated = blocks.map(b => {
-              if (b.type !== 'spec_field' || !b.spec_key) return b
-              const val = specs[b.spec_key]
-              if (val === undefined || val === null) return b
-              if (String(b.spec_value) === String(val)) return b
-              changed = true
-              return { ...b, spec_value: String(val), synced_to_job: true }
-            })
-            if (changed) {
-              await supabase.from('notes')
-                .update({ content: { blocks: updated }, updated_at: new Date().toISOString() })
-                .eq('id', note.id)
-            }
+    toast('Saved ✓')
+    setDirty(false)
+
+    // Push kitchen_specs back to any linked notes with spec_field blocks
+    if (job.kitchen_specs) {
+      const specs = typeof job.kitchen_specs === 'string'
+        ? JSON.parse(job.kitchen_specs) : (job.kitchen_specs || {})
+      const { data: linkedNotes } = await supabase
+        .from('notes').select('id,content').eq('job_id', id)
+      if (linkedNotes?.length) {
+        for (const note of linkedNotes) {
+          const blocks = note.content?.blocks || []
+          let changed = false
+          const updated = blocks.map(b => {
+            if (b.type !== 'spec_field' || !b.spec_key) return b
+            const val = specs[b.spec_key]
+            if (val === undefined || val === null) return b
+            if (String(b.spec_value) === String(val)) return b
+            changed = true
+            return { ...b, spec_value: String(val), synced_to_job: true }
+          })
+          if (changed) {
+            await supabase.from('notes')
+              .update({ content: { blocks: updated }, updated_at: new Date().toISOString() })
+              .eq('id', note.id)
           }
         }
       }
@@ -2593,7 +2693,7 @@ export default function JobDetail() {
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
-          <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number || job.mvnum, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
+          <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
         </div>
         <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
@@ -2635,12 +2735,22 @@ export default function JobDetail() {
       {/* DETAILS */}
       {jobTab === 'details' && <div>
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
+          {/* Title preview */}
+          {(job.job_number || job.name) && (
+            <div style={{ padding:'8px 12px', background:'#F0F7FF', borderRadius:8, border:'1px solid #C4D4F8', marginBottom:14, fontSize:13 }}>
+              <span style={{ color:'#9CA3AF', fontWeight:600 }}>Job title: </span>
+              <span style={{ color:'#2A3042', fontWeight:700 }}>
+                {job.job_number ? `${job.job_number} - ${job.name?.replace(/^\d+\s*-\s*/,'') || ''}` : job.name}
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
-            {[['Job name','name','text'],['Job number','job_number','text'],['Client','client','text'],['Microvellum #','mvnum','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
+            {[['Job number','job_number','text'],['Job name','name','text'],['Client','client','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
               <div key={k}><label className="label">{l}</label>
-                <input className="input text-sm" type={t==='number'?'number':'text'} value={job[k]||''}
-                  onChange={e => setJob(j => ({ ...j, [k]: e.target.value }))}
-                  onBlur={() => setDirty(true)} />
+                <input className="input text-sm" type={t==='number'?'number':'text'}
+                  value={k==='name' ? (job.name?.replace(/^\d+\s*-\s*/,'') || '') : (job[k]||'')}
+                  onChange={e => { setJob(j => ({ ...j, [k]: e.target.value })); setDirty(true) }}
+                  placeholder={k==='job_number'?'e.g. 1234':k==='name'?'e.g. John Smith':''} />
               </div>
             ))}
             <div><label className="label">Job type</label>
@@ -2830,6 +2940,7 @@ export default function JobDetail() {
       {/* PROCESSES + TIME + NOTES + FILES */}
       {jobTab === 'processes' && <div>
         <ProcessesPanel jobId={id} processes={processes} onProcessesChange={setProcesses} profile={profile} toast={toast}
+          canDeleteProcesses={can('deleteProcess')}
           activeEntries={activeEntries} onActiveEntriesChange={setActiveEntries}
           onHistoryRefresh={()=>supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
             .eq('job_id',id).order('clocked_in_at',{ascending:false}).limit(30).then(({data})=>setTimeHistory(data||[]))} />

@@ -85,7 +85,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
   const [showNewCust, setShowNewCust] = useState(false)
   const [saving, setSaving]       = useState(false)
   const [form, setForm] = useState({
-    name:'', type:'Kitchen', job_number:'', mvnum:'', budget_hours:'',
+    name:'', type:'Kitchen', job_number:'', budget_hours:'',
     order_date: new Date().toISOString().slice(0,10),
     due_date:'', addr:'', city:'', postcode:'',
     pm:'', notes:''
@@ -95,7 +95,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
   useEffect(() => {
     if (!show) return
     setSelCust(null); setShowNewCust(false)
-    setForm({ name:'', type:'Kitchen', job_number:'', mvnum:'', budget_hours:'',
+    setForm({ name:'', type:'Kitchen', job_number:'', budget_hours:'',
       order_date: new Date().toISOString().slice(0,10),
       due_date:'', addr:'', city:'', postcode:'', pm:'', notes:'' })
     Promise.all([
@@ -112,7 +112,7 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
     setShowNewCust(false)
     setForm(f => ({
       ...f,
-      name: f.name || `${c.first_name} ${c.last_name} — `,
+      name: f.name || `${c.first_name} ${c.last_name}`,
       addr: c.address || f.addr,
       city: c.city    || f.city,
       postcode: c.postcode || f.postcode,
@@ -127,17 +127,29 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
 
   async function handleCreate() {
     if (!form.name.trim()) { toast('Please enter a job name', 'error'); return }
+    if (!form.job_number.trim()) { toast('Please enter a job number', 'error'); return }
     setSaving(true)
+    // Check for duplicate job number
+    const { data: existing } = await supabase.from('jobs')
+      .select('id,name').eq('job_number', form.job_number.trim()).maybeSingle()
+    if (existing) {
+      toast(`Job number ${form.job_number.trim()} already exists — ${existing.name}`, 'error')
+      setSaving(false)
+      return
+    }
     const deliveryAddr = [form.addr, form.city, form.postcode].filter(Boolean).join(', ')
+    const fullTitle = form.job_number.trim()
+      ? `${form.job_number.trim()} - ${form.name.trim()}`
+      : form.name.trim()
     const job = {
       id: nextId,
-      name: form.name.trim(),
+      name: fullTitle,
       client: selCust ? `${selCust.first_name} ${selCust.last_name}` : '',
       customer_id: selCust?.id || null,
       type: form.type,
-      status: 'In progress',
+      status: 'Pending',
       notes: form.notes,
-      mvnum: form.mvnum, job_number: form.job_number,
+      job_number: form.job_number.trim(),
       start_date: form.order_date,
       due_date: form.due_date,
       delivery_address: deliveryAddr,
@@ -148,7 +160,12 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
     }
     const { data, error } = await supabase.from('jobs').insert(job).select().single()
     setSaving(false)
-    if (error) { toast(error.message, 'error'); return }
+    if (error) {
+      console.error('Job create error:', error)
+      toast(error.message, 'error')
+      return
+    }
+    console.log('Job created:', data)
     toast('Job created ✓')
     onClose()
     onCreated(data || job)
@@ -194,13 +211,18 @@ export default function NewJobModal({ show, onClose, onCreated, nextId }) {
       {/* job details */}
       <div className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-wider mb-2 mt-4 pb-1 border-b border-[#F3F4F6]">Job details</div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="col-span-2"><label className="label">Job name *</label><input className="input text-sm" placeholder="e.g. Hampden Kitchen" value={form.name} onChange={set('name')} /></div>
+        <div><label className="label">Job number *</label><input className="input text-sm" placeholder="e.g. 1234" value={form.job_number} onChange={set('job_number')} autoFocus /></div>
+        <div><label className="label">Job name *</label><input className="input text-sm" placeholder="e.g. John Smith" value={form.name} onChange={set('name')} /></div>
+        {(form.job_number || form.name) && (
+          <div className="col-span-2" style={{padding:'8px 12px',background:'#F0F7FF',borderRadius:8,border:'1px solid #C4D4F8',fontSize:12,color:'#2A3042',fontWeight:600}}>
+            Title preview: <span style={{color:'#5B8AF0'}}>{form.job_number}{form.job_number && form.name ? ' - ' : ''}{form.name}</span>
+          </div>
+        )}
         <div><label className="label">Job type</label>
           <select className="input text-sm" value={form.type} onChange={set('type')}>
             {['Kitchen','Joinery','Laundry','Wardrobe','Other'].map(t => <option key={t}>{t}</option>)}
           </select>
         </div>
-        <div><label className="label">Microvellum #</label><input className="input text-sm" placeholder="MV-2026-…" value={form.mvnum} onChange={set('mvnum')} /></div>
         <div><label className="label">Order date</label><input className="input text-sm" type="date" value={form.order_date} onChange={set('order_date')} /></div>
         <div><label className="label">Required by</label><input className="input text-sm" type="date" value={form.due_date} onChange={set('due_date')} /></div>
         <div><label className="label">Budget hours</label><input className="input text-sm" type="number" placeholder="e.g. 24" min="0" value={form.budget_hours} onChange={set('budget_hours')} /></div>

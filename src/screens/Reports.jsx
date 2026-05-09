@@ -21,6 +21,21 @@ function fmtDecimalHours(mins) {
   return (mins / 60).toFixed(1)
 }
 
+function safeDuration(entry) {
+  // Use stored duration_minutes if it looks reasonable (< 24h)
+  if (entry.duration_minutes && entry.duration_minutes > 0 && entry.duration_minutes < 1440) {
+    return entry.duration_minutes
+  }
+  // Recalculate from timestamps as fallback (ensures Z suffix for UTC parsing)
+  if (entry.clocked_in_at && entry.clocked_out_at) {
+    const inAt  = String(entry.clocked_in_at).endsWith('Z')  ? entry.clocked_in_at  : entry.clocked_in_at  + 'Z'
+    const outAt = String(entry.clocked_out_at).endsWith('Z') ? entry.clocked_out_at : entry.clocked_out_at + 'Z'
+    const mins  = (new Date(outAt) - new Date(inAt)) / 60000
+    return mins > 0 && mins < 1440 ? Math.round(mins) : 0
+  }
+  return 0
+}
+
 const SEV_COLORS = {
   Minor:    { bg:'#DCFCE7', color:'#166534', dot:'#1D9E75' },
   Moderate: { bg:'#FEF9C3', color:'#854D0E', dot:'#EF9F27' },
@@ -163,14 +178,14 @@ function TimeReport({ jobs, jobFilter, dateFrom, dateTo }) {
     })
   }, [jobFilter, dateFrom, dateTo])
 
-  const totalMins = entries.reduce((s,e) => s + (e.duration_minutes||0), 0)
+  const totalMins = entries.reduce((s,e) => s + safeDuration(e), 0)
 
   // Group by person for summary
   const byPerson = {}
   entries.forEach(e => {
     const name = e.profiles?.full_name || e.profiles?.email || 'Unknown'
     if (!byPerson[name]) byPerson[name] = 0
-    byPerson[name] += e.duration_minutes || 0
+    byPerson[name] += safeDuration(e)
   })
 
   // Group by job for summary
@@ -178,7 +193,7 @@ function TimeReport({ jobs, jobFilter, dateFrom, dateTo }) {
   entries.forEach(e => {
     const name = e.jobs?.job_number ? `#${e.jobs.job_number} ${e.jobs.name}` : (e.jobs?.name || 'Unknown job')
     if (!byJob[name]) byJob[name] = 0
-    byJob[name] += e.duration_minutes || 0
+    byJob[name] += safeDuration(e)
   })
 
   function handleCSV() {
@@ -190,8 +205,8 @@ function TimeReport({ jobs, jobFilter, dateFrom, dateTo }) {
         e.profiles?.full_name || e.profiles?.email || '',
         fmtTime(e.clocked_in_at),
         fmtTime(e.clocked_out_at),
-        fmtDecimalHours(e.duration_minutes),
-        e.duration_minutes || 0,
+        fmtDecimalHours(safeDuration(e)),
+        safeDuration(e),
       ])
     ]
     downloadCSV(rows, `time-report-${new Date().toISOString().slice(0,10)}.csv`)
@@ -223,7 +238,7 @@ function TimeReport({ jobs, jobFilter, dateFrom, dateTo }) {
           <td>${e.profiles?.full_name||e.profiles?.email||'—'}</td>
           <td>${fmtTime(e.clocked_in_at)}</td>
           <td>${fmtTime(e.clocked_out_at)}</td>
-          <td>${fmtDuration(e.duration_minutes)}</td>
+          <td>${fmtDuration(safeDuration(e))}</td>
         </tr>
       `).join('')}</table>`
     downloadPDF(summaryHTML, 'Time Tracking Report')
@@ -303,8 +318,8 @@ function TimeReport({ jobs, jobFilter, dateFrom, dateTo }) {
                     <td style={{ padding:'10px 16px', color:'#374151', borderBottom:'1px solid #F3F4F6', whiteSpace:'nowrap' }}>{fmtTime(e.clocked_in_at)}</td>
                     <td style={{ padding:'10px 16px', color:'#374151', borderBottom:'1px solid #F3F4F6', whiteSpace:'nowrap' }}>{fmtTime(e.clocked_out_at)}</td>
                     <td style={{ padding:'10px 16px', borderBottom:'1px solid #F3F4F6', whiteSpace:'nowrap' }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{fmtDuration(e.duration_minutes)}</span>
-                      <span style={{ fontSize:11, color:'#9CA3AF', marginLeft:4 }}>({fmtDecimalHours(e.duration_minutes)}h)</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{fmtDuration(safeDuration(e))}</span>
+                      <span style={{ fontSize:11, color:'#9CA3AF', marginLeft:4 }}>({fmtDecimalHours(safeDuration(e))}h)</span>
                     </td>
                   </tr>
                 ))}

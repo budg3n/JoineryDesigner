@@ -22,6 +22,7 @@ export default function Calendar() {
   const [profiles, setProfiles]   = useState({})
   const { profile } = useApp()
   const [weekOffset, setWeekOffset] = useState(0)  // 0=current week, -1=prev, +1=next
+  const [myProcesses, setMyProcesses] = useState([])
   const [view, setView]       = useState(() => new URLSearchParams(window.location.search).get('view') || 'gantt')
   const [calYear, setCalYear] = useState(TODAY.getFullYear())
   const [calMonth, setCalMonth] = useState(TODAY.getMonth())
@@ -33,6 +34,20 @@ export default function Calendar() {
   const [taskJobFilter, setTaskJobFilter]   = useState('all')
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
 
+  function loadProcesses() {
+    supabase.from('job_processes')
+      .select('id,name,job_id,assigned_to,status,due_date,jobs(id,name,job_number,start_date,due_date,status)')
+      .not('assigned_to','is',null)
+      .neq('status','Complete')
+      .then(({data, error}) => {
+        if (error) console.error('Process load error:', error)
+        else {
+          console.log('Loaded processes:', data?.length, data?.map(p=>({name:p.name,due:p.due_date,assigned:p.assigned_to})))
+          setMyProcesses(data||[])
+        }
+      })
+  }
+
   useEffect(() => {
     supabase.from('job_assignments').select('job_id,user_id').then(({data})=>setAssignments(data||[]))
     supabase.from('profiles').select('id,full_name,email').then(({data})=>{
@@ -40,10 +55,19 @@ export default function Calendar() {
       ;(data||[]).forEach(p=>{ map[p.id] = p.full_name || p.email || '?' })
       setProfiles(map)
     })
+    loadProcesses()
     supabase.from('jobs').select('*').order('created_at',{ascending:false}).then(({ data }) => {
       setJobs(data || [])
       setLoading(false)
     })
+
+    // Re-fetch whenever processes are added or changed anywhere in the app
+    window.addEventListener('processes-updated', loadProcesses)
+    window.addEventListener('process-clock-change', loadProcesses)
+    return () => {
+      window.removeEventListener('processes-updated', loadProcesses)
+      window.removeEventListener('process-clock-change', loadProcesses)
+    }
   }, [])
 
   const jobColor = (j, i) => PALETTE[i % PALETTE.length]
@@ -333,16 +357,37 @@ export default function Calendar() {
           })
 
           const myJobIds = new Set(assignments.filter(a=>a.user_id===profile?.id).map(a=>a.job_id))
+          // Also include jobs where user has an assigned process
+          const myProcessJobIds = new Set(myProcesses.filter(p=>p.assigned_to===profile?.id).map(p=>p.job_id))
+          const allMyJobIds = new Set([...myJobIds, ...myProcessJobIds])
 
           function myJobsForDay(date) {
             const ds = date.toISOString().slice(0,10)
-            return jobs.filter(j => {
-              if (!myJobIds.has(j.id)) return false
+            // Jobs assigned directly or via process
+            const dayJobs = jobs.filter(j => {
+              if (!allMyJobIds.has(j.id)) return false
               const s = j.start_date ? j.start_date.slice(0,10) : null
               const e = j.due_date   ? j.due_date.slice(0,10)   : null
               if (!s && !e) return false
               const start = s || e, end = e || s
               return ds >= start && ds <= end
+            })
+            return dayJobs
+          }
+
+          function myProcessesForDay(date) {
+            return myProcesses.filter(p => {
+              if (p.assigned_to !== profile?.id) return false
+              const ds = date.toISOString().slice(0,10)
+              // Process has its own due_date — show only on that day
+              if (p.due_date) return p.due_date.slice(0,10) === ds
+              // Fall back to job's date range
+              const j = p.jobs
+              if (!j) return false
+              const s = j.start_date?.slice(0,10), e = j.due_date?.slice(0,10)
+              if (s || e) return ds >= (s||e) && ds <= (e||s)
+              // No dates at all — show on Monday only so it's visible
+              return date.getDay() === 1
             })
           }
 
@@ -402,24 +447,37 @@ export default function Calendar() {
                       </div>
                       {/* Jobs */}
                       <div style={{ padding:'6px 8px', display:'flex', flexDirection:'column', gap:4 }}>
-                        {dayJobs.length === 0 ? (
+                        {dayJobs.length === 0 && myProcessesForDay(date).length === 0 ? (
                           <div style={{ fontSize:10, color:'#D1D5DB', textAlign:'center', padding:'12px 0' }}>—</div>
-                        ) : dayJobs.map(j => {
-                          const sc = STATUS_COLORS[j.status] || STATUS_COLORS['Pending']
-                          const isDue = j.due_date?.slice(0,10) === date.toISOString().slice(0,10)
-                          return (
-                            <div key={j.id} style={{ background:sc.bg, borderRadius:7, border:`1px solid ${sc.border}`, padding:'6px 8px', borderLeft:`3px solid ${sc.dot}` }}>
-                              <div style={{ fontSize:11, fontWeight:700, color:sc.color, lineHeight:1.3, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-                                {j.job_number && <span style={{ opacity:0.7, marginRight:3 }}>#{j.job_number}</span>}
-                                {j.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || j.name}
+                        ) : <>
+                          {dayJobs.map(j => {
+                            const sc = STATUS_COLORS[j.status] || STATUS_COLORS['Pending']
+                            const isDue = j.due_date?.slice(0,10) === date.toISOString().slice(0,10)
+                            return (
+                              <div key={j.id} style={{ background:sc.bg, borderRadius:7, border:`1px solid ${sc.border}`, padding:'6px 8px', borderLeft:`3px solid ${sc.dot}`, marginBottom:3 }}>
+                                <div style={{ fontSize:11, fontWeight:700, color:sc.color, lineHeight:1.3, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+                                  {j.job_number && <span style={{ opacity:0.7, marginRight:3 }}>#{j.job_number}</span>}
+                                  {j.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || j.name}
+                                </div>
+                                <div style={{ display:'flex', gap:4, marginTop:4, flexWrap:'wrap' }}>
+                                  <span style={{ fontSize:10, color:sc.color, opacity:0.8 }}>{j.status}</span>
+                                  {isDue && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:20, background:sc.dot, color:'#fff' }}>Due</span>}
+                                </div>
                               </div>
-                              <div style={{ display:'flex', gap:4, marginTop:4, flexWrap:'wrap' }}>
-                                <span style={{ fontSize:10, color:sc.color, opacity:0.8 }}>{j.status}</span>
-                                {isDue && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:20, background:sc.dot, color:'#fff' }}>Due</span>}
+                            )
+                          })}
+                          {myProcessesForDay(date).map(p => (
+                            <div key={p.id} style={{ background:'#F5F3FF', borderRadius:7, border:'1px solid #DDD6FE', padding:'5px 8px', borderLeft:'3px solid #7C3AED', marginBottom:3 }}>
+                              <div style={{ fontSize:10, fontWeight:700, color:'#5B21B6', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                ⚙️ {p.name}
+                              </div>
+                              <div style={{ fontSize:9, color:'#6D28D9', marginTop:1, opacity:0.8, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4 }}>
+                                {p.jobs?.name?.replace(/^.+?[—–-]{1,2}\s*/,'') || p.jobs?.name}
+                                {p.due_date && <span style={{ fontSize:9, fontWeight:700, padding:'1px 4px', borderRadius:10, background:'#7C3AED', color:'#fff', flexShrink:0 }}>Due</span>}
                               </div>
                             </div>
-                          )
-                        })}
+                          ))}
+                        </>}
                       </div>
                     </div>
                   )

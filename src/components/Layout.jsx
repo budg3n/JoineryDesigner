@@ -5,6 +5,7 @@ import JobProcessesDropdown from '../screens/JobProcesses'
 import NotificationBell from './NotificationBell'
 import TaskCounter from './TaskCounter'
 import WeekSnapshot from './WeekSnapshot'
+import JobClock from './JobClock'
 
 function SbIcon({ children }) {
   return (
@@ -324,6 +325,7 @@ export default function Layout() {
 
             <TaskCounter />
             <WeekSnapshot />
+            <JobClock />
             <NotificationBell />
             {isDash && can('createJob') && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('open-new-job'))}

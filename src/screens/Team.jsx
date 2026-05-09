@@ -18,10 +18,11 @@ const initials = m => ((m.full_name||m.email||'?').split(' ').map(w=>w[0]).slice
 // ── Module definitions ─────────────────────────────────────────────
 const MODULES = [
   { section:'Jobs', items:[
-    { key:'jobs',          label:'Jobs',            desc:'View and manage all jobs',            icon:'💼' },
-    { key:'schedule',      label:'Schedule',        desc:'Calendar and Gantt view',             icon:'📅' },
-    { key:'order_sheet',   label:'Order Sheet',     desc:'Materials ordering',                  icon:'📋' },
-    { key:'processes',     label:'Job Processes',   desc:'Production process tracking',         icon:'⚙️' },
+    { key:'jobs',          label:'Jobs',                  desc:'View and manage all jobs',            icon:'💼' },
+    { key:'schedule',      label:'Schedule',              desc:'Calendar and Gantt view',             icon:'📅' },
+    { key:'order_sheet',   label:'Order Sheet',           desc:'Materials ordering',                  icon:'📋' },
+    { key:'processes',     label:'Job Processes',         desc:'Production process tracking',         icon:'⚙️' },
+    { key:'deleteProcess', label:'Delete processes',      desc:'Remove processes from jobs',          icon:'🗑️' },
   ]},
   { section:'Tools', items:[
     { key:'spec_builder',  label:'Spec Builder',    desc:'Designer spec compilation tool',      icon:'📐' },

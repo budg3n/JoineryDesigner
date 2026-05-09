@@ -15,6 +15,7 @@ const PERMISSIONS = {
   settings:    ['Admin'],
   team:        ['Admin'],
   seeAllJobs:  ['Admin', 'Project Manager', 'Setout', 'Designer', 'Production Manager'],
+  deleteProcess: ['Admin', 'Project Manager'],
   useSpecBuilder: ['Admin', 'Project Manager', 'Designer'],
   deleteJob:   ['Admin'],
 }
