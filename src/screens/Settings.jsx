@@ -106,6 +106,16 @@ export default function Settings() {
             label="Job processes"
             sub="Define production stages for jobs"
             to="/settings/processes" />
+          <NavRow icon={<><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3h-8"/><path d="M12 3v4"/><line x1="8" y1="14" x2="16" y2="14"/></>}
+            iconBg="#EEF2FF" iconColor="#5B8AF0"
+            label="Job statuses"
+            sub="Add, edit and reorder job statuses"
+            to="/settings/job-statuses" />
+          <NavRow icon={<><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>}
+            iconBg="#FFF7ED" iconColor="#F97316"
+            label="Room types"
+            sub="Configure room types and their spec fields"
+            to="/settings/room-types" />
           <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', borderTop:'1px solid #F3F4F6' }}>
             <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em' }}>Files</div>
           </div>

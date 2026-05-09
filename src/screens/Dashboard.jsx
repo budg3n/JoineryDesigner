@@ -14,6 +14,7 @@ function fmtNZTime(dt) {
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
+import { useJobStatuses } from '../hooks/useJobStatuses'
 import { useToast } from '../components/Toast'
 import StatusBadge from '../components/StatusBadge'
 import { BudgetBar, fmtHours, useLiveTimer } from '../screens/ClockIn'
@@ -239,21 +240,14 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [] }) {
+function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors   = job.mat_colors ? JSON.parse(job.mat_colors) : []
   const accent   = PALETTE[index % PALETTE.length]
 
-
-  const STATUS_BADGE = {
-    'Pending':     { bg:'#F3F4F6', color:'#6B7280' },
-    'In progress': { bg:'#EEF2FF', color:'#3730A3' },
-    'Review':      { bg:'#FEF3C7', color:'#92400E' },
-    'Complete':    { bg:'#ECFDF5', color:'#065F46' },
-    'On hold':     { bg:'#FEF9C3', color:'#854D0E' },
-  }
-  const badge = STATUS_BADGE[job.status] || STATUS_BADGE['On hold']
+  const badgeColor = statusColor || '#9CA3AF'
+  const badge = { bg: badgeColor + '22', color: badgeColor }
 
   return (
     <div style={{ position:'relative' }}
@@ -329,18 +323,10 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
   )
 }
 
-const TABS = [
-  { key:'pending',    label:'Pending',              f: j => j.status === 'Pending' },
-  { key:'active',     label:'Active',               f: j => j.status === 'In progress' },
-  { key:'submitted',  label:'Submitted for approval',f: j => j.status === 'Submitted for approval' },
-  { key:'review',     label:'Review',               f: j => j.status === 'Review' },
-  { key:'hold',       label:'On hold',              f: j => j.status === 'On hold' },
-  { key:'done',       label:'Done',                 f: j => j.status === 'Complete', hideCount: true },
-]
-
 export default function Dashboard() {
   const navigate = useNavigate()
   const { can, profile } = useApp()
+  const jobStatuses = useJobStatuses()
   const toast    = useToast()
   const [jobs, setJobs]       = useState([])
   const [loading, setLoading] = useState(true)
@@ -350,9 +336,17 @@ export default function Dashboard() {
   const [activeEntries, setActiveEntries] = useState([])
   const [sortBy, setSortBy] = useState('created_desc')
   const [allCustomers, setAllCustomers] = useState([])
-  const [jobProcessData, setJobProcessData] = useState({}) // jobId -> active clock-in entries
-  const [jobProcessStatus, setJobProcessStatus] = useState({}) // jobId -> [{name,status,color,allocated_hours,time_logged}]
-  const [unorderedCounts, setUnorderedCounts] = useState({}) // jobId -> count // currently clocked-in sessions
+  const [jobProcessData, setJobProcessData] = useState({})
+  const [jobProcessStatus, setJobProcessStatus] = useState({})
+  const [unorderedCounts, setUnorderedCounts] = useState({})
+
+  // Build filter tabs from dynamic statuses
+  const TABS = jobStatuses.map(s => ({
+    key:       s.label.toLowerCase().replace(/\s+/g,'-'),
+    label:     s.label === 'Complete' ? 'Done' : s.label,
+    f:         j => j.status === s.label,
+    hideCount: s.label === 'Complete',
+  }))
 
   const loadJobs = useCallback(async () => {
     if (profile === undefined) return // context not ready yet
@@ -458,10 +452,10 @@ export default function Dashboard() {
     active:   jobs.filter(j => j.status === 'In progress').length,
     review:   jobs.filter(j => j.status === 'Review').length,
     hold:     jobs.filter(j => j.status === 'On hold').length,
-    tasks:    jobs.reduce((a, j) => { const t = j.tasks ? JSON.parse(j.tasks) : []; return a + t.filter(x=>!x.done).length }, 0),
-    overdue:  jobs.reduce((a, j) => { const t = j.tasks ? JSON.parse(j.tasks) : []; return a + t.filter(x=>!x.done&&x.date&&new Date(x.date)<TODAY).length }, 0),
-    hours:    jobs.reduce((a, j) => a + (parseFloat(j.time_logged)||0), 0).toFixed(1),
-    onSched:  jobs.length > 0 ? Math.round(jobs.filter(j => { const b=parseFloat(j.budget_hours)||0; const l=parseFloat(j.time_logged)||0; return b===0||l<=b }).length / jobs.length * 100) : 100,
+    tasks:    jobs.reduce((a,j)=>{ const t=j.tasks?JSON.parse(j.tasks):[]; return a+t.filter(x=>!x.done).length },0),
+    overdue:  jobs.reduce((a,j)=>{ const t=j.tasks?JSON.parse(j.tasks):[]; return a+t.filter(x=>!x.done&&x.date&&new Date(x.date)<TODAY).length },0),
+    hours:    jobs.reduce((a,j)=>a+(parseFloat(j.time_logged)||0),0).toFixed(1),
+    onSched:  jobs.length>0?Math.round(jobs.filter(j=>{ const b=parseFloat(j.budget_hours)||0; const l=parseFloat(j.time_logged)||0; return b===0||l<=b }).length/jobs.length*100):100,
   }
 
   if (!profile && !can('seeAllJobs')) return (
@@ -520,7 +514,8 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers} />
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers}
+              statusColor={(jobStatuses.find(s=>s.label===job.status)||{}).color} />
           ))}
           {can('createJob') && tab !== 'done' && (
             <div onClick={() => setShowModal(true)}

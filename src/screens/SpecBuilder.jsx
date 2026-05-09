@@ -413,30 +413,99 @@ function RoomSpec({ room, matCats, appCats, onUpdate }) {
       {/* DIMENSIONS */}
       {tab==='dimensions' && (
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {DIM_GROUPS.map(grp=>(
-            <div key={grp.key} style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
-              <div style={{ padding:'8px 14px', background:grp.bg, display:'flex', alignItems:'center', gap:8 }}>
-                <div style={{ width:10,height:10,borderRadius:3,background:grp.color,flexShrink:0 }} />
-                <span style={{ fontSize:12, fontWeight:700, color:grp.color }}>{grp.label}</span>
+          {(() => {
+            // Determine which fields to show — template fields if set, otherwise all DIM_GROUPS
+            const templateFields = room._templateFields || null
+            const customLabels = room._customFieldLabels || {}
+            // Start with standard fields from ALL_FIELDS
+            const standardFields = templateFields
+              ? ALL_FIELDS.filter(f => templateFields.includes(f.key))
+              : ALL_FIELDS.filter(f => ['toe_kick_height','base_height','base_depth','upper_height','upper_depth','tall_height','tall_depth','bench_thickness','bench_overhang_front','bench_overhang_side','bench_material'].includes(f.key))
+            // Add custom fields (keys starting with 'custom_') that were added via TemplateGroupAddField
+            const customFieldKeys = (templateFields||[]).filter(k => k.startsWith('custom_'))
+            const customFieldObjs = customFieldKeys.map(k => ({
+              key: k,
+              label: customLabels[k]?.label || k,
+              unit:  customLabels[k]?.unit  || 'mm',
+              group: customLabels[k]?.group || (standardFields[0]?.group || 'Custom'),
+              text:  false,
+            }))
+            const activeFields = [...standardFields, ...customFieldObjs]
+
+            if (activeFields.length === 0) return (
+              <div style={{ textAlign:'center', padding:'32px 16px', color:'#9CA3AF', fontSize:13, background:'#F9FAFB', borderRadius:10, border:'1px dashed #E8ECF0' }}>
+                No spec fields for this room type.
               </div>
-              <div style={{ padding:'12px 14px', background:'#fff', display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:10 }}>
-                {grp.fields.map(f=>(
-                  <div key={f.key}>
-                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>{f.label}</label>
-                    <div style={{ position:'relative' }}>
-                      <input type={f.text?'text':'number'} value={dims[f.key]||''} onChange={e=>setDim(f.key,e.target.value)}
-                        placeholder={f.placeholder}
-                        style={{ width:'100%', padding:`7px ${f.unit?'30px':'10px'} 7px 10px`, border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
-                      {f.unit && <span style={{ position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:'#9CA3AF',pointerEvents:'none' }}>{f.unit}</span>}
-                    </div>
+            )
+
+            // Group active fields
+            const groups = {}
+            activeFields.forEach(f => {
+              if (!groups[f.group]) groups[f.group] = []
+              groups[f.group].push(f)
+            })
+
+            const GROUP_STYLE = {
+              'Base cabinets':   { color:'#5B8AF0', bg:'#EEF2FF' },
+              'Upper cabinets':  { color:'#1D9E75', bg:'#F0FDF4' },
+              'Tall cabinets':   { color:'#EF9F27', bg:'#FEF3C7' },
+              'Benchtop':        { color:'#7F77DD', bg:'#F5F3FF' },
+              'Room dimensions': { color:'#374151', bg:'#F9FAFB' },
+              'Wardrobe':        { color:'#EC4899', bg:'#FDF2F8' },
+              'Vanity':          { color:'#06B6D4', bg:'#ECFEFF' },
+            }
+
+            function removeField(key) {
+              const f = ALL_FIELDS.find(f=>f.key===key)
+              if (!confirm(`Remove "${f?.label||key}" from this room? You can't undo this.`)) return
+              const newFields = (room._templateFields||[]).filter(k=>k!==key)
+              const newDims = { ...dims }
+              delete newDims[key]
+              onUpdate({ ...room, _templateFields: newFields, dimensions: newDims })
+            }
+
+            return Object.entries(groups).map(([group, fields]) => {
+              const gs = GROUP_STYLE[group] || { color:'#374151', bg:'#F9FAFB' }
+              return (
+                <div key={group} style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                  <div style={{ padding:'8px 14px', background:gs.bg, display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ width:10,height:10,borderRadius:3,background:gs.color,flexShrink:0 }} />
+                    <span style={{ fontSize:12, fontWeight:700, color:gs.color, flex:1 }}>{group}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                  <div style={{ padding:'12px 14px', background:'#fff', display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:10 }}>
+                    {fields.map(f=>(
+                      <div key={f.key} style={{ position:'relative' }}>
+                        <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>
+                          {room._customFieldLabels?.[f.key]?.label || f.label}
+                        </label>
+                        <div style={{ position:'relative' }}>
+                          {(() => {
+                            const unit = f.text ? '' : (room._customFieldLabels?.[f.key]?.unit || f.unit || '')
+                            return <>
+                              <input type={f.text?'text':'number'} value={dims[f.key]||''} onChange={e=>setDim(f.key,e.target.value)}
+                                placeholder="0"
+                                style={{ width:'100%', padding:`7px ${unit?'30px':'10px'} 7px 10px`, border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                              {unit && <span style={{ position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:'#9CA3AF',pointerEvents:'none' }}>{unit}</span>}
+                            </>
+                          })()}
+                        </div>
+                        {/* Remove field button */}
+                        <button onClick={()=>removeField(f.key)} title="Remove this field"
+                          style={{ position:'absolute', top:-2, right:-4, background:'#fff', border:'1px solid #E8ECF0', borderRadius:'50%', width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:9, color:'#9CA3AF', padding:0 }}
+                          onMouseEnter={e=>{e.currentTarget.style.background='#FEF2F2';e.currentTarget.style.color='#E24B4A';e.currentTarget.style.borderColor='#FCA5A5'}}
+                          onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.color='#9CA3AF';e.currentTarget.style.borderColor='#E8ECF0'}}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <TemplateGroupAddField groupLabel={group} gs={gs} dims={dims} onUpdate={onUpdate} room={room} />
+                </div>
+              )
+            })
+          })()}
         </div>
       )}
 
+      {tab==='dimensions' && <CustomMeasurements room={room} onUpdate={onUpdate} />}
       {tab==='materials'  && <ItemSection type="material"  />}
       {tab==='appliances' && <ItemSection type="appliance" />}
 
@@ -451,6 +520,261 @@ function RoomSpec({ room, matCats, appCats, onUpdate }) {
           categories={picker==='material' ? matCats : appCats}
           onConfirm={(item,note,status)=>addItem(picker,item,note,status)}
           onClose={()=>setPicker(null)} />
+      )}
+    </div>
+  )
+}
+
+
+
+
+// ── Add measurement to a template group ───────────────────────────
+function TemplateGroupAddField({ groupLabel, gs, dims, onUpdate, room }) {
+  const [adding, setAdding] = useState(false)
+  const [label, setLabel]   = useState('')
+  const [unit, setUnit]     = useState('mm')
+
+  function add() {
+    if (!label.trim()) return
+    const key = 'custom_' + Math.random().toString(36).slice(2,8)
+    // Add to dimensions with the new key, and track in _templateFields
+    const newFields = [...(room._templateFields||[]), key]
+    onUpdate({
+      ...room,
+      _templateFields: newFields,
+      dimensions: { ...(room.dimensions||{}), [key]: '' },
+      _customFieldLabels: { ...(room._customFieldLabels||{}), [key]: { label: label.trim(), unit: unit, group: groupLabel } },
+    })
+    setLabel(''); setUnit('mm'); setAdding(false)
+  }
+
+  return adding ? (
+    <div style={{ display:'flex', gap:6, padding:'10px 12px', background:'#F9FAFB', borderRadius:8, border:`1px dashed ${gs.color}44`, alignItems:'center', flexWrap:'wrap', marginTop:10 }}>
+      <div style={{ flex:1, minWidth:140 }}>
+        <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', marginBottom:3 }}>Measurement name</div>
+        <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
+          onKeyDown={e=>{ if(e.key==='Enter')add(); if(e.key==='Escape')setAdding(false) }}
+          placeholder="e.g. Floor gap, Cabinet void…"
+          style={{ width:'100%', padding:'6px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+      </div>
+      <div style={{ width:80 }}>
+        <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', marginBottom:3 }}>Unit</div>
+        <select value={unit} onChange={e=>setUnit(e.target.value)}
+          style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+          {['mm','m','cm','inch','°','kg','L','pcs'].map(u=><option key={u}>{u}</option>)}
+        </select>
+      </div>
+      <button onClick={add} disabled={!label.trim()}
+        style={{ fontSize:12, fontWeight:700, padding:'6px 12px', borderRadius:7, border:'none',
+          background:label.trim()?gs.color:'#E8ECF0', color:label.trim()?'#fff':'#9CA3AF', cursor:label.trim()?'pointer':'not-allowed' }}>Add</button>
+      <button onClick={()=>setAdding(false)}
+        style={{ fontSize:11, padding:'6px 8px', borderRadius:7, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
+    </div>
+  ) : (
+    <button onClick={()=>setAdding(true)}
+      style={{ fontSize:11, fontWeight:700, padding:'5px 10px', borderRadius:7, border:`1px dashed ${gs.color}66`,
+        background:'transparent', color:gs.color, cursor:'pointer', display:'flex', alignItems:'center', gap:4, marginTop:8 }}
+      onMouseEnter={e=>e.currentTarget.style.background=gs.bg||'#F9FAFB'}
+      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add measurement to {groupLabel}
+    </button>
+  )
+}
+
+// ── Custom measurement group editor ───────────────────────────────────────────
+const MEAS_COLORS = [
+  { color:'#5B8AF0', bg:'#EEF2FF' },
+  { color:'#1D9E75', bg:'#F0FDF4' },
+  { color:'#EF9F27', bg:'#FEF3C7' },
+  { color:'#E24B4A', bg:'#FEF2F2' },
+  { color:'#7F77DD', bg:'#F5F3FF' },
+  { color:'#EC4899', bg:'#FDF2F8' },
+  { color:'#06B6D4', bg:'#ECFEFF' },
+  { color:'#374151', bg:'#F3F4F6' },
+  { color:'#F97316', bg:'#FFF7ED' },
+  { color:'#8B5CF6', bg:'#F5F3FF' },
+]
+
+function uid2() { return Math.random().toString(36).slice(2,8) }
+
+function CustomMeasurements({ room, onUpdate }) {
+  const [showAdd, setShowAdd]         = useState(false)
+  const [groupName, setGroupName]     = useState('')
+  const [groupColor, setGroupColor]   = useState(MEAS_COLORS[0])
+  const [addingTo, setAddingTo]       = useState(null)   // groupId currently adding a field to
+  const [newFieldLabel, setNewFieldLabel] = useState('')
+  const [newFieldUnit, setNewFieldUnit]   = useState('mm')
+  const [editingGroup, setEditingGroup]   = useState(null)
+
+  const groups = room.customGroups || []
+
+  function addGroup() {
+    if (!groupName.trim()) return
+    const g = { id: uid2(), name: groupName.trim(), color: groupColor.color, bg: groupColor.bg, fields: [] }
+    const updated = [...groups, g]
+    onUpdate({ ...room, customGroups: updated })
+    setGroupName(''); setGroupColor(MEAS_COLORS[0]); setShowAdd(false)
+    setAddingTo(g.id)   // open the add-field form straight away
+  }
+
+  function removeGroup(id) {
+    if (!confirm('Remove this measurement group? This can\'t be undone.')) return
+    onUpdate({ ...room, customGroups: groups.filter(g=>g.id!==id) })
+    if (editingGroup===id) setEditingGroup(null)
+    if (addingTo===id) setAddingTo(null)
+  }
+
+  function addField(groupId) {
+    if (!newFieldLabel.trim()) return
+    const updated = groups.map(g => g.id!==groupId ? g : {
+      ...g, fields: [...g.fields, { id:uid2(), label:newFieldLabel.trim(), unit:newFieldUnit, value:'' }]
+    })
+    onUpdate({ ...room, customGroups: updated })
+    setNewFieldLabel(''); setNewFieldUnit('mm')
+  }
+
+  function removeField(groupId, fieldId) {
+    if (!confirm('Remove this measurement?')) return
+    const updated = groups.map(g => g.id!==groupId ? g : { ...g, fields: g.fields.filter(f=>f.id!==fieldId) })
+    onUpdate({ ...room, customGroups: updated })
+  }
+
+  function setFieldValue(groupId, fieldId, value) {
+    const updated = groups.map(g => g.id!==groupId ? g : {
+      ...g, fields: g.fields.map(f => f.id!==fieldId ? f : { ...f, value })
+    })
+    onUpdate({ ...room, customGroups: updated })
+  }
+
+  function updateGroupName(id, name) {
+    const updated = groups.map(g => g.id!==id ? g : { ...g, name })
+    onUpdate({ ...room, customGroups: updated })
+  }
+
+  return (
+    <div style={{ marginTop: groups.length>0 ? 12 : 8 }}>
+      {groups.map(g => (
+        <div key={g.id} style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden', marginBottom:10 }}>
+          {/* Group header */}
+          <div style={{ padding:'8px 14px', background:g.bg||'#F3F4F6', display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ width:10,height:10,borderRadius:3,background:g.color||'#9CA3AF',flexShrink:0 }} />
+            {editingGroup===g.id ? (
+              <input autoFocus value={g.name} onChange={e=>updateGroupName(g.id,e.target.value)}
+                onBlur={()=>setEditingGroup(null)} onKeyDown={e=>e.key==='Enter'&&setEditingGroup(null)}
+                style={{ flex:1, fontSize:12, fontWeight:700, color:g.color, border:'none', background:'transparent', outline:'none', fontFamily:'inherit' }} />
+            ) : (
+              <span onClick={()=>setEditingGroup(g.id)} title="Click to rename"
+                style={{ fontSize:12, fontWeight:700, color:g.color||'#374151', flex:1, cursor:'text' }}>{g.name}</span>
+            )}
+            <button onClick={()=>removeGroup(g.id)} title="Remove group"
+              style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(0,0,0,0.2)', fontSize:15, lineHeight:1, padding:'0 2px' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='rgba(0,0,0,0.2)'}>×</button>
+          </div>
+
+          {/* Fields */}
+          <div style={{ padding:'12px 14px', background:'#fff' }}>
+            {g.fields.length === 0 && addingTo !== g.id && (
+              <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:10, fontStyle:'italic' }}>No measurements yet</div>
+            )}
+            {g.fields.length > 0 && (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:10, marginBottom:10 }}>
+                {g.fields.map(f => (
+                  <div key={f.id} style={{ position:'relative' }}>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>{f.label}</label>
+                    <div style={{ position:'relative' }}>
+                      <input type="number" value={f.value||''} onChange={e=>setFieldValue(g.id,f.id,e.target.value)}
+                        placeholder={f.unit||''}
+                        style={{ width:'100%', padding:`7px ${f.unit?'30px':'10px'} 7px 10px`, border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                      {f.unit && <span style={{ position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:'#9CA3AF',pointerEvents:'none' }}>{f.unit}</span>}
+                    </div>
+                    <button onClick={()=>removeField(g.id,f.id)} title="Remove"
+                      style={{ position:'absolute',top:-2,right:-4,background:'#fff',border:'1px solid #E8ECF0',borderRadius:'50%',width:16,height:16,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:9,color:'#9CA3AF',padding:0 }}
+                      onMouseEnter={e=>{e.currentTarget.style.background='#FEF2F2';e.currentTarget.style.color='#E24B4A';e.currentTarget.style.borderColor='#FCA5A5'}}
+                      onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.color='#9CA3AF';e.currentTarget.style.borderColor='#E8ECF0'}}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Inline add field form — always accessible */}
+            {addingTo === g.id ? (
+              <div style={{ display:'flex', gap:6, padding:'10px 12px', background:'#F9FAFB', borderRadius:8, border:`1px solid ${g.color}44`, alignItems:'center', flexWrap:'wrap' }}>
+                <input autoFocus value={newFieldLabel} onChange={e=>setNewFieldLabel(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Enter')addField(g.id); if(e.key==='Escape'){setAddingTo(null);setNewFieldLabel('');setNewFieldUnit('mm')} }}
+                  placeholder="e.g. Floor gap, Cabinet void, Ceiling height…"
+                  style={{ flex:1, minWidth:140, padding:'6px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
+                <select value={newFieldUnit} onChange={e=>setNewFieldUnit(e.target.value)}
+                  style={{ width:72, padding:'6px 6px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', background:'#fff' }}>
+                  {['mm','m','cm','inch','°','kg','L','pcs'].map(u=><option key={u}>{u}</option>)}
+                </select>
+                <button onClick={()=>addField(g.id)} disabled={!newFieldLabel.trim()}
+                  style={{ fontSize:12, fontWeight:700, padding:'6px 12px', borderRadius:7, border:'none',
+                    background:newFieldLabel.trim()?g.color:'#E8ECF0', color:newFieldLabel.trim()?'#fff':'#9CA3AF',
+                    cursor:newFieldLabel.trim()?'pointer':'not-allowed' }}>Add</button>
+                <button onClick={()=>{setAddingTo(null);setNewFieldLabel('');setNewFieldUnit('mm')}}
+                  style={{ fontSize:11, padding:'6px 8px', borderRadius:7, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
+              </div>
+            ) : (
+              <button onClick={()=>{setAddingTo(g.id);setNewFieldLabel('');setNewFieldUnit('mm')}}
+                style={{ fontSize:11, fontWeight:700, padding:'5px 10px', borderRadius:7, border:`1px dashed ${g.color}66`,
+                  background:'transparent', color:g.color, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}
+                onMouseEnter={e=>e.currentTarget.style.background=g.bg||'#F9FAFB'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add measurement
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Add custom group button / form */}
+      {!showAdd ? (
+        <button onClick={()=>setShowAdd(true)}
+          style={{ width:'100%', padding:'9px 0', borderRadius:9, border:'1.5px dashed #C4D4F8', background:'transparent',
+            color:'#5B8AF0', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}
+          onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
+          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add custom measurement group
+        </button>
+      ) : (
+        <div style={{ padding:'14px 16px', background:'#F8FAFF', borderRadius:10, border:'1px solid #C4D4F8' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', marginBottom:10 }}>New measurement group</div>
+          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+            <input autoFocus value={groupName} onChange={e=>setGroupName(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&addGroup()}
+              placeholder="e.g. Island, Void measurements, Floor gaps"
+              style={{ flex:1, padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:600, color:'#6B7280', marginBottom:7 }}>Colour</div>
+            <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
+              {MEAS_COLORS.map((mc,i) => (
+                <button key={i} onClick={()=>setGroupColor(mc)}
+                  style={{ width:28, height:28, borderRadius:'50%', background:mc.color,
+                    border:`3px solid ${groupColor===mc?'#2A3042':'transparent'}`, cursor:'pointer', padding:0 }} />
+              ))}
+            </div>
+          </div>
+          {/* Preview */}
+          <div style={{ padding:'6px 12px', background:groupColor.bg, borderRadius:7, marginBottom:12, display:'flex', alignItems:'center', gap:6 }}>
+            <div style={{ width:8,height:8,borderRadius:2,background:groupColor.color }} />
+            <span style={{ fontSize:12, fontWeight:700, color:groupColor.color }}>{groupName||'Group name'}</span>
+          </div>
+          <div style={{ display:'flex', gap:7 }}>
+            <button onClick={addGroup} disabled={!groupName.trim()}
+              style={{ fontSize:12, fontWeight:700, padding:'7px 16px', borderRadius:8, border:'none',
+                background:groupName.trim()?'#5B8AF0':'#E8ECF0', color:groupName.trim()?'#fff':'#9CA3AF', cursor:groupName.trim()?'pointer':'not-allowed' }}>
+              Create group
+            </button>
+            <button onClick={()=>{setShowAdd(false);setGroupName('');setGroupColor(MEAS_COLORS[0])}}
+              style={{ fontSize:12, fontWeight:600, padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -573,6 +897,7 @@ export default function SpecBuilder() {
   const [nextJobId, setNextJobId]   = useState(null)
   const [activeRoom, setActiveRoom] = useState(0)
   const [showAddRoom, setShowAddRoom] = useState(false)
+  const [roomTemplates, setRoomTemplates] = useState(DEFAULT_TEMPLATES)
   const [newRoomName, setNewRoomName] = useState('')
   const saveTimer = useRef()
 
@@ -672,15 +997,25 @@ export default function SpecBuilder() {
     updateSpec({ rooms })
   }
 
-  function addRoom() {
-    if (!newRoomName.trim()) return
-    const room = { id: Date.now().toString(), name: newRoomName.trim(), materials:[], appliances:[], notes:'' }
+  function addRoom(template) {
+    const name = template ? template.name : (newRoomName.trim())
+    if (!name) return
+    // Pre-fill dimension keys from template (empty values, just to know which fields to show)
+    const dimensions = template
+      ? Object.fromEntries((template.fields||[]).map(k=>[k,'']))
+      : {}
+    const room = {
+      id: Date.now().toString(), name,
+      materials:[], appliances:[], notes:'',
+      dimensions,
+      _templateId:     template?.id || null,
+      _templateFields: template ? [...(template.fields||[])] : [],
+    }
     const rooms = [...spec.rooms, room]
     updateSpec({ rooms })
     setActiveRoom(rooms.length - 1)
-    setNewRoomName('')
-    setShowAddRoom(false)
-    toast(`${room.name} added ✓`)
+    setNewRoomName(''); setShowAddRoom(false)
+    toast(`${name} added ✓`)
   }
 
   function removeRoom(idx) {
@@ -694,164 +1029,129 @@ export default function SpecBuilder() {
     const rooms = spec.rooms || []
     const date  = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })
 
-    // Get a fully-resolved public URL for any storage path
+    const DIM_LABELS = {
+      toe_kick_height:'Toe kick', base_height:'Base height', base_depth:'Base depth',
+      upper_height:'Upper height', upper_depth:'Upper depth', tall_height:'Tall height',
+      tall_depth:'Tall depth', bench_thickness:'Bench thickness',
+      bench_overhang_front:'Overhang front', bench_overhang_side:'Overhang sides',
+      bench_material:'Bench material', room_width:'Room width', room_height:'Room height',
+      room_depth:'Room depth', wardrobe_height:'Wardrobe height', wardrobe_depth:'Wardrobe depth',
+      wardrobe_width:'Wardrobe width', vanity_height:'Vanity height', vanity_depth:'Vanity depth',
+    }
+
     function imgUrl(item) {
       const path = item.image_path || item.storage_path
       if (!path) return null
       if (path.startsWith('http')) return path
-      // Use supabase storage public URL
       return supabase.storage.from('job-files').getPublicUrl(path).data.publicUrl
     }
 
-    function itemImg(item) {
-      const url = imgUrl(item)
-      if (!url) return ''
-      return `<img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid #ddd;flex-shrink:0;display:block" crossorigin="anonymous" />`
-    }
-
     function matRow(m) {
-      const tags = [m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null, m.colour_code, m.finish].filter(Boolean).join(' · ')
-      const swatch = itemImg(m) || `<div style="width:52px;height:52px;border-radius:8px;background:${m.color||'#eee'};border:1px solid #ddd;flex-shrink:0"></div>`
-      return `
-        <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;background:#f8f8f8;border-radius:8px;border:1px solid #e0e0e0;margin-bottom:8px">
-          ${swatch}
-          <div style="flex:1;min-width:0">
-            <div style="font-size:14px;font-weight:600;color:#000">${m.name || '—'}</div>
-            ${tags ? `<div style="font-size:11px;color:#444;margin-top:2px">${tags}</div>` : ''}
-            ${m._note ? `<div style="margin-top:6px;font-size:12px;color:#000;background:#e8eeff;border-left:2px solid #5B8AF0;border-radius:4px;padding:5px 8px">${m._note}</div>` : ''}
-          </div>
-        </div>`
+      const tags = [m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')
+      const url = imgUrl(m)
+      const img = url?`<img src="${url}" width="48" height="48" style="object-fit:cover;border-radius:6px;border:1px solid #ddd;flex-shrink:0" />`:`<div style="width:48px;height:48px;border-radius:6px;background:#eee;border:1px solid #ddd;flex-shrink:0"></div>`
+      return `<div class="item-row">${img}<div class="item-body"><div class="item-name">${m.name||'—'}</div>${tags?`<div class="item-sub">${tags}</div>`:''} ${m._note?`<div class="item-note">${m._note}</div>`:''}</div></div>`
     }
 
     function appRow(a) {
-      const sub = [a.type, a.width ? `${a.width}×${a.height}mm` : null].filter(Boolean).join(' · ')
-      const swatch = itemImg(a) || `<div style="width:52px;height:52px;border-radius:8px;background:#f0f0f0;border:1px solid #ddd;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px">🔌</div>`
-      return `
-        <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;background:#f8f8f8;border-radius:8px;border:1px solid #e0e0e0;margin-bottom:8px">
-          ${swatch}
-          <div style="flex:1;min-width:0">
-            <div style="font-size:14px;font-weight:600;color:#000">${[a.brand,a.model].filter(Boolean).join(' ') || '—'}</div>
-            ${sub ? `<div style="font-size:11px;color:#444;margin-top:2px">${sub}</div>` : ''}
-            ${a._note ? `<div style="margin-top:6px;font-size:12px;color:#000;background:#e8eeff;border-left:2px solid #5B8AF0;border-radius:4px;padding:5px 8px">${a._note}</div>` : ''}
-          </div>
-        </div>`
+      const name=[a.brand,a.model].filter(Boolean).join(' ')||'—'
+      const sub=[a.type,a.width?`${a.width}x${a.height}mm`:null].filter(Boolean).join(' · ')
+      const url=imgUrl(a)
+      const img=url?`<img src="${url}" width="48" height="48" style="object-fit:cover;border-radius:6px;border:1px solid #ddd;flex-shrink:0" />`:`<div style="width:48px;height:48px;border-radius:6px;background:#f0f0f0;border:1px solid #ddd;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px">🔌</div>`
+      return `<div class="item-row">${img}<div class="item-body"><div class="item-name">${name}</div>${sub?`<div class="item-sub">${sub}</div>`:''} ${a._note?`<div class="item-note">${a._note}</div>`:''}</div></div>`
     }
 
-    const DIM_LABELS = {
-      toe_kick_height:'Toe kick',base_height:'Base height',base_depth:'Base depth',
-      upper_height:'Upper height',upper_depth:'Upper depth',tall_height:'Tall height',
-      tall_depth:'Tall depth',bench_thickness:'Bench thickness',
-      bench_overhang_front:'Overhang front',bench_overhang_side:'Overhang sides',bench_material:'Bench material'
+    function statusSection(label,color,items,rowFn) {
+      if(!items.length)return ''
+      return `<div class="status-group"><div class="status-label" style="color:${color}">${label}</div>${items.map(rowFn).join('')}</div>`
     }
-    const STATUS_LABELS = { confirmed:'✓ Confirmed', maybe:'? Maybe', alternative:'≈ Alternative' }
-    const STATUS_COLORS = { confirmed:'#166534', maybe:'#854D0E', alternative:'#3730A3' }
 
     function itemsByStatus(arr) {
-      const groups = { confirmed:[], maybe:[], alternative:[] }
-      arr.forEach(e => { const s = e._status||'confirmed'; (groups[s]||groups.confirmed).push(e) })
-      return groups
+      const g={confirmed:[],maybe:[],alternative:[]}
+      arr.forEach(e=>{const s=e._status||'confirmed';(g[s]||g.confirmed).push(e)})
+      return g
     }
 
-    const roomSections = rooms.map(room => {
-      const mats = room.materials || []
-      const apps = room.appliances || []
-      const dims = room.dimensions || {}
-      const hasDims = Object.values(dims).some(v=>v)
-      const matGroups = itemsByStatus(mats)
-      const appGroups = itemsByStatus(apps)
+    const roomSections=rooms.map(room=>{
+      const mats=room.materials||[], apps=room.appliances||[], dims=room.dimensions||{}
+      const customGroups=room.customGroups||[]
+      const hasDims=Object.entries(dims).some(([,v])=>v)
+      const hasCustom=customGroups.some(g=>g.fields?.some(f=>f.value))
+      const matG=itemsByStatus(mats), appG=itemsByStatus(apps)
 
-      function statusSection(label, color, items, rowFn) {
-        if (!items.length) return ''
-        return `<div style="margin-bottom:10px">
-          <div style="font-size:10px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.05em;margin:10px 0 5px">${label}</div>
-          ${items.map(rowFn).join('')}
-        </div>`
-      }
+      const dimPills=Object.entries(dims).filter(([,v])=>v).map(([k,v])=>{
+        const label = DIM_LABELS[k] || room._customFieldLabels?.[k]?.label || k
+        const unit  = room._customFieldLabels?.[k]?.unit ?? (k==='bench_material' ? '' : 'mm')
+        return `<div class="dim-pill"><span class="dim-key">${label}</span><strong>${v}${unit}</strong></div>`
+      }).join('')
 
-      return `
-        <div style="margin-bottom:32px;page-break-inside:avoid">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;padding-bottom:8px;border-bottom:2px solid #000;margin-bottom:14px">
-            <div style="font-size:18px;font-weight:700;color:#000">${room.name}</div>
-            <div style="font-size:12px;color:#444">${mats.length} material${mats.length!==1?'s':''} · ${apps.length} appliance${apps.length!==1?'s':''}</div>
-          </div>
-          ${hasDims ? `
-            <div style="font-size:10px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Dimensions</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-              ${Object.entries(dims).filter(([,v])=>v).map(([k,v])=>`
-                <div style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;padding:5px 10px;font-size:12px">
-                  <span style="color:#555">${DIM_LABELS[k]||k}: </span><strong style="color:#000">${v}${k!=='bench_material'?'mm':''}</strong>
-                </div>`).join('')}
-            </div>
-          ` : ''}
-          ${mats.length > 0 ? `
-            <div style="font-size:10px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 4px">Materials</div>
-            ${statusSection('✓ Confirmed','#166534',matGroups.confirmed,matRow)}
-            ${statusSection('? Maybe','#854D0E',matGroups.maybe,matRow)}
-            ${statusSection('≈ Alternatives','#3730A3',matGroups.alternative,matRow)}
-          ` : ''}
-          ${apps.length > 0 ? `
-            <div style="font-size:10px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 4px">Appliances</div>
-            ${statusSection('✓ Confirmed','#166534',appGroups.confirmed,appRow)}
-            ${statusSection('? Maybe','#854D0E',appGroups.maybe,appRow)}
-            ${statusSection('≈ Alternatives','#3730A3',appGroups.alternative,appRow)}
-          ` : ''}
-          ${room.notes ? `<div style="margin-top:10px;font-size:12px;color:#000;background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 12px;border-radius:4px"><strong>Notes:</strong> ${room.notes}</div>` : ''}
-        </div>`
+      const customHTML=customGroups.filter(g=>g.fields?.some(f=>f.value)).map(g=>
+        `<div class="custom-group"><div class="custom-group-header" style="border-left:3px solid ${g.color||'#9CA3AF'}"><span style="color:${g.color||'#374151'};font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em">${g.name}</span></div><div class="dim-row">${g.fields.filter(f=>f.value).map(f=>`<div class="dim-pill"><span class="dim-key">${f.label}</span><strong>${f.value}${f.unit||''}</strong></div>`).join('')}</div></div>`
+      ).join('')
+
+      return `<div class="room-section">
+        <div class="room-header"><div class="room-name">${room.name}</div><div class="room-meta">${mats.length} material${mats.length!==1?'s':''} · ${apps.length} appliance${apps.length!==1?'s':''}</div></div>
+        ${hasDims?`<div class="section-label">Dimensions</div><div class="dim-row">${dimPills}</div>`:''}
+        ${hasCustom?customHTML:''}
+        ${mats.length?`<div class="section-label">Materials</div>${statusSection('✓ Confirmed','#166534',matG.confirmed,matRow)}${statusSection('? Maybe','#854D0E',matG.maybe,matRow)}${statusSection('≈ Alternatives','#3730A3',matG.alternative,matRow)}`:''}
+        ${apps.length?`<div class="section-label" style="margin-top:14px">Appliances</div>${statusSection('✓ Confirmed','#166534',appG.confirmed,appRow)}${statusSection('? Maybe','#854D0E',appG.maybe,appRow)}${statusSection('≈ Alternatives','#3730A3',appG.alternative,appRow)}`:''}
+        ${room.notes?`<div class="notes-box"><strong>Notes:</strong> ${room.notes}</div>`:''}
+      </div>`
     }).join('')
 
-    const totalMats = rooms.reduce((s,r)=>s+(r.materials||[]).length,0)
-    const totalApps = rooms.reduce((s,r)=>s+(r.appliances||[]).length,0)
+    const totalMats=rooms.reduce((s,r)=>s+(r.materials||[]).length,0)
+    const totalApps=rooms.reduce((s,r)=>s+(r.appliances||[]).length,0)
 
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>${spec.title || 'Spec'}</title>
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${spec.title||'Spec'} — ${date}</title>
 <style>
-  * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  body { font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif; color:#000; background:#fff; padding:32px 40px; max-width:800px; margin:0 auto; }
-  img { display:block; }
-  @media print {
-    body { padding:0; max-width:100%; }
-    @page { margin:15mm; size:A4; }
-  }
-</style>
-</head>
-<body>
-  <!-- Header -->
-  <div style="border-bottom:2px solid #000;padding-bottom:18px;margin-bottom:24px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div>
-        <div style="font-size:28px;font-weight:800;color:#000">${spec.title || 'Untitled Spec'}</div>
-        ${spec.client ? `<div style="font-size:15px;color:#333;margin-top:4px">${spec.client}</div>` : ''}
-      </div>
-      <div style="text-align:right">
-        <div style="display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:#e8e8e8;color:#000;margin-bottom:6px">${spec.status || 'Draft'}</div>
-        <div style="font-size:12px;color:#333">${date}</div>
-      </div>
-    </div>
-    <div style="display:flex;gap:28px;margin-top:16px">
-      <div><span style="font-size:20px;font-weight:800;color:#000">${rooms.length}</span><span style="font-size:12px;color:#444;margin-left:4px">rooms</span></div>
-      <div><span style="font-size:20px;font-weight:800;color:#000">${totalMats}</span><span style="font-size:12px;color:#444;margin-left:4px">materials</span></div>
-      <div><span style="font-size:20px;font-weight:800;color:#000">${totalApps}</span><span style="font-size:12px;color:#444;margin-left:4px">appliances</span></div>
-    </div>
-  </div>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;max-width:820px;margin:0 auto;padding:40px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #000;padding-bottom:16px;margin-bottom:20px}
+.header-right{text-align:right}
+h1{font-size:26px;font-weight:800;margin-bottom:4px}
+.sub{font-size:14px;color:#555;margin-bottom:12px}
+.status-badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;background:#e8e8e8;color:#000;margin-bottom:4px}
+.header-date{font-size:12px;color:#555}
+.stats{display:flex;gap:24px;margin-top:12px}
+.stat-num{font-size:22px;font-weight:800}
+.stat-lbl{font-size:11px;color:#555;margin-left:3px}
+.room-section{margin-bottom:36px;page-break-inside:avoid}
+.room-header{display:flex;align-items:baseline;justify-content:space-between;padding-bottom:7px;border-bottom:2px solid #000;margin-bottom:12px}
+.room-name{font-size:17px;font-weight:800}
+.room-meta{font-size:11px;color:#666}
+.section-label{font-size:9px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.07em;margin:12px 0 7px}
+.dim-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+.dim-pill{background:#f4f4f4;border:1px solid #ddd;border-radius:6px;padding:5px 10px;font-size:12px}
+.dim-key{color:#666;margin-right:4px}
+.custom-group{margin-bottom:10px}
+.custom-group-header{padding:4px 10px;margin-bottom:7px;background:#f9f9f9;border-radius:4px}
+.status-group{margin-bottom:6px}
+.status-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 5px}
+.item-row{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;background:#f8f8f8;border:1px solid #e8e8e8;border-radius:7px;margin-bottom:6px}
+.item-body{flex:1;min-width:0}
+.item-name{font-size:13px;font-weight:600}
+.item-sub{font-size:11px;color:#555;margin-top:2px}
+.item-note{font-size:11px;background:#e8eeff;border-left:2px solid #5B8AF0;border-radius:3px;padding:4px 8px;margin-top:5px}
+.notes-box{font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 12px;border-radius:4px;margin-top:10px}
+.footer{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:10px;color:#888}
+@media print{body{padding:0}@page{margin:12mm;size:A4}}
+</style></head><body>
+<div class="header"><div><h1>${spec.title||'Untitled Spec'}</h1>${spec.client?`<div class="sub">${spec.client}</div>`:''}<div class="stats"><div><span class="stat-num">${rooms.length}</span><span class="stat-lbl">rooms</span></div><div><span class="stat-num">${totalMats}</span><span class="stat-lbl">materials</span></div><div><span class="stat-num">${totalApps}</span><span class="stat-lbl">appliances</span></div></div></div><div class="header-right"><div class="status-badge">${spec.status||'Draft'}</div><div class="header-date">${date}</div></div></div>
+${roomSections}
+<div class="footer"><span>${spec.title||'Spec'}</span><span>${date}</span></div>
+</body></html>`
 
-  ${roomSections}
-
-  <div style="margin-top:32px;padding-top:14px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:11px;color:#666">
-    <span>${spec.title || 'Spec'}</span>
-    <span>${date}</span>
-  </div>
-</body>
-</html>`
-
-    const win = window.open('', '_blank')
-    win.document.write(html)
-    win.document.close()
-    // Wait for images to load then print
-    win.addEventListener('load', () => setTimeout(() => win.print(), 300))
-    setTimeout(() => win.print(), 1200)
+    // Open as blob URL — no auto-print, user decides
+    const blob=new Blob([html],{type:'text/html;charset=utf-8'})
+    const url=URL.createObjectURL(blob)
+    const win=window.open(url,'_blank')
+    if(!win){
+      const a=document.createElement('a'); a.href=url; a.download=`${(spec.title||'spec').replace(/\s+/g,'-')}.html`; a.click()
+      toast('Popup blocked — file saved. Open it and use File › Print to export as PDF.')
+    } else {
+      setTimeout(()=>URL.revokeObjectURL(url),30000)
+    }
   }
 
   async function submitToSetout() {
@@ -1070,19 +1370,52 @@ export default function SpecBuilder() {
         </div>
       )}
 
-      {/* Add room form */}
+      {/* Add room — type picker modal */}
       {showAddRoom && (
-        <Card style={{ padding:'14px 16px', marginBottom:16, border:'1px solid #C4D4F8', background:'#F0F4FF' }}>
-          <div style={{ display:'flex', gap:8 }}>
-            <input autoFocus value={newRoomName} onChange={e=>setNewRoomName(e.target.value)}
-              onKeyDown={e=>e.key==='Enter'&&addRoom()}
-              placeholder="Room name (e.g. Kitchen, Master Ensuite…)"
-              style={{ flex:1, padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none' }} />
-            <Btn onClick={addRoom} variant="primary" disabled={!newRoomName.trim()}>Add</Btn>
-            <Btn onClick={()=>{setShowAddRoom(false);setNewRoomName('')}}>Cancel</Btn>
+        <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={e=>e.target===e.currentTarget&&(setShowAddRoom(false),setNewRoomName(''))}>
+          <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:520, boxShadow:'0 24px 64px rgba(0,0,0,0.2)' }}>
+            <div style={{ padding:'18px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:800, color:'#2A3042' }}>Add a room</div>
+                <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>Choose a room type to pre-fill its spec fields</div>
+              </div>
+              <button onClick={()=>{setShowAddRoom(false);setNewRoomName('')}}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22 }}>×</button>
+            </div>
+
+            {/* Room type tiles */}
+            <div style={{ padding:'16px 20px' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:8, marginBottom:14 }}>
+                {roomTemplates.map(t => (
+                  <button key={t.id} onClick={()=>addRoom(t)}
+                    style={{ padding:'14px 10px', borderRadius:11, border:'1.5px solid #E8ECF0', background:'#F9FAFB',
+                      cursor:'pointer', textAlign:'center', transition:'all .15s' }}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor='#5B8AF0';e.currentTarget.style.background='#EEF2FF'}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor='#E8ECF0';e.currentTarget.style.background='#F9FAFB'}}>
+                    <div style={{ fontSize:28, marginBottom:6 }}>{t.icon}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', marginBottom:3 }}>{t.name}</div>
+                    <div style={{ fontSize:10, color:'#9CA3AF' }}>{(t.fields||[]).length} spec field{(t.fields||[]).length!==1?'s':''}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom room name fallback */}
+              <div style={{ borderTop:'1px solid #F3F4F6', paddingTop:12 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'#9CA3AF', marginBottom:8 }}>Or enter a custom room name</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input autoFocus={roomTemplates.length===0} value={newRoomName} onChange={e=>setNewRoomName(e.target.value)}
+                    onKeyDown={e=>e.key==='Enter'&&newRoomName.trim()&&addRoom(null)}
+                    placeholder="e.g. Scullery, Wine cellar…"
+                    style={{ flex:1, padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none' }} />
+                  <Btn onClick={()=>addRoom(null)} variant="primary" disabled={!newRoomName.trim()}>Add</Btn>
+                </div>
+              </div>
+            </div>
           </div>
-        </Card>
+        </div>
       )}
+
 
       {/* Active room spec */}
       {spec.rooms.length > 0 && spec.rooms[activeRoom] && (

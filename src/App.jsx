@@ -18,6 +18,8 @@ import Notes from './screens/Notes'
 import FileTypes from './screens/FileTypes'
 import OrderSheet from './screens/OrderSheet'
 import ProcessTemplates from './screens/ProcessTemplates'
+import JobStatuses from './screens/JobStatuses'
+import RoomTypeSettings from './screens/RoomTypeSettings'
 import CopyFormat from './screens/CopyFormat'
 import FormulaWriter from './screens/FormulaWriter'
 import ProductionDashboard from './screens/ProductionDashboard'
@@ -83,6 +85,8 @@ export default function App() {
         <Route path="notes/:noteId" element={<Notes />} />
         <Route path="settings/file-types" element={<FileTypes />} />
         <Route path="settings/processes" element={<ProcessTemplates />} />
+        <Route path="settings/job-statuses" element={<JobStatuses />} />
+        <Route path="settings/room-types" element={<RoomTypeSettings />} />
         <Route path="settings/copy-format" element={<CopyFormat />} />
         <Route path="formula-writer" element={<FormulaWriter />} />
         <Route path="job/:id/orders" element={<OrderSheet />} />

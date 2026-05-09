@@ -7,6 +7,7 @@ const fmtNZTime = dt => { const s = String(dt).endsWith('Z')||String(dt).include
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
+import { useJobStatuses } from '../hooks/useJobStatuses'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
 import RoomDetail from './RoomDetail'
@@ -18,7 +19,7 @@ import InlineSpecBuilder from './InlineSpecBuilder'
 import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
-const STATUSES = ['Pending','In progress','Submitted for approval','Review','Complete','On hold']
+// Job statuses loaded dynamically from settings — see useJobStatuses hook
 
 // Module-level cache — persists across navigations within the session
 // so re-opening a job doesn't re-fetch the materials library
@@ -2232,6 +2233,7 @@ export default function JobDetail() {
   const [feedback, setFeedback]       = useState([])
   const [specs, setSpecs]             = useState([])
   const [activeSpecId, setActiveSpecId] = useState(null)
+  const jobStatuses = useJobStatuses()
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
@@ -2292,7 +2294,7 @@ export default function JobDetail() {
     supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
     // Load feedback
     supabase.from('job_feedback').select('*, profiles(id,full_name,email)').eq('job_id', id).order('created_at',{ascending:false}).then(({data})=>setFeedback(data||[]))
-    supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error){ setSpecs(data||[]); if(data?.length) setActiveSpecId(data[0].id) } })
+    supabase.from('specs').select('id,title,status,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error){ setSpecs(data||[]); if(data?.length) setActiveSpecId(data[0].id) } })
     // Load active entries at job level so both panels stay in sync
     supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
       .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
@@ -2697,7 +2699,7 @@ export default function JobDetail() {
         </div>
         <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
           className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
-          {STATUSES.map(s => <option key={s}>{s}</option>)}
+          {jobStatuses.map(s => <option key={s.label}>{s.label}</option>)}
         </select>
       </div>
       {overTasks.length > 0 && (
@@ -3123,7 +3125,7 @@ export default function JobDetail() {
             specId={activeSpecId}
             jobId={id}
             onBack={() => {
-              supabase.from('specs').select('id,title,status,rooms,updated_at').eq('job_id', id)
+              supabase.from('specs').select('id,title,status,updated_at').eq('job_id', id)
                 .order('updated_at',{ascending:false}).then(({data})=>{ if(data) setSpecs(data) })
             }}
           />

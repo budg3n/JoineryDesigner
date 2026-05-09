@@ -50,6 +50,7 @@ const PAGE_TITLES = {
   '/reports':'Reports','/spec-builder':'Spec Builder',
   '/settings/customers':'Customers','/settings/team':'Team',
   '/settings/file-types':'File types',
+  '/settings/job-statuses':'Job Statuses','/settings/room-types':'Room Types',
 }
 
 export default function Layout() {
