@@ -7,6 +7,12 @@ import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 
+function safeParse(v) {
+  if (!v) return {}
+  if (typeof v === 'object') return v
+  try { return JSON.parse(v) } catch { return {} }
+}
+
 const STATUS_OPTIONS   = ['To order', 'Ordered', 'Received']
 const UNIT_OPTIONS     = ['sheets', 'pcs', 'm', 'm²', 'sets', 'rolls', 'boxes', 'kg', 'L']
 const CATEGORY_OPTIONS = ['Board', 'Hardware', 'Appliance', 'Accessory', 'Other']
@@ -192,7 +198,7 @@ function ItemCell({ value, onCommit, materials, width }) {
     onCommit({
       item:        m.name,
       supplier:    m.supplier||'',
-      brand:       m.custom_fields ? (JSON.parse(m.custom_fields||'{}').brand||'') : '',
+      brand:       safeParse(m.custom_fields).brand || '',
       panel_type:  m.panel_type||'',
       thickness:   m.thickness ? String(m.thickness) : '',
       colour:      m.colour_code||m.color||'',
@@ -358,7 +364,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
             value={col.key.startsWith('_cf_')
               ? (()=>{
                   try {
-                    const cf = JSON.parse(row.custom_fields||'{}')
+                    const cf = safeParse(row.custom_fields)
                     // Try by field ID first, then by label (Materials stores by label)
                     const byId = cf[col.fieldId] || cf[col.key.replace('_cf_','')]
                     const byLabel = cf[col.fieldLabel] || cf[(col.fieldLabel||'').toLowerCase().replace(/\s+/g,'_')]
@@ -503,7 +509,7 @@ export default function OrderSheet() {
           return makeRow({
             item:          mat.name || '',
             supplier:      mat.supplier || '',
-            brand:         mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
+            brand:         mat.custom_fields ? (safeParse(mat.custom_fields).brand||'') : '',
             panel_type:    mat.panel_type || '',
             thickness:     mat.thickness ? String(mat.thickness) : '',
             colour:        mat.colour_code || '',
@@ -513,7 +519,7 @@ export default function OrderSheet() {
             notes:         mat.notes || '',
             category:      mat.panel_type ? 'Board' : 'Hardware',
             material_id:   entry.material_id,
-            custom_fields: mat.custom_fields || '{}',
+            custom_fields: safeParse(mat.custom_fields),
             _fromRoom:     true,
           })
         })
@@ -541,7 +547,7 @@ export default function OrderSheet() {
           return makeRow({
             item:          mat.name || '',
             supplier:      mat.supplier || '',
-            brand:         mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
+            brand:         mat.custom_fields ? (safeParse(mat.custom_fields).brand||'') : '',
             panel_type:    mat.panel_type || '',
             thickness:     mat.thickness ? String(mat.thickness) : '',
             colour:        mat.colour_code || '',
@@ -553,7 +559,7 @@ export default function OrderSheet() {
             material_id:   entry.material_id,
             room_id:       entry.room_id,
             room_name:     entry.rooms?.name || '',
-            custom_fields: mat.custom_fields || '{}',
+            custom_fields: safeParse(mat.custom_fields),
             _fromRoom:     true,
           })
         })
@@ -610,7 +616,7 @@ export default function OrderSheet() {
         })
         const base = { ...r, ...regularPatch }
         if (Object.keys(cfPatch).length > 0) {
-          const existing = typeof r.custom_fields==='string' ? JSON.parse(r.custom_fields||'{}') : (r.custom_fields||{})
+          const existing = safeParse(r.custom_fields)
           base.custom_fields = JSON.stringify({ ...existing, ...cfPatch })
         }
         return base
