@@ -353,7 +353,7 @@ export default function Dashboard() {
     setLoading(true)
 
     // Minimal columns needed for tiles — avoids fetching heavy fields like notes/kitchen_specs
-    const cols = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,created_at,customers(id,first_name,last_name,company)'
+    const cols = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,tasks,created_at,customers(id,first_name,last_name,company)'
 
     // Fire jobs + assignments in parallel instead of sequentially
     const [{ data, error }, { data: assignData }] = await Promise.all([
