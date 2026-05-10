@@ -61,13 +61,30 @@ const FIELD_TYPES = [
 ]
 
 const TEMPLATE_FIELDS = [
-  { key:'supplier',     label:'Supplier',     field_type:'text' },
-  { key:'panel_type',   label:'Panel type',   field_type:'text' },
-  { key:'thickness',    label:'Thickness',    field_type:'number' },
-  { key:'finish',       label:'Finish',       field_type:'text' },
-  { key:'colour_code',  label:'Colour code',  field_type:'text' },
-  { key:'sku',          label:'SKU',          field_type:'text' },
-  { key:'price',        label:'Price',        field_type:'number' },
+  // Identity
+  { key:'supplier',     label:'Supplier',         field_type:'text',   group:'Identity' },
+  { key:'brand',        label:'Brand',             field_type:'text',   group:'Identity' },
+  { key:'sku',          label:'SKU / Product code',field_type:'text',   group:'Identity' },
+  // Material specs
+  { key:'panel_type',   label:'Panel type',        field_type:'text',   group:'Specification' },
+  { key:'thickness',    label:'Thickness (mm)',     field_type:'number', group:'Specification' },
+  { key:'finish',       label:'Finish',             field_type:'text',   group:'Specification' },
+  { key:'colour_code',  label:'Colour code',        field_type:'text',   group:'Specification' },
+  { key:'colour',       label:'Colour name',        field_type:'text',   group:'Specification' },
+  { key:'grade',        label:'Grade',              field_type:'text',   group:'Specification' },
+  { key:'edge_profile', label:'Edge profile',       field_type:'text',   group:'Specification' },
+  { key:'grain',        label:'Grain direction',    field_type:'select', group:'Specification', options:['Grained','No grain','Any'] },
+  { key:'dimensions',   label:'Sheet dimensions',   field_type:'text',   group:'Specification' },
+  { key:'weight',       label:'Weight (kg)',         field_type:'number', group:'Specification' },
+  // Ordering
+  { key:'unit',         label:'Order unit',         field_type:'select', group:'Ordering', options:['sheets','m','m²','m³','lm','kg','pcs','boxes','rolls','litres'] },
+  { key:'qty',          label:'Default qty',        field_type:'number', group:'Ordering' },
+  { key:'price',        label:'Unit price ($)',      field_type:'number', group:'Ordering' },
+  { key:'lead_time',    label:'Lead time (days)',    field_type:'number', group:'Ordering' },
+  { key:'min_order',    label:'Minimum order qty',  field_type:'number', group:'Ordering' },
+  { key:'po_number',    label:'PO number',          field_type:'text',   group:'Ordering' },
+  // Notes
+  { key:'notes',        label:'Notes',              field_type:'text',   group:'Other' },
 ]
 
 function FieldsModal({ catId, catName, onClose }) {
@@ -160,32 +177,43 @@ function FieldsModal({ catId, catName, onClose }) {
             {/* Template fields section */}
             <div style={{ marginBottom:18 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
-                Standard fields — toggle on/off
+                Standard fields — toggle on/off per category
               </div>
-              {TEMPLATE_FIELDS.map(tf => {
-                const state = templateEnabled[tf.key] || { enabled:false, required:false }
+              {['Identity','Specification','Ordering','Other'].map(group => {
+                const groupFields = TEMPLATE_FIELDS.filter(tf => tf.group === group)
                 return (
-                  <div key={tf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
-                    background: state.enabled ? '#F0F4FF' : '#F9FAFB',
-                    borderRadius:9, border:`1px solid ${state.enabled?'#C4D4F8':'#E8ECF0'}`, marginBottom:6 }}>
-                    {/* Toggle */}
-                    <div onClick={()=>toggleTemplate(tf)}
-                      style={{ width:36, height:20, borderRadius:10, background:state.enabled?'#5B8AF0':'#D1D5DB',
-                        position:'relative', cursor:'pointer', flexShrink:0, transition:'background .15s' }}>
-                      <div style={{ position:'absolute', top:2, left:state.enabled?18:2, width:16, height:16,
-                        borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, fontWeight:600, color: state.enabled?'#2A3042':'#9CA3AF' }}>{tf.label}</div>
-                      <div style={{ fontSize:11, color:'#9CA3AF' }}>{FIELD_TYPES.find(t=>t.value===tf.field_type)?.label}</div>
-                    </div>
-                    {state.enabled && (
-                      <button onClick={()=>toggleTemplateRequired(tf)}
-                        style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${state.required?'#86EFAC':'#E8ECF0'}`,
-                          background:state.required?'#F0FDF4':'#F9FAFB', color:state.required?'#166534':'#9CA3AF', cursor:'pointer', flexShrink:0 }}>
-                        {state.required?'✓ Required':'Optional'}
-                      </button>
-                    )}
+                  <div key={group} style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#C4C9D4', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, paddingLeft:2 }}>{group}</div>
+                    {groupFields.map(tf => {
+                      const state = templateEnabled[tf.key] || { enabled:false, required:false }
+                      return (
+                        <div key={tf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px',
+                          background: state.enabled ? '#F0F4FF' : '#F9FAFB',
+                          borderRadius:9, border:`1px solid ${state.enabled?'#C4D4F8':'#E8ECF0'}`, marginBottom:5 }}>
+                          {/* Toggle switch */}
+                          <div onClick={()=>toggleTemplate(tf)}
+                            style={{ width:36, height:20, borderRadius:10, background:state.enabled?'#5B8AF0':'#D1D5DB',
+                              position:'relative', cursor:'pointer', flexShrink:0, transition:'background .15s' }}>
+                            <div style={{ position:'absolute', top:2, left:state.enabled?18:2, width:16, height:16,
+                              borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:600, color: state.enabled?'#2A3042':'#9CA3AF' }}>{tf.label}</div>
+                            <div style={{ fontSize:10, color:'#C4C9D4' }}>
+                              {FIELD_TYPES.find(t=>t.value===tf.field_type)?.label}
+                              {tf.options && ` · ${tf.options.slice(0,3).join(', ')}${tf.options.length>3?'…':''}`}
+                            </div>
+                          </div>
+                          {state.enabled && (
+                            <button onClick={()=>toggleTemplateRequired(tf)}
+                              style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${state.required?'#86EFAC':'#E8ECF0'}`,
+                                background:state.required?'#F0FDF4':'#F9FAFB', color:state.required?'#166534':'#9CA3AF', cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+                              {state.required?'✓ Required':'Optional'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )
               })}
