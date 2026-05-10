@@ -22,6 +22,7 @@ const DEFAULT_COLS = [
   { key:'item',       label:'Name',        w:190, type:'item' },
   { key:'room_name',  label:'Room',        w:110, type:'room' },
   { key:'supplier',   label:'Supplier',    w:130, type:'text' },
+  { key:'brand',      label:'Brand',       w:110, type:'text' },
   { key:'panel_type', label:'Panel type',  w:100, type:'text' },
   { key:'thickness',  label:'Thickness',   w:85,  type:'text',   placeholder:'mm' },
   { key:'colour',     label:'Colour',      w:110, type:'text' },
@@ -61,7 +62,7 @@ function useCategoryFields(catId) {
 function makeRow(overrides={}) {
   return {
     id:          Date.now().toString(36)+Math.random().toString(36).slice(2),
-    item:'', supplier:'', panel_type:'', thickness:'', colour:'', finish:'',
+    item:'', supplier:'', brand:'', panel_type:'', thickness:'', colour:'', finish:'',
     dimensions:'', qty:'', unit:'sheets', sku:'', price:'', po_number:'', notes:'',
     category:'Board', status:'To order', needed:'', material_id:null, room_id:null, appliance_id:null,
     ...overrides,
@@ -190,6 +191,7 @@ function ItemCell({ value, onCommit, materials, width }) {
     onCommit({
       item:        m.name,
       supplier:    m.supplier||'',
+      brand:       m.custom_fields ? (JSON.parse(m.custom_fields||'{}').brand||'') : '',
       panel_type:  m.panel_type||'',
       thickness:   m.thickness ? String(m.thickness) : '',
       colour:      m.colour_code||m.color||'',
@@ -486,6 +488,7 @@ export default function OrderSheet() {
           return makeRow({
             item:        mat.name || '',
             supplier:    mat.supplier || '',
+            brand:       mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
             panel_type:  mat.panel_type || '',
             thickness:   mat.thickness ? String(mat.thickness) : '',
             colour:      mat.colour_code || '',

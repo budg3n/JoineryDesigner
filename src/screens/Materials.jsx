@@ -765,19 +765,45 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const [showFieldMgr, setShowFieldMgr] = React.useState(false)
   const saveTimer = React.useRef()
 
-  // Column definitions — core fields + custom fields from category
-  const coreCols = React.useMemo(() => [
-    { key:'img',          label:'Image',      w:60,  type:'image' },
-    { key:'name',         label:'Name',       w:180, type:'text',   required:true },
-    { key:'supplier',     label:'Supplier',   w:130, type:'text' },
-    { key:'panel_type',   label:'Panel type', w:110, type:'text' },
-    { key:'thickness',    label:'Thickness',  w:90,  type:'text',  placeholder:'mm' },
-    { key:'dimensions',   label:'Dimensions', w:130, type:'text',  placeholder:'e.g. 2400×1220' },
-    { key:'colour_code',  label:'Colour',     w:110, type:'text' },
-    { key:'finish',       label:'Finish',     w:110, type:'text' },
-    { key:'price',        label:'Price',      w:90,  type:'text',  placeholder:'0.00' },
-    { key:'notes',        label:'Notes',      w:160, type:'text' },
-  ], [])
+  // All possible native + standard columns
+  const ALL_COLS = [
+    { key:'img',          label:'Image',          w:60,  type:'image' },
+    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:true },
+    { key:'supplier',     label:'Supplier',        w:130, type:'text',   settingKey:'supplier' },
+    { key:'brand',        label:'Brand',           w:110, type:'text',   settingKey:'brand' },
+    { key:'sku',          label:'SKU',             w:110, type:'text',   settingKey:'sku' },
+    { key:'panel_type',   label:'Panel type',      w:110, type:'text',   settingKey:'panel_type' },
+    { key:'thickness',    label:'Thickness',       w:90,  type:'text',   settingKey:'thickness', placeholder:'mm' },
+    { key:'colour_code',  label:'Colour code',     w:110, type:'text',   settingKey:'colour_code' },
+    { key:'colour',       label:'Colour name',     w:110, type:'text',   settingKey:'colour' },
+    { key:'finish',       label:'Finish',          w:110, type:'text',   settingKey:'finish' },
+    { key:'grade',        label:'Grade',           w:100, type:'text',   settingKey:'grade' },
+    { key:'edge_profile', label:'Edge profile',    w:110, type:'text',   settingKey:'edge_profile' },
+    { key:'dimensions',   label:'Dimensions',      w:130, type:'text',   settingKey:'dimensions', placeholder:'e.g. 2400×1220' },
+    { key:'weight',       label:'Weight (kg)',      w:90,  type:'text',   settingKey:'weight' },
+    { key:'price',        label:'Price',           w:90,  type:'text',   settingKey:'price', placeholder:'0.00' },
+    { key:'unit',         label:'Unit',            w:90,  type:'text',   settingKey:'unit' },
+    { key:'qty',          label:'Default qty',     w:80,  type:'text',   settingKey:'qty' },
+    { key:'lead_time',    label:'Lead time',       w:90,  type:'text',   settingKey:'lead_time' },
+    { key:'min_order',    label:'Min order',       w:90,  type:'text',   settingKey:'min_order' },
+    { key:'po_number',    label:'PO number',       w:110, type:'text',   settingKey:'po_number' },
+    { key:'notes',        label:'Notes',           w:160, type:'text',   settingKey:'notes' },
+  ]
+
+  const [catVisibility, setCatVisibility] = React.useState(null)
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${targetCat.id}`).maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setCatVisibility(new Set(JSON.parse(data.value)))
+        else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
+      })
+  }, [targetCat.id])
+
+  // Column definitions — filtered by category visibility settings
+  const coreCols = React.useMemo(() => {
+    if (!catVisibility) return ALL_COLS.filter(c => c.always || c.type === 'image')
+    return ALL_COLS.filter(c => c.always || c.type === 'image' || (c.settingKey && catVisibility.has(c.settingKey)))
+  }, [catVisibility])
 
   const customCols = React.useMemo(() =>
     catFields.map(f => ({
@@ -804,10 +830,18 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     })
   }, [targetCat.id])
 
-  const filtered = materials.filter(m =>
-    !search || (m.name||'').toLowerCase().includes(search.toLowerCase()) ||
-    (m.supplier||'').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = materials.filter(m => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    // Search native columns
+    const nativeMatch = [m.name, m.supplier, m.panel_type, m.thickness,
+      m.colour_code, m.finish, m.notes, m.sku, m.price]
+      .some(v => v && String(v).toLowerCase().includes(q))
+    if (nativeMatch) return true
+    // Search all custom_fields values
+    const cf = safeJSON(m.custom_fields)
+    return Object.values(cf).some(v => v && String(v).toLowerCase().includes(q))
+  })
 
   function triggerSave(updated) {
     clearTimeout(saveTimer.current)
@@ -934,6 +968,8 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
               </div>
             ) : filtered.map((m, idx) => {
               const cf = safeJSON(m.custom_fields)
+              // Non-native standard fields stored in custom_fields JSON
+              const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
               return (
                 <div key={m.id} style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6' }}
                   onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
@@ -945,17 +981,22 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                         onUpdated={path => setMaterials(prev=>prev.map(x=>x.id===m.id?{...x,storage_path:path}:x))} />
                     )
                     if (col.fieldId) {
-                      // Custom field
                       return (
                         <MCell key={col.key} value={cf[col.fieldId]??''} w={col.w}
                           type={col.type} options={col.options} placeholder={col.label}
                           onChange={v=>updateMat(m.id,{_customFieldId:col.fieldId,_value:v})} />
                       )
                     }
+                    // Non-native standard fields read from custom_fields JSON
+                    const isNonNative = NON_NATIVE.includes(col.key)
+                    const val = isNonNative ? (cf[col.key]??'') : (m[col.key]??'')
                     return (
-                      <MCell key={col.key} value={m[col.key]??''} w={col.w}
+                      <MCell key={col.key} value={val} w={col.w}
                         type={col.type} placeholder={col.placeholder||col.label}
-                        onChange={v=>updateMat(m.id,{[col.key]:v})} />
+                        onChange={v => isNonNative
+                          ? updateMat(m.id, { custom_fields: JSON.stringify({ ...cf, [col.key]: v }) })
+                          : updateMat(m.id, { [col.key]: v })
+                        } />
                     )
                   })}
                   <div style={{ width:40, display:'flex', alignItems:'center', justifyContent:'center', height:36, flexShrink:0 }}>
