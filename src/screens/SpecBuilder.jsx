@@ -903,8 +903,8 @@ export default function SpecBuilder() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from('material_categories').select('*').order('name'),
-      supabase.from('appliance_categories').select('*').order('name'),
+      supabase.from('material_categories').select('id,name,parent_id').order('name'),
+      supabase.from('appliance_categories').select('id,name,parent_id').order('name'),
       supabase.from('jobs').select('id').order('id', { ascending:false }).limit(1),
     ]).then(([{data:mc},{data:ac},{data:lastJob}]) => {
       // Pre-compute next job id (numeric + 1)

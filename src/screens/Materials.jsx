@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useDragColumns } from '../hooks/useDragColumns'
+import { cachedQuery } from '../hooks/useCache'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'

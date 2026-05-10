@@ -160,7 +160,7 @@ function Cell({ value='', onChange, col }) {
 }
 
 // ── Item cell with material search ────────────────────────────────
-function ItemCell({ value, onCommit, materials, width }) {
+function ItemCell({ value, onCommit, materials, width, onFocus }) {
   const [editing, setEditing] = useState(false)
   const [search,  setSearch]  = useState(value)
   const [show,    setShow]    = useState(false)
@@ -218,7 +218,7 @@ function ItemCell({ value, onCommit, materials, width }) {
 
   return (
     <div ref={cellRef} style={{ width, minWidth:width, maxWidth:width, height:36, padding:'0 8px', display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', position:'relative', flexShrink:0, boxSizing:'border-box', cursor:'text' }}
-      onClick={()=>{setEditing(true);openDrop()}}>
+      onClick={()=>{setEditing(true);openDrop();if(onFocus)onFocus()}}>
       {editing
         ? <input ref={ref} value={search}
             onChange={e=>{setSearch(e.target.value);openDrop()}}
@@ -346,6 +346,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
       {cols.map(col=>{
         if (col.type === 'item') return (
           <ItemCell key={col.key} value={row.item} width={col.w} materials={materials}
+                onFocus={ensureMaterialsLoaded}
             onCommit={p=>onUpdate(row.id,p)} />
         )
         if (col.type === 'room') return (
@@ -526,6 +527,7 @@ export default function OrderSheet() {
   const [job,       setJob]       = useState(null)
   const [rows,      setRows]      = useState([])
   const [materials, setMaterials] = useState([])
+  const materialsLoadedRef = useRef(false)
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(null)
   const [rooms,     setRooms]     = useState([])
@@ -547,7 +549,7 @@ export default function OrderSheet() {
   useEffect(()=>{
     Promise.all([
       supabase.from('jobs').select('id,name,client').eq('id',id).single(),
-      supabase.from('materials').select('*').order('name'),
+      Promise.resolve({ data: [] }), // materials loaded lazily on first item search
       supabase.from('order_items').select('*').eq('job_id',id).order('created_at'),
       supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
       supabase.from('material_categories').select('id,name,parent_id').order('name'),
@@ -768,6 +770,13 @@ export default function OrderSheet() {
   const toOrderTotal = rows.filter(r=>r.status==='To order').length
   const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
   const totalW = 28 + cols.reduce((a,c)=>a+c.w,0) + 80 + 50
+
+  async function ensureMaterialsLoaded() {
+    if (materialsLoadedRef.current) return
+    materialsLoadedRef.current = true
+    const { data } = await supabase.from('materials').select('id,name,supplier,panel_type,thickness,colour_code,finish,price,color,storage_path,category_id,custom_fields').order('name')
+    setMaterials(data||[])
+  }
 
   function printOrder() {
     const date = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })

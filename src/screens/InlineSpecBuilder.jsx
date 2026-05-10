@@ -892,8 +892,8 @@ export default function InlineSpecBuilder({ specId, jobId, onBack }) {
     supabase.from('app_settings').select('value').eq('key','room_type_templates').maybeSingle()
       .then(({data})=>{ if(data?.value){const v=typeof data.value==='string'?JSON.parse(data.value):data.value;if(Array.isArray(v)&&v.length)setRoomTemplates(v)} })
     Promise.all([
-      supabase.from('material_categories').select('*').order('name'),
-      supabase.from('appliance_categories').select('*').order('name'),
+      supabase.from('material_categories').select('id,name,parent_id').order('name'),
+      supabase.from('appliance_categories').select('id,name,parent_id').order('name'),
     ]).then(([{data:mc},{data:ac}]) => { setMatCats(mc||[]); setAppCats(ac||[]) })
 
     supabase.from('specs').select('*').eq('id', specId).single()

@@ -302,7 +302,7 @@ export default function Team() {
   const setI = k => e => setInv(p=>({...p,[k]:e.target.value}))
 
   useEffect(() => {
-    supabase.from('profiles').select('*').order('full_name').then(({ data }) => {
+    supabase.from('profiles').select('id,full_name,email,role,phone,position,department,notes').order('full_name').then(({ data }) => {
       setMembers(data||[]); setLoading(false)
     })
   }, [])

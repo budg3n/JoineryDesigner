@@ -8,6 +8,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useJobStatuses } from '../hooks/useJobStatuses'
+import { cachedQuery } from '../hooks/useCache'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
 import RoomDetail from './RoomDetail'
@@ -2264,14 +2265,14 @@ export default function JobDetail() {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
     const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
-      supabase.from('jobs').select('*, customers(id,first_name,last_name,company)').eq('id', id).single(),
-      supabase.from('attachments').select('*').eq('job_id', id).order('created_at'),
+      supabase.from('jobs').select('id,name,job_number,client,type,status,notes,start_date,due_date,budget_hours,time_logged,tasks,mat_colors,delivery_address,kitchen_specs,customers(id,first_name,last_name,company)').eq('id', id).single(),
+      supabase.from('attachments').select('id,name,size,type,storage_path,created_at,file_type_id').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
-      supabase.from('materials').select('*').order('name'),
+      Promise.resolve({ data: [] }), // materials loaded lazily on tab open
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
-      supabase.from('appliances').select('*').order('brand'),
+      Promise.resolve({ data: [] }), // appliances loaded lazily on tab open
       supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
-      supabase.from('file_types').select('*').order('name'),
+      cachedQuery('file_types', () => supabase.from('file_types').select('id,name,icon,color').order('name')),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
@@ -2291,14 +2292,24 @@ export default function JobDetail() {
     setApprovals(approvs||[])
     setLoading(false)
     // Load rooms
-    supabase.from('rooms').select('*').eq('job_id', id).order('sort_order').then(({data})=>setRooms(data||[]))
+    // Load secondary data in parallel — don't block main job render
+    Promise.all([
+      supabase.from('rooms').select('id,name,type,notes,sort_order,tasks').eq('job_id', id).order('sort_order'),
+      supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
+      supabase.from('job_feedback').select('id,title,description,status,severity,created_at,resolved_at').eq('job_id', id).order('created_at',{ascending:false}),
+      supabase.from('notifications').select('id,read').eq('user_id', profile?.id||'').eq('job_id', id),
+    ]).then(([{data:roomData},{data:procData},{data:fbData},{data:notifData}]) => {
+      setRooms(roomData||[])
+      setProcesses(procData||[])
+      setFeedback(fbData||[])
+    })
     // Load processes
-    supabase.from('job_processes').select('*').eq('job_id', id).order('sort_order').then(({data})=>setProcesses(data||[]))
+    // processes loaded in parallel above
     // Load feedback
     supabase.from('job_feedback').select('*, profiles(id,full_name,email)').eq('job_id', id).order('created_at',{ascending:false}).then(({data})=>setFeedback(data||[]))
     supabase.from('specs').select('id,title,status,updated_at').eq('job_id', id).order('updated_at',{ascending:false}).then(({data,error})=>{ if(!error){ setSpecs(data||[]); if(data?.length) setActiveSpecId(data[0].id) } })
     // Load active entries at job level so both panels stay in sync
-    supabase.from('time_entries').select('*').eq('job_id', id).is('clocked_out_at', null)
+    supabase.from('time_entries').select('id,job_id,user_id,process_id,clocked_in_at,clocked_out_at,duration_minutes').eq('job_id', id).is('clocked_out_at', null)
       .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
     // Load time history
     supabase.from('time_entries').select('*,profiles(id,full_name,email),job_processes(id,name,color)')
@@ -2727,7 +2738,13 @@ export default function JobDetail() {
           { key:'specs',      label:'Specs',     badge: specs.length||null },
           { key:'onsite',     label:'On-Site' },
         ].map(t => (
-          <button key={t.key} onClick={() => setJobTab(t.key)}
+          <button key={t.key} onClick={() => {
+              setJobTab(t.key)
+              if (t.key==='materials' && allMaterials.length===0)
+                supabase.from('materials').select('id,name,supplier,panel_type,thickness,colour_code,finish,price,color,storage_path,category_id,custom_fields').order('name').then(({data})=>setAllMaterials(data||[]))
+              if (t.key==='appliances' && allAppliances.length===0)
+                supabase.from('appliances').select('id,name,brand,model,type,supplier,sku,price,storage_path,category_id').order('brand').then(({data})=>setAllAppliances(data||[]))
+            }}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
               fontWeight: jobTab===t.key?700:500, background: jobTab===t.key?'#fff':'transparent',
               color: jobTab===t.key?'#2A3042':'#6B7280', boxShadow: jobTab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
