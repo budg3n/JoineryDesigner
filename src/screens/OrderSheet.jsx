@@ -769,10 +769,144 @@ export default function OrderSheet() {
   const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
   const totalW = 28 + cols.reduce((a,c)=>a+c.w,0) + 80 + 50
 
+  function printOrder() {
+    const date = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })
+    const filteredRows = rows.filter(r => filter === 'All' || r.status === filter)
+
+    // Group rows same way as display
+    const groupMap = {}
+    filteredRows.forEach(r => {
+      const key = groupBy === 'Category' ? (r.category||'Other')
+                : groupBy === 'Room'     ? (r.room_name||'No room')
+                : (r.supplier||'No supplier')
+      if (!groupMap[key]) groupMap[key] = []
+      groupMap[key].push(r)
+    })
+
+    const groupEntries = Object.entries(groupMap)
+
+    const groupHTML = groupEntries.map(([groupTitle, groupRows]) => {
+      // Determine visible columns for this group
+      const hasPrice = groupRows.some(r => parseFloat(r.price) > 0)
+      const hasThickness = groupRows.some(r => r.thickness)
+      const hasSupplier = groupRows.some(r => r.supplier)
+      const hasColour = groupRows.some(r => r.colour)
+      const hasFinish = groupRows.some(r => r.finish)
+      const hasPanelType = groupRows.some(r => r.panel_type)
+      const hasSku = groupRows.some(r => r.sku)
+      const hasRoom = groupBy !== 'Room' && groupRows.some(r => r.room_name)
+      const hasQty = groupRows.some(r => r.qty)
+      const hasNotes = groupRows.some(r => r.notes)
+
+      // Build col defs for this group
+      const gCols = [
+        { key:'item', label:'Item', always:true },
+        hasRoom      && { key:'room_name',  label:'Room' },
+        hasSupplier  && { key:'supplier',   label:'Supplier' },
+        hasPanelType && { key:'panel_type', label:'Panel type' },
+        hasThickness && { key:'thickness',  label:'Thickness', suffix:'mm' },
+        hasColour    && { key:'colour',     label:'Colour' },
+        hasFinish    && { key:'finish',     label:'Finish' },
+        hasSku       && { key:'sku',        label:'SKU' },
+        hasQty       && { key:'qty',        label:'Qty', num:true },
+        { key:'unit', label:'Unit' },
+        hasPrice     && { key:'price',      label:'Unit price', price:true },
+        hasPrice && hasQty && { key:'_total', label:'Total', price:true },
+        { key:'status', label:'Status' },
+        hasNotes     && { key:'notes',      label:'Notes' },
+      ].filter(Boolean)
+
+      const subtotal = groupRows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
+
+      const headerRow = gCols.map(c=>`<th>${c.label}</th>`).join('')
+      const dataRows = groupRows.map(r => {
+        const qty = parseFloat(r.qty), price = parseFloat(r.price)
+        const total = !isNaN(qty)&&!isNaN(price) ? (qty*price).toFixed(2) : ''
+        const statusStyle = r.status==='Ordered'?'color:#1E40AF;font-weight:600':r.status==='Received'?'color:#166534;font-weight:600':'color:#854D0E;font-weight:600'
+        const cells = gCols.map(c => {
+          if (c.key==='_total') return `<td style="text-align:right">${total?`$${total}`:''}</td>`
+          if (c.key==='status') return `<td style="${statusStyle}">${r[c.key]||''}</td>`
+          if (c.price) return `<td style="text-align:right">${r[c.key]?`$${parseFloat(r[c.key]).toFixed(2)}`:''}</td>`
+          if (c.num) return `<td style="text-align:right">${r[c.key]||''}</td>`
+          if (c.suffix) return `<td>${r[c.key]?r[c.key]+c.suffix:''}</td>`
+          return `<td>${r[c.key]||''}</td>`
+        }).join('')
+        return `<tr>${cells}</tr>`
+      }).join('')
+
+      return `
+        <div class="group">
+          <div class="group-title">${groupTitle} <span class="group-count">${groupRows.length} item${groupRows.length!==1?'s':''}</span>${subtotal>0?`<span class="group-subtotal">$${subtotal.toFixed(2)}</span>`:''}</div>
+          <table>
+            <thead><tr>${headerRow}</tr></thead>
+            <tbody>${dataRows}</tbody>
+          </table>
+        </div>`
+    }).join('')
+
+    const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
+    const toOrder = rows.filter(r=>r.status==='To order').length
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Order Sheet — ${job?.name||''} — ${date}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+@page{size:A4 landscape;margin:12mm}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#111;background:#fff;padding:0}
+.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
+.title{font-size:20px;font-weight:800}
+.sub{font-size:12px;color:#555;margin-top:3px}
+.meta{text-align:right;font-size:10px;color:#555}
+.stats{display:flex;gap:20px;margin-top:6px}
+.stat-num{font-size:16px;font-weight:800}
+.stat-lbl{font-size:9px;color:#555;margin-left:2px}
+.group{margin-bottom:16px;page-break-inside:avoid}
+.group-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:5px 8px;background:#f0f0f0;border-radius:4px;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.group-count{font-weight:400;font-size:10px;color:#666}
+.group-subtotal{margin-left:auto;font-size:11px;font-weight:700;color:#000}
+table{width:100%;border-collapse:collapse;font-size:9.5px}
+th{background:#2A3042;color:#fff;padding:4px 6px;text-align:left;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+td{padding:4px 6px;border-bottom:1px solid #eee;vertical-align:top}
+tr:nth-child(even) td{background:#fafafa}
+.footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:9px;color:#888}
+.grand-total{font-size:13px;font-weight:800;color:#000;margin-top:10px;text-align:right}
+</style></head><body>
+<div class="header">
+  <div>
+    <div class="title">${job?.name||'Order Sheet'}</div>
+    <div class="sub">Order Sheet${filter!=='All'?` — ${filter}`:''}</div>
+    <div class="stats">
+      <div><span class="stat-num">${rows.length}</span><span class="stat-lbl">items</span></div>
+      ${toOrder>0?`<div><span class="stat-num" style="color:#854D0E">${toOrder}</span><span class="stat-lbl">to order</span></div>`:''}
+      ${grandTotal>0?`<div><span class="stat-num">$${grandTotal.toFixed(2)}</span><span class="stat-lbl">total</span></div>`:''}
+    </div>
+  </div>
+  <div class="meta">
+    <div style="font-size:14px;font-weight:700">${date}</div>
+    <div style="margin-top:4px">Grouped by ${groupBy}</div>
+  </div>
+</div>
+${groupHTML}
+${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}</div>`:''}
+<div class="footer"><span>${job?.name||''} — Order Sheet</span><span>${date}</span></div>
+</body></html>`
+
+    const blob = new Blob([html], { type:'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const win = window.open(url, '_blank')
+    if (!win) {
+      const a = document.createElement('a')
+      a.href = url; a.download = `${(job?.name||'order-sheet').replace(/\s+/g,'-')}-order.html`; a.click()
+    } else {
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+    }
+  }
+
+
+
   if (!job) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner"/></div>
 
   return (
-    <div style={{ maxWidth:'100%' }}>
       {addLib && <AddToLibraryModal row={addLib} onClose={()=>setAddLib(null)}
         onSave={mat=>{setMaterials(p=>[...p,mat]);updateRow(addLib.id,{material_id:mat.id});setAddLib(null)}} />}
 
@@ -801,6 +935,10 @@ export default function OrderSheet() {
             <button onClick={()=>doSave(rows)} disabled={saving}
               style={{ fontSize:12, fontWeight:700, padding:'7px 14px', borderRadius:9, border:'1px solid #6EE7B7', background:'#ECFDF5', color:'#065F46', cursor:saving?'not-allowed':'pointer', opacity:saving?0.6:1 }}>
               💾 Save
+            </button>
+            <button onClick={printOrder}
+              style={{ fontSize:12, fontWeight:700, padding:'7px 14px', borderRadius:9, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+              🖨 Print / PDF
             </button>
           </div>
           {/* category field columns selector */}
