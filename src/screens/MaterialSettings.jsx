@@ -94,18 +94,18 @@ function FieldsModal({ catId, catName, onClose }) {
   const [customFields, setCustomFields] = useState([])
   const [nf, setNf]             = useState({ label:'', field_type:'text', required:false, options:'' })
   const toast = useToast()
+  const [saving, setSaving]     = useState(false)
+  const [savedKey, setSavedKey] = useState(null)  // briefly show 'Saved' on toggled field
   const settingsKey = `mat_cat_fields_${catId}`
 
   useEffect(() => {
     Promise.all([
       supabase.from('app_settings').select('value').eq('key', settingsKey).maybeSingle(),
-      supabase.from('category_fields').select('*').eq('category_id', catId)
-        .is('template_key', null).order('sort_order'),
+      supabase.from('category_fields').select('*').eq('category_id', catId).order('sort_order'),
     ]).then(([{ data: cfg }, { data: cf }]) => {
       if (cfg?.value) {
         setVisible(new Set(JSON.parse(cfg.value)))
       } else {
-        // Default: show the standard fields that match existing material data
         setVisible(new Set(DEFAULT_VISIBLE))
       }
       setCustomFields(cf || [])
@@ -113,19 +113,23 @@ function FieldsModal({ catId, catName, onClose }) {
     })
   }, [catId])
 
-  async function saveVisible(newSet) {
-    setVisible(newSet)
+  async function saveVisible(newSet, key) {
+    setSaving(true)
+    setSavedKey(key)
     await supabase.from('app_settings').upsert(
       { key: settingsKey, value: JSON.stringify([...newSet]) },
       { onConflict: 'key' }
     )
+    setSaving(false)
+    setTimeout(() => setSavedKey(null), 1500)
   }
 
   function toggle(key) {
     const next = new Set(visible)
     if (next.has(key)) next.delete(key)
     else next.add(key)
-    saveVisible(next)
+    setVisible(next)
+    saveVisible(next, key)
   }
 
   async function addCustom() {
@@ -161,7 +165,11 @@ function FieldsModal({ catId, catName, onClose }) {
             <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Manage fields</div>
             <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>{catName}</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            {saving && <span style={{ fontSize:11, color:'#9CA3AF' }}>Saving…</span>}
+            {!saving && savedKey && <span style={{ fontSize:11, color:'#1D9E75', fontWeight:600 }}>✓ Saved</span>}
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+          </div>
         </div>
 
         <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
@@ -200,7 +208,9 @@ function FieldsModal({ catId, catName, onClose }) {
                               {sf.options && ` · ${sf.options.slice(0,3).join(', ')}${sf.options.length>3?'…':''}`}
                             </div>
                           </div>
-                          {on && <span style={{ fontSize:10, color:'#5B8AF0', fontWeight:600 }}>Visible</span>}
+                          {on && <span style={{ fontSize:10, color: savedKey===sf.key ? '#1D9E75' : '#5B8AF0', fontWeight:700, transition:'color .3s', minWidth:40, textAlign:'right' }}>
+                            {savedKey===sf.key ? '✓ Saved' : 'Visible'}
+                          </span>}
                         </div>
                       )
                     })}
