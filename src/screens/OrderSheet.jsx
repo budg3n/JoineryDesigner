@@ -907,6 +907,7 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
   if (!job) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner"/></div>
 
   return (
+    <div style={{ maxWidth:'100%' }}>
       {addLib && <AddToLibraryModal row={addLib} onClose={()=>setAddLib(null)}
         onSave={mat=>{setMaterials(p=>[...p,mat]);updateRow(addLib.id,{material_id:mat.id});setAddLib(null)}} />}
 
