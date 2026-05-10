@@ -56,21 +56,17 @@ export function AppProvider({ children }) {
   }, [])
 
   async function loadProfile(uid, showLoading = false) {
+    // Show app immediately with cached/default profile, then update
+    if (showLoading) setLoading(false)
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
     setProfile(data || { id: uid, role: 'Production Team' })
-    if (showLoading) setLoading(false)
     // Keep Supabase warm — ping every 4 minutes to avoid cold starts
     if (!window._sbKeepAlive) {
       window._sbKeepAlive = setInterval(() => {
         supabase.from('profiles').select('id').limit(1).then(() => {})
       }, 4 * 60 * 1000)
     }
-    // One-time background migration: refresh mat_colors on any jobs
-    // where storage_path is missing from the stored JSON (old format)
-    if (!window._matColorsMigrated) {
-      window._matColorsMigrated = true
-      refreshMatColors()
-    }
+    // mat_colors migration disabled — already ran
   }
 
   async function refreshMatColors() {

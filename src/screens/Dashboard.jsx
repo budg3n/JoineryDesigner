@@ -409,7 +409,7 @@ export default function Dashboard() {
 
   // Load live data after jobs paint — deferred by one frame so tiles show first
   useEffect(() => {
-    const t = setTimeout(loadLiveData, 0)
+    const t = setTimeout(loadLiveData, 200)  // defer so job tiles paint first
     const interval = setInterval(() => {
       if (!document.hidden) loadLiveData()
     }, 30000)
