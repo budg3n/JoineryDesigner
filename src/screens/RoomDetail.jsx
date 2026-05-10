@@ -5,6 +5,7 @@ import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import NotionNotes from '../components/NotionNotes'
+import OnSite from './OnSite'
 
 const ROOM_TYPES = ['Kitchen', 'Laundry', 'Butler\'s Pantry', 'Ensuite', 'Bathroom', 'Bedroom', 'Living', 'Office', 'Garage', 'Other']
 
@@ -483,6 +484,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     { key:'materials', label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
     { key:'appliances',label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
     { key:'orders',    label:'📋 Orders' },
+    { key:'onsite',    label:'📸 On-Site' },
   ]
 
   const filteredApps = allAppliances.filter(a =>
@@ -581,13 +583,9 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
             <div>
               <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:16, marginBottom:12 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Notes</div>
-                <NotionNotes
-                  jobId={room.job_id}
-                  roomId={room.id}
-                  context="room-notes"
+                <textarea value={room.notes||''} onChange={e=>setField('notes',e.target.value)}
                   placeholder="Room notes, observations, specs…"
-                  minHeight={100}
-                />
+                  style={{ width:'100%', border:'none', outline:'none', fontSize:13, color:'#374151', resize:'vertical', minHeight:80, fontFamily:'inherit', background:'transparent', lineHeight:1.6, boxSizing:'border-box' }} />
               </div>
               {/* summary cards */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -830,6 +828,10 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
+          )}
+
+          {tab==='onsite' && (
+            <OnSite jobId={jobId} roomId={room.id} />
           )}
 
         </div>

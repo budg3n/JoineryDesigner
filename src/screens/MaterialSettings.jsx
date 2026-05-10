@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
@@ -54,38 +54,17 @@ function CategoryModal({ cat, parentId, breadcrumb, onSave, onClose }) {
   )
 }
 
-// ── Field type config ─────────────────────────────────────────────
+// ── Fields modal ──────────────────────────────────────────────────
 const FIELD_TYPES = [
-  { value:'text',   label:'Text',     icon:'Aa', desc:'Free text entry',            color:'#5B8AF0', bg:'#EEF2FF' },
-  { value:'number', label:'Number',   icon:'#',  desc:'Numeric value (e.g. 18mm)', color:'#1D9E75', bg:'#F0FDF4' },
-  { value:'price',  label:'Price',    icon:'$',  desc:'Dollar amount',              color:'#D97706', bg:'#FEF3C7' },
-  { value:'select', label:'Dropdown', icon:'≡',  desc:'Choose from a list',         color:'#7C3AED', bg:'#F5F3FF' },
-  { value:'toggle', label:'Yes/No',   icon:'⊙',  desc:'Boolean toggle',             color:'#E24B4A', bg:'#FEF2F2' },
-]
-
-// Preset field templates — common ones for joinery
-const PRESETS = [
-  { label:'Supplier',   field_type:'text',   required:false },
-  { label:'SKU / Code', field_type:'text',   required:false },
-  { label:'Thickness',  field_type:'number', required:false },
-  { label:'Width',      field_type:'number', required:false },
-  { label:'Height',     field_type:'number', required:false },
-  { label:'Colour',     field_type:'text',   required:false },
-  { label:'Finish',     field_type:'text',   required:false },
-  { label:'Core',       field_type:'text',   required:false },
-  { label:'Price',      field_type:'price',  required:false },
-  { label:'Grained',    field_type:'toggle', required:false },
+  { value:'text', label:'Text' }, { value:'number', label:'Number' },
+  { value:'select', label:'Dropdown' }, { value:'toggle', label:'Toggle' },
 ]
 
 function FieldsModal({ catId, catName, onClose }) {
-  const [fields, setFields]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [adding, setAdding]     = useState(false)
-  const [editingId, setEditingId] = useState(null)
-  const [nf, setNf]             = useState({ label:'', field_type:'text', required:false, options:'', show_in_orders:true })
-  const [ef, setEf]             = useState(null)
-  const [dragOver, setDragOver] = useState(null)
-  const dragItem = useRef(null)
+  const [fields, setFields]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding]   = useState(false)
+  const [nf, setNf]           = useState({ label:'', field_type:'text', required:false, options:'' })
   const toast = useToast()
 
   useEffect(() => {
@@ -93,264 +72,94 @@ function FieldsModal({ catId, catName, onClose }) {
       .then(({ data }) => { setFields(data||[]); setLoading(false) })
   }, [catId])
 
-  async function addField() {
+  async function add() {
     if (!nf.label.trim()) return
     const opts = nf.field_type==='select' ? nf.options.split(',').map(s=>s.trim()).filter(Boolean) : null
     const { data, error } = await supabase.from('category_fields')
-      .insert({ category_id:catId, label:nf.label.trim(), field_type:nf.field_type, required:nf.required, show_in_orders:nf.show_in_orders, sort_order:fields.length, options:opts?JSON.stringify(opts):null })
+      .insert({ category_id:catId, label:nf.label.trim(), field_type:nf.field_type, required:nf.required, sort_order:fields.length, options:opts?JSON.stringify(opts):null })
       .select().single()
     if (error) { toast(error.message,'error'); return }
-    setFields(p=>[...p, data])
-    setNf({ label:'', field_type:'text', required:false, options:'', show_in_orders:true })
-    setAdding(false)
+    setFields(p=>[...p,data]); setNf({ label:'', field_type:'text', required:false, options:'' }); setAdding(false)
     toast('Field added ✓')
   }
-
-  async function addPreset(preset) {
-    if (fields.some(f => f.label === preset.label)) { toast(`"${preset.label}" already exists`,'error'); return }
-    const { data, error } = await supabase.from('category_fields')
-      .insert({ category_id:catId, ...preset, show_in_orders:true, sort_order:fields.length })
-      .select().single()
-    if (error) { toast(error.message,'error'); return }
-    setFields(p=>[...p, data])
-    toast(`${preset.label} added ✓`)
-  }
-
-  async function saveEdit(id) {
-    if (!ef.label?.trim()) return
-    const opts = ef.field_type==='select' ? ef.options?.split(',').map(s=>s.trim()).filter(Boolean) : null
-    await supabase.from('category_fields').update({ label:ef.label.trim(), field_type:ef.field_type, required:ef.required, show_in_orders:ef.show_in_orders, options:opts?JSON.stringify(opts):null }).eq('id', id)
-    setFields(p=>p.map(f=>f.id===id?{...f,...ef}:f))
-    setEditingId(null); setEf(null)
-    toast('Saved ✓')
-  }
-
   async function del(id) {
-    if (!confirm('Delete this field? This will remove it from all materials in this category.')) return
+    if (!confirm('Delete this field?')) return
     await supabase.from('category_fields').delete().eq('id', id)
     setFields(p=>p.filter(f=>f.id!==id))
-    toast('Deleted')
   }
-
-  async function reorder(fromIdx, toIdx) {
-    const reordered = [...fields]
-    const [moved] = reordered.splice(fromIdx, 1)
-    reordered.splice(toIdx, 0, moved)
-    setFields(reordered)
-    await Promise.all(reordered.map((f,i) => supabase.from('category_fields').update({ sort_order:i }).eq('id', f.id)))
+  async function toggleReq(f) {
+    await supabase.from('category_fields').update({ required:!f.required }).eq('id',f.id)
+    setFields(p=>p.map(x=>x.id===f.id?{...x,required:!f.required}:x))
   }
-
-  const ft = (type) => FIELD_TYPES.find(t=>t.value===type) || FIELD_TYPES[0]
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+    <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
       onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:580, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.2)' }}>
-
-        {/* Header */}
-        <div style={{ padding:'18px 20px 14px', borderBottom:'1px solid #F3F4F6' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div>
-              <div style={{ fontSize:16, fontWeight:800, color:'#2A3042' }}>Define fields</div>
-              <div style={{ fontSize:12, color:'#9CA3AF', marginTop:3 }}>{catName}</div>
-            </div>
-            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:520, maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Custom fields</div>
+            <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>{catName}</div>
           </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
         </div>
-
-        <div style={{ flex:1, overflowY:'auto' }}>
-
-          {/* Current fields */}
-          <div style={{ padding:'16px 20px' }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
-              Fields ({fields.length})
-            </div>
-
-            {loading && <div className="spinner" style={{ margin:'20px auto' }} />}
-
-            {!loading && fields.length === 0 && !adding && (
-              <div style={{ textAlign:'center', padding:'20px 0 8px', color:'#9CA3AF', fontSize:13 }}>
-                No fields defined yet — add from presets below or create a custom one
-              </div>
-            )}
-
-            {/* Field list */}
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {fields.map((f, idx) => {
-                const type = ft(f.field_type)
-                const isEditing = editingId === f.id
-                return (
-                  <div key={f.id}
-                    draggable onDragStart={()=>dragItem.current=idx}
-                    onDragOver={e=>{e.preventDefault();setDragOver(idx)}}
-                    onDrop={()=>{ if(dragItem.current!==null&&dragItem.current!==idx){reorder(dragItem.current,idx)} dragItem.current=null;setDragOver(null) }}
-                    onDragEnd={()=>setDragOver(null)}
-                    style={{ background: dragOver===idx?'#F0F4FF':'#F9FAFB', borderRadius:10, border:`1px solid ${dragOver===idx?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', transition:'border-color .1s' }}>
-                    {isEditing ? (
-                      <div style={{ padding:14 }}>
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-                          <div>
-                            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Label</label>
-                            <input autoFocus value={ef.label} onChange={e=>setEf(p=>({...p,label:e.target.value}))}
-                              style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
-                          </div>
-                          <div>
-                            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Type</label>
-                            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                              {FIELD_TYPES.map(t => (
-                                <button key={t.value} onClick={()=>setEf(p=>({...p,field_type:t.value}))}
-                                  style={{ fontSize:11, padding:'4px 8px', borderRadius:6, border:`1px solid ${ef.field_type===t.value?t.color:'#E8ECF0'}`, background:ef.field_type===t.value?t.bg:'#fff', color:ef.field_type===t.value?t.color:'#9CA3AF', cursor:'pointer', fontWeight:600 }}>
-                                  {t.icon} {t.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        {ef.field_type==='select' && (
-                          <div style={{ marginBottom:10 }}>
-                            <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Options (comma separated)</label>
-                            <input value={ef.options||''} onChange={e=>setEf(p=>({...p,options:e.target.value}))} placeholder="Gloss, Matt, Satin"
-                              style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
-                          </div>
-                        )}
-                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
-                          <div style={{ display:'flex', gap:14 }}>
-                            <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#6B7280', cursor:'pointer' }}>
-                              <input type="checkbox" checked={!!ef.required} onChange={e=>setEf(p=>({...p,required:e.target.checked}))} /> Required
-                            </label>
-                            <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#6B7280', cursor:'pointer' }}>
-                              <input type="checkbox" checked={ef.show_in_orders!==false} onChange={e=>setEf(p=>({...p,show_in_orders:e.target.checked}))} /> Show in orders
-                            </label>
-                          </div>
-                          <div style={{ display:'flex', gap:8 }}>
-                            <Btn onClick={()=>{setEditingId(null);setEf(null)}}>Cancel</Btn>
-                            <Btn onClick={()=>saveEdit(f.id)} variant="primary">Save</Btn>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px' }}>
-                        {/* drag handle */}
-                        <div style={{ cursor:'grab', color:'#D1D5DB', flexShrink:0 }}>
-                          <svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>
-                        </div>
-                        {/* type badge */}
-                        <div style={{ width:30, height:30, borderRadius:8, background:type.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:13, fontWeight:700, color:type.color }}>
-                          {type.icon}
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{f.label}</div>
-                          <div style={{ display:'flex', gap:6, marginTop:2, flexWrap:'wrap' }}>
-                            <span style={{ fontSize:11, color:'#9CA3AF' }}>{type.label}</span>
-                            {f.required && <span style={{ fontSize:10, fontWeight:700, color:'#166534', background:'#F0FDF4', borderRadius:5, padding:'0 5px', border:'1px solid #86EFAC' }}>Required</span>}
-                            {f.show_in_orders && <span style={{ fontSize:10, fontWeight:700, color:'#1E40AF', background:'#DBEAFE', borderRadius:5, padding:'0 5px', border:'1px solid #BFDBFE' }}>In orders</span>}
-                            {f.field_type==='select' && f.options && <span style={{ fontSize:11, color:'#9CA3AF' }}>{JSON.parse(f.options).join(' / ')}</span>}
-                          </div>
-                        </div>
-                        <button onClick={()=>{setEditingId(f.id);setEf({label:f.label,field_type:f.field_type||'text',required:!!f.required,show_in_orders:f.show_in_orders!==false,options:f.options?JSON.parse(f.options).join(', '):''})}}
-                          style={{ background:'none', border:'none', cursor:'pointer', color:'#C4C9D4', padding:'4px' }}
-                          onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                        </button>
-                        <button onClick={()=>del(f.id)}
-                          style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', padding:'4px' }}
-                          onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-                        </button>
-                      </div>
-                    )}
+        <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
+          {loading ? <div className="spinner" style={{ margin:'20px auto' }} /> : <>
+            {fields.length===0&&!adding && <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>No custom fields yet</div>}
+            {fields.map(f => (
+              <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', marginBottom:8 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{f.label}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                    {FIELD_TYPES.find(t=>t.value===f.field_type)?.label}{f.required?' · Required':''}
+                    {f.options && ` · ${JSON.parse(f.options).join(', ')}`}
                   </div>
-                )
-              })}
-            </div>
-
-            {/* Add custom field form */}
-            {adding && (
-              <div style={{ marginTop:10, background:'#F0F4FF', borderRadius:12, border:'1px solid #C4D4F8', padding:16 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', marginBottom:12 }}>New field</div>
-                <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Label *</label>
-                  <input autoFocus value={nf.label} onChange={e=>setNf(p=>({...p,label:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&addField()}
-                    placeholder="e.g. Thickness, Colour code, SKU…"
-                    style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
                 </div>
-                <div style={{ marginBottom:10 }}>
-                  <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:6 }}>Field type</label>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {FIELD_TYPES.map(t => (
-                      <button key={t.value} onClick={()=>setNf(p=>({...p,field_type:t.value}))}
-                        style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, padding:'6px 12px', borderRadius:8, border:`1.5px solid ${nf.field_type===t.value?t.color:'#E8ECF0'}`, background:nf.field_type===t.value?t.bg:'#fff', color:nf.field_type===t.value?t.color:'#6B7280', cursor:'pointer', transition:'all .1s' }}>
-                        <span style={{ fontSize:14, fontWeight:800 }}>{t.icon}</span> {t.label}
-                        {nf.field_type===t.value && <span style={{ fontSize:10, color:t.color, opacity:0.7 }}>— {t.desc}</span>}
-                      </button>
-                    ))}
+                <button onClick={()=>toggleReq(f)} style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${f.required?'#86EFAC':'#E8ECF0'}`, background:f.required?'#F0FDF4':'#F9FAFB', color:f.required?'#166534':'#9CA3AF', cursor:'pointer' }}>
+                  {f.required?'✓ Required':'Optional'}
+                </button>
+                <button onClick={()=>del(f.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16 }}
+                  onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+              </div>
+            ))}
+            {adding && (
+              <div style={{ background:'#F0F4FF', borderRadius:10, border:'1px solid #C4D4F8', padding:14 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Label *</label>
+                    <input autoFocus value={nf.label} onChange={e=>setNf(p=>({...p,label:e.target.value}))}
+                      placeholder="e.g. Thickness" style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Type</label>
+                    <select value={nf.field_type} onChange={e=>setNf(p=>({...p,field_type:e.target.value}))}
+                      style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                      {FIELD_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
                   </div>
                 </div>
                 {nf.field_type==='select' && (
                   <div style={{ marginBottom:10 }}>
-                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Options <span style={{ fontWeight:400 }}>(comma separated)</span></label>
-                    <input value={nf.options} onChange={e=>setNf(p=>({...p,options:e.target.value}))} placeholder="Gloss, Matt, Satin, Raw"
-                      style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                    <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Options (comma separated)</label>
+                    <input value={nf.options} onChange={e=>setNf(p=>({...p,options:e.target.value}))} placeholder="Option 1, Option 2"
+                      style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
                   </div>
                 )}
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10 }}>
-                  <div style={{ display:'flex', gap:14 }}>
-                    <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#6B7280', cursor:'pointer' }}>
-                      <input type="checkbox" checked={nf.required} onChange={e=>setNf(p=>({...p,required:e.target.checked}))} /> Required
-                    </label>
-                    <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:5, color:'#1E40AF', cursor:'pointer', fontWeight:600 }}>
-                      <input type="checkbox" checked={nf.show_in_orders} onChange={e=>setNf(p=>({...p,show_in_orders:e.target.checked}))} /> Show in order sheet
-                    </label>
-                  </div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:6, color:'#6B7280', cursor:'pointer' }}>
+                    <input type="checkbox" checked={nf.required} onChange={e=>setNf(p=>({...p,required:e.target.checked}))} /> Required
+                  </label>
                   <div style={{ display:'flex', gap:8 }}>
                     <Btn onClick={()=>setAdding(false)}>Cancel</Btn>
-                    <Btn onClick={addField} variant="primary" disabled={!nf.label.trim()}>Add field</Btn>
+                    <Btn onClick={add} variant="primary" disabled={!nf.label.trim()}>Add field</Btn>
                   </div>
                 </div>
               </div>
             )}
-
-            {!adding && (
-              <button onClick={()=>setAdding(true)} style={{ marginTop:10, width:'100%', padding:'9px', borderRadius:9, border:'1px dashed #C4D4F8', background:'transparent', color:'#5B8AF0', fontSize:13, fontWeight:600, cursor:'pointer' }}
-                onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                + Add custom field
-              </button>
-            )}
-          </div>
-
-          {/* Presets */}
-          <div style={{ padding:'0 20px 20px', borderTop:'1px solid #F3F4F6', marginTop:4 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', margin:'16px 0 10px' }}>
-              Quick-add common fields
-            </div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-              {PRESETS.filter(p => !fields.some(f=>f.label===p.label)).map(p => {
-                const type = ft(p.field_type)
-                return (
-                  <button key={p.label} onClick={()=>addPreset(p)}
-                    style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F9FAFB', color:'#374151', cursor:'pointer' }}
-                    onMouseEnter={e=>{e.currentTarget.style.background=type.bg;e.currentTarget.style.borderColor=type.color;e.currentTarget.style.color=type.color}}
-                    onMouseLeave={e=>{e.currentTarget.style.background='#F9FAFB';e.currentTarget.style.borderColor='#E8ECF0';e.currentTarget.style.color='#374151'}}>
-                    <span style={{ fontSize:13 }}>{type.icon}</span> {p.label}
-                  </button>
-                )
-              })}
-              {PRESETS.every(p => fields.some(f=>f.label===p.label)) && (
-                <span style={{ fontSize:12, color:'#9CA3AF' }}>All common fields added</span>
-              )}
-            </div>
-          </div>
+          </>}
         </div>
-
-        {/* Footer info */}
-        <div style={{ padding:'10px 20px', borderTop:'1px solid #F3F4F6', background:'#F9FAFB', borderRadius:'0 0 16px 16px' }}>
-          <div style={{ fontSize:11, color:'#9CA3AF', display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-            <span>💡 Drag fields to reorder</span>
-            <span>·</span>
-            <span style={{ color:'#1E40AF', fontWeight:600 }}>In orders</span> = column appears in the order sheet
-            <span>·</span>
-            <span style={{ color:'#166534', fontWeight:600 }}>Required</span> = must be filled in
-          </div>
+        <div style={{ padding:'12px 20px', borderTop:'1px solid #F3F4F6' }}>
+          {!adding && <Btn onClick={()=>setAdding(true)} variant="primary">+ Add field</Btn>}
         </div>
       </div>
     </div>

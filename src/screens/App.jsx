@@ -9,7 +9,6 @@ import Sketch from './screens/Sketch'
 import Calendar from './screens/Calendar'
 import Settings from './screens/Settings'
 import Materials from './screens/Materials'
-import MaterialSettings from './screens/MaterialSettings'
 import Customers from './screens/Customers'
 import Team from './screens/Team'
 import Appliances from './screens/Appliances'
@@ -19,25 +18,27 @@ import OrderSheet from './screens/OrderSheet'
 import ProcessTemplates from './screens/ProcessTemplates'
 import CopyFormat from './screens/CopyFormat'
 import FormulaWriter from './screens/FormulaWriter'
-import ProductionDashboard from './screens/ProductionDashboard'
-import Reports from './screens/Reports'
-import SpecList from './screens/SpecList'
-import SpecBuilder from './screens/SpecBuilder'
-import JobStatuses from './screens/JobStatuses'
-import RoomTypeSettings from './screens/RoomTypeSettings'
-import ApplianceSettings from './screens/ApplianceSettings'
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
-  if (loading) return null
-  if (!user) return <Navigate to="/login" replace />
-  return children
+  if (loading) return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#2A3042" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+        <div className="spinner" />
+        <p style={{ fontSize:13, color:"rgba(255,255,255,0.4)", margin:0 }}>Loading…</p>
+      </div>
+    </div>
+  )
+  return user ? children : <Navigate to="/login" replace />
 }
 
-export default function App() {
+export default function AppInner() {
   useRestoreOnLoad()
   usePageRestore()
+  return null
+}
 
+function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -46,25 +47,19 @@ export default function App() {
         <Route path="job/:id" element={<JobDetail />} />
         <Route path="job/:id/sketch" element={<Sketch />} />
         <Route path="job/:id/sketch/:attId" element={<Sketch />} />
-        <Route path="job/:id/orders" element={<OrderSheet />} />
         <Route path="calendar" element={<Calendar />} />
-        <Route path="notes" element={<Notes />} />
-        <Route path="notes/:noteId" element={<Notes />} />
-        <Route path="formula-writer" element={<FormulaWriter />} />
-        <Route path="production" element={<ProductionDashboard />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="spec-builder" element={<SpecList />} />
-        <Route path="spec-builder/:id" element={<SpecBuilder />} />
         <Route path="settings" element={<Settings />} />
-        <Route path="settings/materials" element={<MaterialSettings />} />
-        <Route path="settings/appliances" element={<ApplianceSettings />} />
+        <Route path="settings/materials" element={<Materials />} />
         <Route path="settings/customers" element={<Customers />} />
         <Route path="settings/team" element={<Team />} />
+        <Route path="settings/appliances" element={<Appliances />} />
+        <Route path="notes" element={<Notes />} />
+        <Route path="notes/:noteId" element={<Notes />} />
         <Route path="settings/file-types" element={<FileTypes />} />
         <Route path="settings/processes" element={<ProcessTemplates />} />
         <Route path="settings/copy-format" element={<CopyFormat />} />
-        <Route path="settings/job-statuses" element={<JobStatuses />} />
-        <Route path="settings/room-types" element={<RoomTypeSettings />} />
+        <Route path="formula-writer" element={<FormulaWriter />} />
+        <Route path="job/:id/orders" element={<OrderSheet />} />
       </Route>
     </Routes>
   )

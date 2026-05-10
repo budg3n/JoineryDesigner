@@ -1,16 +1,31 @@
+// Saves current URL to sessionStorage every navigation.
+// On reload, redirects back to where the user was.
 import { useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-// Just save current path - no redirects
 export function usePageRestore() {
   const location = useLocation()
+  const navigate  = useNavigate()
+
+  // Save current path on every navigation
   useEffect(() => {
-    const path = location.pathname + location.search
-    if (path && path !== '/') {
-      sessionStorage.setItem('lastPath', path)
+    if (location.pathname !== '/') {
+      sessionStorage.setItem('lastPath', location.pathname + location.search)
     }
-  }, [location.pathname, location.search])
+  }, [location])
 }
 
-// No-op - redirect behaviour removed, RequireAuth overlay handles persistence
-export function useRestoreOnLoad() {}
+// Call once at app root — restores the last path on fresh load
+export function useRestoreOnLoad() {
+  const navigate  = useNavigate()
+  const location  = useLocation()
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('lastPath')
+    // Only restore if we landed on root (i.e. a reload/backgrounded reload)
+    if (saved && saved !== '/' && location.pathname === '/') {
+      sessionStorage.removeItem('lastPath')
+      navigate(saved, { replace: true })
+    }
+  }, []) // eslint-disable-line
+}

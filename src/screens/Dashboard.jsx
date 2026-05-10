@@ -349,18 +349,28 @@ export default function Dashboard() {
   }))
 
   const loadJobs = useCallback(async () => {
-    if (profile === undefined) return // context not ready yet
+    if (profile === undefined) return
     setLoading(true)
-    let q = supabase.from('jobs').select('*, customers(id,first_name,last_name,company)').order('created_at', { ascending:false })
-    if (!can('seeAllJobs') && profile?.id) {
-      const { data: a } = await supabase.from('job_assignments').select('job_id').eq('user_id', profile?.id)
-      const ids = (a||[]).map(x => x.job_id)
-      if (ids.length) q = q.in('id', ids)
-      else { setJobs([]); setLoading(false); return }
+
+    // Minimal columns needed for tiles — avoids fetching heavy fields like notes/kitchen_specs
+    const cols = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,created_at,customers(id,first_name,last_name,company)'
+
+    // Fire jobs + assignments in parallel instead of sequentially
+    const [{ data, error }, { data: assignData }] = await Promise.all([
+      supabase.from('jobs').select(cols).order('created_at', { ascending: false }),
+      (!can('seeAllJobs') && profile?.id)
+        ? supabase.from('job_assignments').select('job_id').eq('user_id', profile.id)
+        : Promise.resolve({ data: null }),
+    ])
+
+    if (error) { toast(error.message, 'error'); setLoading(false); return }
+
+    let jobs = data || []
+    if (assignData !== null) {
+      const ids = new Set(assignData.map(x => x.job_id))
+      jobs = ids.size ? jobs.filter(j => ids.has(j.id)) : []
     }
-    const { data, error } = await q
-    if (error) toast(error.message, 'error')
-    else setJobs(data||[])
+    setJobs(jobs)
     setLoading(false)
   }, [can, profile])
 
@@ -373,38 +383,37 @@ export default function Dashboard() {
   }, [])
 
   function loadLiveData() {
-    supabase.from('time_entries').select('*').is('clocked_out_at', null)
-      .then(({ data }) => setActiveEntries(data || []))
-    supabase.from('time_entries')
-      .select('job_id,clocked_in_at,process_id,job_processes(id,name,allocated_hours,time_logged,color),profiles(id,full_name,email)')
-      .is('clocked_out_at', null).not('process_id', 'is', null)
-      .then(({ data: ae }) => {
-        const map = {}
-        ;(ae||[]).forEach(e => { if (!map[e.job_id]) map[e.job_id]=[]; map[e.job_id].push(e) })
-        setJobProcessData(map)
-      })
-    supabase.from('job_processes').select('job_id,name,status,color,allocated_hours,time_logged,assigned_to,profiles(id,full_name,email)')
-      .neq('status','Complete').order('sort_order')
-      .then(({ data: jp }) => {
-        const map = {}
-        ;(jp||[]).forEach(p => { if (!map[p.job_id]) map[p.job_id]=[]; map[p.job_id].push(p) })
-        setJobProcessStatus(map)
-      })
-    supabase.from('order_items').select('job_id').eq('status','To order')
-      .then(({ data: oi }) => {
-        const counts = {}
-        ;(oi||[]).forEach(o => { counts[o.job_id]=(counts[o.job_id]||0)+1 })
-        setUnorderedCounts(counts)
-      })
+    // All secondary queries in parallel — none block the job list render
+    Promise.all([
+      supabase.from('time_entries').select('*').is('clocked_out_at', null),
+      supabase.from('time_entries')
+        .select('job_id,clocked_in_at,process_id,job_processes(id,name,allocated_hours,time_logged,color),profiles(id,full_name,email)')
+        .is('clocked_out_at', null).not('process_id', 'is', null),
+      supabase.from('job_processes')
+        .select('job_id,name,status,color,allocated_hours,time_logged,assigned_to,profiles(id,full_name,email)')
+        .neq('status','Complete').order('sort_order'),
+      supabase.from('order_items').select('job_id').eq('status','To order'),
+    ]).then(([{data:ae1},{data:ae2},{data:jp},{data:oi}]) => {
+      setActiveEntries(ae1 || [])
+      const pMap = {}
+      ;(ae2||[]).forEach(e => { if (!pMap[e.job_id]) pMap[e.job_id]=[]; pMap[e.job_id].push(e) })
+      setJobProcessData(pMap)
+      const sMap = {}
+      ;(jp||[]).forEach(p => { if (!sMap[p.job_id]) sMap[p.job_id]=[]; sMap[p.job_id].push(p) })
+      setJobProcessStatus(sMap)
+      const counts = {}
+      ;(oi||[]).forEach(o => { counts[o.job_id]=(counts[o.job_id]||0)+1 })
+      setUnorderedCounts(counts)
+    })
   }
 
-  // Load live data on mount and every 30s — only when tab is visible
+  // Load live data after jobs paint — deferred by one frame so tiles show first
   useEffect(() => {
-    loadLiveData()
+    const t = setTimeout(loadLiveData, 0)
     const interval = setInterval(() => {
       if (!document.hidden) loadLiveData()
     }, 30000)
-    return () => clearInterval(interval)
+    return () => { clearTimeout(t); clearInterval(interval) }
   }, [])
 
   // Listen for task completions from TaskCounter — update job card instantly

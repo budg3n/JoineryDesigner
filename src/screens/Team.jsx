@@ -3,6 +3,7 @@ import { supabase, pubUrl } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { ROLES } from '../context/AppContext'
 import BackButton from '../components/BackButton'
+import DropZone from '../components/DropZone'
 
 const ROLE_COLORS = {
   'Admin':              { bg:'#EEF2FF', color:'#3730A3' },
@@ -18,11 +19,10 @@ const initials = m => ((m.full_name||m.email||'?').split(' ').map(w=>w[0]).slice
 // ── Module definitions ─────────────────────────────────────────────
 const MODULES = [
   { section:'Jobs', items:[
-    { key:'jobs',          label:'Jobs',                  desc:'View and manage all jobs',            icon:'💼' },
-    { key:'schedule',      label:'Schedule',              desc:'Calendar and Gantt view',             icon:'📅' },
-    { key:'order_sheet',   label:'Order Sheet',           desc:'Materials ordering',                  icon:'📋' },
-    { key:'processes',     label:'Job Processes',         desc:'Production process tracking',         icon:'⚙️' },
-    { key:'deleteProcess', label:'Delete processes',      desc:'Remove processes from jobs',          icon:'🗑️' },
+    { key:'jobs',          label:'Jobs',            desc:'View and manage all jobs',            icon:'💼' },
+    { key:'schedule',      label:'Schedule',        desc:'Calendar and Gantt view',             icon:'📅' },
+    { key:'order_sheet',   label:'Order Sheet',     desc:'Materials ordering',                  icon:'📋' },
+    { key:'processes',     label:'Job Processes',   desc:'Production process tracking',         icon:'⚙️' },
   ]},
   { section:'Tools', items:[
     { key:'spec_builder',  label:'Spec Builder',    desc:'Designer spec compilation tool',      icon:'📐' },
@@ -77,8 +77,9 @@ function MemberDetail({ member, avatarColor, onBack, onUpdated }) {
     setSaving(false)
   }
 
-  async function uploadFile(e) {
-    const file = e.target.files?.[0]; if (!file) return
+  async function uploadFile(eOrFiles) {
+    const file = Array.isArray(eOrFiles) ? eOrFiles[0] : eOrFiles.target?.files?.[0]
+    if (!file) return
     setUploading(true)
     const path = `profiles/${member.id}/${Date.now()}-${file.name}`
     const { error: upErr } = await supabase.storage.from('job-files').upload(path, file)
@@ -201,17 +202,17 @@ function MemberDetail({ member, avatarColor, onBack, onUpdated }) {
         <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden' }}>
           <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={{ fontSize:13, color:'#9CA3AF' }}>{files.length} document{files.length!==1?'s':''}</div>
-            <button onClick={()=>fileInputRef.current?.click()} disabled={uploading}
-              style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:5, opacity:uploading?0.6:1 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              {uploading ? 'Uploading…' : 'Upload file'}
-            </button>
-            <input ref={fileInputRef} type="file" style={{ display:'none' }} onChange={uploadFile} />
+            <div />
           </div>
           {filesLoading ? (
             <div style={{ padding:'40px 0', display:'flex', justifyContent:'center' }}><div className="spinner" /></div>
-          ) : files.length === 0 ? (
-            <div style={{ padding:'48px 20px', textAlign:'center', color:'#9CA3AF' }}>
+          ) : (
+            <div style={{ padding:'12px 16px 4px', borderBottom:'1px solid #F3F4F6' }}>
+              <DropZone onFiles={files=>{const e={target:{files}};uploadFile({target:{files:files}})}} compact icon="📎" label="Upload or drag employee files here" uploading={uploading} />
+            </div>
+          )}
+          {!filesLoading && files.length === 0 ? (
+            <div style={{ padding:'32px 20px', textAlign:'center', color:'#9CA3AF' }}>
               <div style={{ fontSize:28, marginBottom:8 }}>📁</div>
               <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:4 }}>No files yet</div>
               <div style={{ fontSize:13 }}>Upload contracts, certifications, ID documents…</div>

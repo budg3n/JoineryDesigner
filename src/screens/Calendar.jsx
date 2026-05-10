@@ -35,17 +35,9 @@ export default function Calendar() {
   const [taskStatusFilter, setTaskStatusFilter] = useState('all')
 
   function loadProcesses() {
-    supabase.from('job_processes')
-      .select('id,name,job_id,assigned_to,status,due_date,jobs(id,name,job_number,start_date,due_date,status)')
-      .not('assigned_to','is',null)
-      .neq('status','Complete')
-      .then(({data, error}) => {
-        if (error) console.error('Process load error:', error)
-        else {
-          console.log('Loaded processes:', data?.length, data?.map(p=>({name:p.name,due:p.due_date,assigned:p.assigned_to})))
-          setMyProcesses(data||[])
-        }
-      })
+    supabase.from('job_processes').select('id,name,job_id,assigned_to,status,due_date,jobs(id,name,job_number,start_date,due_date,status)')
+      .not('assigned_to','is',null).neq('status','Complete')
+      .then(({data})=>setMyProcesses(data||[]))
   }
 
   useEffect(() => {
@@ -378,16 +370,14 @@ export default function Calendar() {
           function myProcessesForDay(date) {
             return myProcesses.filter(p => {
               if (p.assigned_to !== profile?.id) return false
-              const ds = date.toISOString().slice(0,10)
-              // Process has its own due_date — show only on that day
-              if (p.due_date) return p.due_date.slice(0,10) === ds
-              // Fall back to job's date range
+              // Use process's own due_date if set, otherwise fall back to job dates
+              if (p.due_date) return p.due_date.slice(0,10) === date.toISOString().slice(0,10)
               const j = p.jobs
               if (!j) return false
+              const ds = date.toISOString().slice(0,10)
               const s = j.start_date?.slice(0,10), e = j.due_date?.slice(0,10)
-              if (s || e) return ds >= (s||e) && ds <= (e||s)
-              // No dates at all — show on Monday only so it's visible
-              return date.getDay() === 1
+              if (!s && !e) return false
+              return ds >= (s||e) && ds <= (e||s)
             })
           }
 

@@ -16,6 +16,8 @@ import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import NotionNotes from '../components/NotionNotes'
 import InlineSpecBuilder from './InlineSpecBuilder'
+import OnSite from './OnSite'
+import DropZone from '../components/DropZone'
 import StatusBadge from '../components/StatusBadge'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
@@ -2723,6 +2725,7 @@ export default function JobDetail() {
           { key:'files',      label:'Files',     badge: atts.length||null },
           { key:'feedback',   label:'Feedback',  badge: feedback.filter(f=>f.status==='Open').length||null },
           { key:'specs',      label:'Specs',     badge: specs.length||null },
+          { key:'onsite',     label:'On-Site' },
         ].map(t => (
           <button key={t.key} onClick={() => setJobTab(t.key)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
@@ -2986,6 +2989,11 @@ export default function JobDetail() {
         </div>
       )}
 
+      {/* ON-SITE TAB */}
+      {jobTab === 'onsite' && (
+        <OnSite jobId={id} />
+      )}
+
       {/* ORDERS TAB */}
       {jobTab === 'orders' && <div>
         {unorderedCount > 0 && (
@@ -3017,17 +3025,18 @@ export default function JobDetail() {
       {/* FILES TAB */}
       {jobTab === 'files' && <div>
         <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:18 }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
-            <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>Drawings & Files</div>
-            <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, padding:'7px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#EEF2FF', color:'#3730A3', cursor:'pointer' }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Upload file
-              <input type="file" multiple accept=".pdf,.dwg,.dxf,image/*,.heic,.heif" style={{ display:'none' }} onChange={e=>handleFiles(e.target.files)} />
-            </label>
-          </div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:12 }}>Drawings & Files</div>
+          <DropZone
+            onFiles={files=>handleFiles(files)}
+            accept=".pdf,.dwg,.dxf,image/*,.heic,.heif"
+            multiple icon="📁"
+            label="Upload files"
+            sublabel="Drag PDFs, drawings, images here or click to browse"
+            style={{ marginBottom:16 }}
+          />
           {atts.length === 0
-            ? <div style={{ textAlign:'center', padding:'40px 0', color:'#9CA3AF', fontSize:13 }}>
-                <div style={{ fontSize:32, marginBottom:12 }}>📁</div>
+            ? <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>📂</div>
                 No files uploaded yet
               </div>
             : <div style={{ display:'flex', flexDirection:'column', gap:8 }}>

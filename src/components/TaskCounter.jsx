@@ -34,6 +34,14 @@ export default function TaskCounter() {
   const [tasks, setTasks]     = useState([])
   const [open, setOpen]       = useState(false)
   const [confirmId, setConfirmId] = useState(null)
+  const [showAdd, setShowAdd]     = useState(false)
+  const [allJobs, setAllJobs]     = useState([])
+  const [jobSearch, setJobSearch] = useState('')
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDate, setNewTaskDate]   = useState('')
+  const [addSaving, setAddSaving]       = useState(false)
+  const taskInputRef = useRef()
   const dropRef = useRef()
 
   useEffect(() => {
@@ -79,6 +87,18 @@ export default function TaskCounter() {
     setTasks(allTasks)
   }
 
+  async function addTask() {
+    if (!newTaskTitle.trim() || !selectedJob) return
+    setAddSaving(true)
+    const { data: job } = await supabase.from('jobs').select('tasks').eq('id', selectedJob.id).single()
+    const existing = job?.tasks ? (typeof job.tasks==='string'?JSON.parse(job.tasks):job.tasks) : []
+    const task = { id: Date.now().toString(36)+Math.random().toString(36).slice(2), title:newTaskTitle.trim(), done:false, ...(newTaskDate?{date:newTaskDate}:{}) }
+    await supabase.from('jobs').update({ tasks: JSON.stringify([...existing, task]) }).eq('id', selectedJob.id)
+    setNewTaskTitle(''); setNewTaskDate(''); setSelectedJob(null); setJobSearch(''); setShowAdd(false); setAddSaving(false)
+    await loadTasks()
+    window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId: selectedJob.id } }))
+  }
+
   async function completeTask(task) {
     // Find the job and update the task
     const { data: job } = await supabase.from('jobs').select('tasks').eq('id', task.jobId).single()
@@ -110,9 +130,20 @@ export default function TaskCounter() {
   const overdue  = tasks.filter(t => t.date && daysUntil(t.date) < 0).length
   const count    = tasks.length
 
+  if (count === 0 && !open) return (
+    <div ref={dropRef} style={{ position:'relative' }}>
+      <button onClick={() => setOpen(s=>!s)}
+        style={{ position:'relative', background:'transparent', border:'none', cursor:'pointer', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8, color:'#6B7280' }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      </button>
+    </div>
+  )
+
   return (
     <div ref={dropRef} style={{ position:'relative' }}>
-      <button onClick={() => { setOpen(s=>!s); loadTasks() }}
+      <button onClick={() => {
+        setOpen(s => { const next=!s; if(next){ loadTasks(); supabase.from('jobs').select('id,name,job_number').in('status',['Pending','In progress','Review','On hold']).order('created_at',{ascending:false}).then(({data})=>setAllJobs(data||[])) }; return next })
+      }}
         style={{ position:'relative', background: open?'#F3F4F6':'transparent', border:'none', cursor:'pointer', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:8, color:'#374151' }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span style={{ position:'absolute', top:2, right:2, minWidth:16, height:16, borderRadius:8, padding:'0 4px',
@@ -182,6 +213,83 @@ export default function TaskCounter() {
               )
             })}
           </div>
+
+          {/* Add task footer */}
+          {!showAdd ? (
+            <div style={{ padding:'10px 16px', borderTop:'1px solid #F3F4F6' }}>
+              <button onClick={()=>{ setShowAdd(true); setJobSearch(''); setSelectedJob(null); setNewTaskTitle(''); setNewTaskDate('') }}
+                style={{ width:'100%', padding:'8px', borderRadius:9, border:'1.5px dashed #C4D4F8', background:'transparent', color:'#5B8AF0', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}
+                onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add task to a job
+              </button>
+            </div>
+          ) : (
+            <div style={{ padding:'12px 16px', borderTop:'1px solid #F3F4F6', background:'#F8FAFF' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#5B8AF0', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span>Add task</span>
+                <button onClick={()=>setShowAdd(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16 }}>×</button>
+              </div>
+
+              {/* Job search / selector */}
+              {!selectedJob ? (
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ position:'relative' }}>
+                    <svg style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input autoFocus value={jobSearch} onChange={e=>setJobSearch(e.target.value)}
+                      placeholder="Search for a job…"
+                      style={{ width:'100%', padding:'7px 10px 7px 28px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  {jobSearch.trim() && (
+                    <div style={{ maxHeight:140, overflowY:'auto', marginTop:4, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', boxShadow:'0 4px 12px rgba(0,0,0,0.08)' }}>
+                      {allJobs.filter(j=>{
+                        const q=jobSearch.toLowerCase()
+                        return j.name?.toLowerCase().includes(q)||String(j.job_number||'').includes(q)
+                      }).slice(0,6).map(j=>(
+                        <div key={j.id} onClick={()=>{ setSelectedJob(j); setJobSearch(''); setTimeout(()=>taskInputRef.current?.focus(),50) }}
+                          style={{ padding:'8px 12px', cursor:'pointer', fontSize:12, color:'#2A3042', borderBottom:'1px solid #F9FAFB' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                          {j.job_number&&<span style={{ color:'#9CA3AF', marginRight:5 }}>#{j.job_number}</span>}
+                          {j.name?.replace(/^\d+\s*[-–—]\s*/,'')||j.name}
+                        </div>
+                      ))}
+                      {allJobs.filter(j=>{ const q=jobSearch.toLowerCase(); return j.name?.toLowerCase().includes(q)||String(j.job_number||'').includes(q) }).length===0&&(
+                        <div style={{ padding:'10px 12px', fontSize:12, color:'#9CA3AF' }}>No jobs found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background:'#EEF2FF', borderRadius:8, marginBottom:10, border:'1px solid #C4D4F8' }}>
+                  <div style={{ flex:1, fontSize:12, fontWeight:600, color:'#3730A3' }}>
+                    {selectedJob.job_number&&<span style={{ opacity:0.6, marginRight:4 }}>#{selectedJob.job_number}</span>}
+                    {selectedJob.name?.replace(/^\d+\s*[-–—]\s*/,'')||selectedJob.name}
+                  </div>
+                  <button onClick={()=>setSelectedJob(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:14 }}>×</button>
+                </div>
+              )}
+
+              {/* Task details */}
+              <div style={{ display:'flex', gap:7, flexDirection:'column' }}>
+                <input ref={taskInputRef} value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&addTask()}
+                  placeholder="Task description…"
+                  style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                <div style={{ display:'flex', gap:7 }}>
+                  <input type="date" value={newTaskDate} onChange={e=>setNewTaskDate(e.target.value)}
+                    style={{ flex:1, padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none' }} />
+                  <button onClick={addTask} disabled={!newTaskTitle.trim()||!selectedJob||addSaving}
+                    style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none',
+                      background:(newTaskTitle.trim()&&selectedJob)?'#5B8AF0':'#E8ECF0',
+                      color:(newTaskTitle.trim()&&selectedJob)?'#fff':'#9CA3AF',
+                      cursor:(newTaskTitle.trim()&&selectedJob)?'pointer':'not-allowed', whiteSpace:'nowrap' }}>
+                    {addSaving ? 'Adding…' : 'Add task'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
