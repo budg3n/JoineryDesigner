@@ -56,14 +56,13 @@ export default function TaskCounter() {
   }, [])
 
   async function loadTasks() {
-    // Load all active jobs and extract outstanding tasks
     const { data: jobs } = await supabase
       .from('jobs')
       .select('id, name, job_number, tasks')
-      .in('status', ['In progress', 'Review', 'Submitted for approval'])
-    
+      .in('status', ['Pending', 'In progress', 'Review', 'Submitted for approval', 'On hold'])
+
     if (!jobs) return
-    
+
     const allTasks = []
     for (const job of jobs) {
       const jobTasks = job.tasks ? (typeof job.tasks === 'string' ? JSON.parse(job.tasks) : job.tasks) : []
@@ -77,7 +76,7 @@ export default function TaskCounter() {
       })
     }
 
-    // Sort: overdue first, then by date, then undated
+    // Priority: overdue first, then soonest due, then undated
     allTasks.sort((a, b) => {
       const da = a.date ? daysUntil(a.date) : 999
       const db = b.date ? daysUntil(b.date) : 999
@@ -165,13 +164,13 @@ export default function TaskCounter() {
             <span style={{ fontSize:12, color:'#9CA3AF' }}>{count} outstanding</span>
           </div>
 
-          <div style={{ maxHeight:420, overflowY:'auto' }}>
+          <div style={{ maxHeight:380, overflowY:'auto' }}>
             {tasks.length === 0 ? (
               <div style={{ padding:'32px 16px', textAlign:'center', color:'#9CA3AF', fontSize:13 }}>
                 <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
                 All caught up!
               </div>
-            ) : tasks.map(task => {
+            ) : tasks.slice(0, 3).map(task => {
               const days = task.date ? daysUntil(task.date) : null
               const isOverdue = days !== null && days < 0
               const isUrgent  = days !== null && days <= 3
@@ -213,6 +212,15 @@ export default function TaskCounter() {
               )
             })}
           </div>
+
+          {tasks.length > 3 && (
+            <div style={{ padding:'8px 16px', borderTop:'1px solid #F9FAFB', textAlign:'center' }}>
+              <button onClick={()=>{ navigate('/'); setOpen(false) }}
+                style={{ fontSize:11, fontWeight:700, color:'#5B8AF0', background:'none', border:'none', cursor:'pointer' }}>
+                +{tasks.length - 3} more tasks · View all →
+              </button>
+            </div>
+          )}
 
           {/* Add task footer */}
           {!showAdd ? (
@@ -278,7 +286,7 @@ export default function TaskCounter() {
                   style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                 <div style={{ display:'flex', gap:7 }}>
                   <input type="date" value={newTaskDate} onChange={e=>setNewTaskDate(e.target.value)}
-                    style={{ flex:1, padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none' }} />
+                    style={{ flex:1, padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', color:'#374151', WebkitAppearance:'none', appearance:'none', background:'#fff' }} />
                   <button onClick={addTask} disabled={!newTaskTitle.trim()||!selectedJob||addSaving}
                     style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none',
                       background:(newTaskTitle.trim()&&selectedJob)?'#5B8AF0':'#E8ECF0',
