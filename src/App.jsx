@@ -55,6 +55,8 @@ export default function App() {
         <Route path="reports" element={<Reports />} />
         <Route path="spec-builder" element={<SpecList />} />
         <Route path="spec-builder/:id" element={<SpecBuilder />} />
+        <Route path="materials" element={<Materials />} />
+        <Route path="appliances" element={<Appliances />} />
         <Route path="settings" element={<Settings />} />
         <Route path="settings/materials" element={<MaterialSettings />} />
         <Route path="settings/appliances" element={<ApplianceSettings />} />
