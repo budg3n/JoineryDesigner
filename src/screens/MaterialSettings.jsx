@@ -60,110 +60,102 @@ const FIELD_TYPES = [
   { value:'select', label:'Dropdown' }, { value:'toggle', label:'Toggle' },
 ]
 
-// Fields that are native columns on the materials table — always present, can't be removed
-const NATIVE_FIELDS = [
-  { key:'supplier',     label:'Supplier',         field_type:'text',   group:'Identity',       native:true },
-  { key:'panel_type',   label:'Panel type',        field_type:'text',   group:'Specification',  native:true },
-  { key:'thickness',    label:'Thickness (mm)',     field_type:'number', group:'Specification',  native:true },
-  { key:'colour_code',  label:'Colour code',        field_type:'text',   group:'Specification',  native:true },
-  { key:'finish',       label:'Finish',             field_type:'text',   group:'Specification',  native:true },
-]
-
-// Extra standard fields stored in category_fields — can be toggled per category
-const TEMPLATE_FIELDS = [
+// All standard fields — native columns on materials table, all toggleable per category
+// Visibility stored in app_settings as mat_cat_fields_{catId}
+const ALL_STANDARD_FIELDS = [
+  { key:'supplier',     label:'Supplier',           field_type:'text',   group:'Identity' },
   { key:'brand',        label:'Brand',              field_type:'text',   group:'Identity' },
   { key:'sku',          label:'SKU / Product code', field_type:'text',   group:'Identity' },
-  { key:'colour',       label:'Colour name',        field_type:'text',   group:'Specification' },
-  { key:'grade',        label:'Grade',              field_type:'text',   group:'Specification' },
-  { key:'edge_profile', label:'Edge profile',       field_type:'text',   group:'Specification' },
-  { key:'grain',        label:'Grain direction',    field_type:'select', group:'Specification', options:['Grained','No grain','Any'] },
-  { key:'dimensions',   label:'Sheet dimensions',   field_type:'text',   group:'Specification' },
-  { key:'weight',       label:'Weight (kg)',         field_type:'number', group:'Specification' },
-  { key:'unit',         label:'Order unit',         field_type:'select', group:'Ordering', options:['sheets','m','m²','m³','lm','kg','pcs','boxes','rolls','litres'] },
-  { key:'qty',          label:'Default qty',        field_type:'number', group:'Ordering' },
-  { key:'price',        label:'Unit price ($)',      field_type:'number', group:'Ordering' },
-  { key:'lead_time',    label:'Lead time (days)',    field_type:'number', group:'Ordering' },
-  { key:'min_order',    label:'Minimum order qty',  field_type:'number', group:'Ordering' },
-  { key:'po_number',    label:'PO number',          field_type:'text',   group:'Ordering' },
-  { key:'notes',        label:'Notes',              field_type:'text',   group:'Other' },
+  { key:'panel_type',   label:'Panel type',         field_type:'text',   group:'Specification' },
+  { key:'thickness',    label:'Thickness (mm)',      field_type:'number', group:'Specification' },
+  { key:'colour_code',  label:'Colour code',         field_type:'text',   group:'Specification' },
+  { key:'colour',       label:'Colour name',         field_type:'text',   group:'Specification' },
+  { key:'finish',       label:'Finish',              field_type:'text',   group:'Specification' },
+  { key:'grade',        label:'Grade',               field_type:'text',   group:'Specification' },
+  { key:'edge_profile', label:'Edge profile',        field_type:'text',   group:'Specification' },
+  { key:'grain',        label:'Grain direction',     field_type:'select', group:'Specification', options:['Grained','No grain','Any'] },
+  { key:'dimensions',   label:'Sheet dimensions',    field_type:'text',   group:'Specification' },
+  { key:'weight',       label:'Weight (kg)',          field_type:'number', group:'Specification' },
+  { key:'price',        label:'Unit price ($)',       field_type:'number', group:'Ordering' },
+  { key:'unit',         label:'Order unit',          field_type:'select', group:'Ordering', options:['sheets','m','m²','m³','lm','kg','pcs','boxes','rolls','litres'] },
+  { key:'qty',          label:'Default qty',         field_type:'number', group:'Ordering' },
+  { key:'lead_time',    label:'Lead time (days)',     field_type:'number', group:'Ordering' },
+  { key:'min_order',    label:'Minimum order qty',   field_type:'number', group:'Ordering' },
+  { key:'po_number',    label:'PO number',           field_type:'text',   group:'Ordering' },
+  { key:'notes',        label:'Notes',               field_type:'text',   group:'Other' },
 ]
+// Default fields shown if no config saved for a category
+const DEFAULT_VISIBLE = ['supplier','panel_type','thickness','colour_code','finish','price','notes']
 
 function FieldsModal({ catId, catName, onClose }) {
-  const [fields, setFields]         = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [adding, setAdding]         = useState(false)
-  const [nf, setNf]                 = useState({ label:'', field_type:'text', required:false, options:'' })
-  // which template fields are enabled for this category (stored in category_fields with is_template=true)
-  const [templateEnabled, setTemplateEnabled] = useState({})
+  const [visible, setVisible]   = useState(null)   // set of enabled keys
+  const [loading, setLoading]   = useState(true)
+  const [adding, setAdding]     = useState(false)
+  const [customFields, setCustomFields] = useState([])
+  const [nf, setNf]             = useState({ label:'', field_type:'text', required:false, options:'' })
   const toast = useToast()
+  const settingsKey = `mat_cat_fields_${catId}`
 
   useEffect(() => {
-    supabase.from('category_fields').select('*').eq('category_id', catId).order('sort_order')
-      .then(({ data }) => {
-        const rows = data || []
-        // Separate template rows from custom rows
-        const tEnabled = {}
-        TEMPLATE_FIELDS.forEach(tf => {
-          const row = rows.find(r => r.template_key === tf.key)
-          tEnabled[tf.key] = row ? { enabled: true, required: row.required, id: row.id } : { enabled: false, required: false, id: null }
-        })
-        setTemplateEnabled(tEnabled)
-        setFields(rows.filter(r => !r.template_key))
-        setLoading(false)
-      })
+    Promise.all([
+      supabase.from('app_settings').select('value').eq('key', settingsKey).maybeSingle(),
+      supabase.from('category_fields').select('*').eq('category_id', catId)
+        .is('template_key', null).order('sort_order'),
+    ]).then(([{ data: cfg }, { data: cf }]) => {
+      if (cfg?.value) {
+        setVisible(new Set(JSON.parse(cfg.value)))
+      } else {
+        // Default: show the standard fields that match existing material data
+        setVisible(new Set(DEFAULT_VISIBLE))
+      }
+      setCustomFields(cf || [])
+      setLoading(false)
+    })
   }, [catId])
 
-  async function toggleTemplate(tf) {
-    const current = templateEnabled[tf.key]
-    if (current.enabled) {
-      // Disable — delete the row
-      if (!confirm(`Remove "${tf.label}" from this category?`)) return
-      if (current.id) await supabase.from('category_fields').delete().eq('id', current.id)
-      setTemplateEnabled(p => ({ ...p, [tf.key]: { enabled:false, required:false, id:null } }))
-    } else {
-      // Enable — insert the row
-      const { data, error } = await supabase.from('category_fields').insert({
-        category_id: catId, label: tf.label, field_type: tf.field_type,
-        template_key: tf.key, required: false, sort_order: -1,
-      }).select().single()
-      if (error) { toast(error.message, 'error'); return }
-      setTemplateEnabled(p => ({ ...p, [tf.key]: { enabled:true, required:false, id:data.id } }))
-    }
+  async function saveVisible(newSet) {
+    setVisible(newSet)
+    await supabase.from('app_settings').upsert(
+      { key: settingsKey, value: JSON.stringify([...newSet]) },
+      { onConflict: 'key' }
+    )
   }
 
-  async function toggleTemplateRequired(tf) {
-    const current = templateEnabled[tf.key]
-    if (!current.id) return
-    await supabase.from('category_fields').update({ required: !current.required }).eq('id', current.id)
-    setTemplateEnabled(p => ({ ...p, [tf.key]: { ...p[tf.key], required: !current.required } }))
+  function toggle(key) {
+    const next = new Set(visible)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    saveVisible(next)
   }
 
-  async function add() {
+  async function addCustom() {
     if (!nf.label.trim()) return
     const opts = nf.field_type==='select' ? nf.options.split(',').map(s=>s.trim()).filter(Boolean) : null
     const { data, error } = await supabase.from('category_fields')
-      .insert({ category_id:catId, label:nf.label.trim(), field_type:nf.field_type, required:nf.required, sort_order:fields.length, options:opts?JSON.stringify(opts):null })
+      .insert({ category_id:catId, label:nf.label.trim(), field_type:nf.field_type,
+        required:nf.required, sort_order:customFields.length, options:opts?JSON.stringify(opts):null })
       .select().single()
     if (error) { toast(error.message,'error'); return }
-    setFields(p=>[...p,data]); setNf({ label:'', field_type:'text', required:false, options:'' }); setAdding(false)
+    setCustomFields(p=>[...p,data])
+    setNf({ label:'', field_type:'text', required:false, options:'' }); setAdding(false)
     toast('Field added ✓')
   }
 
-  async function del(id) {
+  async function delCustom(id) {
     if (!confirm('Delete this field?')) return
     await supabase.from('category_fields').delete().eq('id', id)
-    setFields(p=>p.filter(f=>f.id!==id))
+    setCustomFields(p=>p.filter(f=>f.id!==id))
   }
 
   async function toggleReq(f) {
     await supabase.from('category_fields').update({ required:!f.required }).eq('id',f.id)
-    setFields(p=>p.map(x=>x.id===f.id?{...x,required:!f.required}:x))
+    setCustomFields(p=>p.map(x=>x.id===f.id?{...x,required:!f.required}:x))
   }
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
       onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:540, maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:540, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div>
             <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Manage fields</div>
@@ -173,67 +165,42 @@ function FieldsModal({ catId, catName, onClose }) {
         </div>
 
         <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
-          {loading ? <div className="spinner" style={{ margin:'20px auto' }} /> : <>
+          {loading || !visible ? <div className="spinner" style={{ margin:'20px auto' }} /> : <>
 
-            {/* Native fields — always on, can't be removed */}
-            <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:8 }}>
-                Core fields — always included
-              </div>
-              <div style={{ background:'#F9FAFB', borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
-                {NATIVE_FIELDS.map((nf, i) => (
-                  <div key={nf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px',
-                    borderBottom: i < NATIVE_FIELDS.length-1 ? '1px solid #F3F4F6' : 'none' }}>
-                    <div style={{ width:36, height:20, borderRadius:10, background:'#1D9E75', position:'relative', flexShrink:0 }}>
-                      <div style={{ position:'absolute', top:2, right:2, width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <span style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{nf.label}</span>
-                      <span style={{ fontSize:11, color:'#9CA3AF', marginLeft:8 }}>Built-in</span>
-                    </div>
-                    <span style={{ fontSize:10, color:'#9CA3AF', fontStyle:'italic' }}>always on</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Optional extra standard fields — toggle per category */}
-            <div style={{ marginBottom:18 }}>
+            {/* Standard fields — all toggleable */}
+            <div style={{ marginBottom:20 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
-                Optional fields — toggle on/off per category
+                Standard fields
+              </div>
+              <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:12 }}>
+                Toggle which fields appear for materials in this category
               </div>
               {['Identity','Specification','Ordering','Other'].map(group => {
-                const groupFields = TEMPLATE_FIELDS.filter(tf => tf.group === group)
-                if (!groupFields.length) return null
+                const gFields = ALL_STANDARD_FIELDS.filter(f => f.group === group)
                 return (
                   <div key={group} style={{ marginBottom:14 }}>
                     <div style={{ fontSize:10, fontWeight:700, color:'#C4C9D4', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, paddingLeft:2 }}>{group}</div>
-                    {groupFields.map(tf => {
-                      const state = templateEnabled[tf.key] || { enabled:false, required:false }
+                    {gFields.map(sf => {
+                      const on = visible.has(sf.key)
                       return (
-                        <div key={tf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px',
-                          background: state.enabled ? '#F0F4FF' : '#F9FAFB',
-                          borderRadius:9, border:`1px solid ${state.enabled?'#C4D4F8':'#E8ECF0'}`, marginBottom:5 }}>
-                          <div onClick={()=>toggleTemplate(tf)}
-                            style={{ width:36, height:20, borderRadius:10, background:state.enabled?'#5B8AF0':'#D1D5DB',
-                              position:'relative', cursor:'pointer', flexShrink:0, transition:'background .15s' }}>
-                            <div style={{ position:'absolute', top:2, left:state.enabled?18:2, width:16, height:16,
+                        <div key={sf.key} onClick={()=>toggle(sf.key)}
+                          style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
+                            background: on ? '#F0F4FF' : '#F9FAFB',
+                            borderRadius:9, border:`1px solid ${on?'#C4D4F8':'#E8ECF0'}`, marginBottom:5, cursor:'pointer' }}>
+                          {/* Toggle */}
+                          <div style={{ width:36, height:20, borderRadius:10, background:on?'#5B8AF0':'#D1D5DB',
+                            position:'relative', flexShrink:0, transition:'background .15s' }}>
+                            <div style={{ position:'absolute', top:2, left:on?18:2, width:16, height:16,
                               borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
                           </div>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:13, fontWeight:600, color: state.enabled?'#2A3042':'#9CA3AF' }}>{tf.label}</div>
+                            <div style={{ fontSize:13, fontWeight:600, color: on?'#2A3042':'#9CA3AF' }}>{sf.label}</div>
                             <div style={{ fontSize:10, color:'#C4C9D4' }}>
-                              {FIELD_TYPES.find(t=>t.value===tf.field_type)?.label}
-                              {tf.options && ` · ${tf.options.slice(0,3).join(', ')}${tf.options.length>3?'…':''}`}
+                              {FIELD_TYPES.find(t=>t.value===sf.field_type)?.label}
+                              {sf.options && ` · ${sf.options.slice(0,3).join(', ')}${sf.options.length>3?'…':''}`}
                             </div>
                           </div>
-                          {state.enabled && (
-                            <button onClick={()=>toggleTemplateRequired(tf)}
-                              style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${state.required?'#86EFAC':'#E8ECF0'}`,
-                                background:state.required?'#F0FDF4':'#F9FAFB', color:state.required?'#166534':'#9CA3AF', cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
-                              {state.required?'✓ Required':'Optional'}
-                            </button>
-                          )}
+                          {on && <span style={{ fontSize:10, color:'#5B8AF0', fontWeight:600 }}>Visible</span>}
                         </div>
                       )
                     })}
@@ -242,17 +209,17 @@ function FieldsModal({ catId, catName, onClose }) {
               })}
             </div>
 
-            {/* Custom fields section */}
+            {/* Custom fields */}
             <div>
               <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
                 Custom fields
               </div>
-              {fields.length===0&&!adding && (
+              {customFields.length===0&&!adding && (
                 <div style={{ textAlign:'center', padding:'16px 0', color:'#9CA3AF', fontSize:13, background:'#F9FAFB', borderRadius:9, marginBottom:8 }}>
-                  No custom fields yet — add one below
+                  No custom fields yet
                 </div>
               )}
-              {fields.map(f => (
+              {customFields.map(f => (
                 <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', marginBottom:8 }}>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{f.label}</div>
@@ -264,7 +231,7 @@ function FieldsModal({ catId, catName, onClose }) {
                   <button onClick={()=>toggleReq(f)} style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${f.required?'#86EFAC':'#E8ECF0'}`, background:f.required?'#F0FDF4':'#F9FAFB', color:f.required?'#166534':'#9CA3AF', cursor:'pointer' }}>
                     {f.required?'✓ Required':'Optional'}
                   </button>
-                  <button onClick={()=>del(f.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16 }}
+                  <button onClick={()=>delCustom(f.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16 }}
                     onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
                 </div>
               ))}
@@ -274,7 +241,7 @@ function FieldsModal({ catId, catName, onClose }) {
                     <div>
                       <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Label *</label>
                       <input autoFocus value={nf.label} onChange={e=>setNf(p=>({...p,label:e.target.value}))}
-                        placeholder="e.g. Brand" style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                        placeholder="e.g. Batch number" style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
                     </div>
                     <div>
                       <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Type</label>
@@ -297,7 +264,7 @@ function FieldsModal({ catId, catName, onClose }) {
                     </label>
                     <div style={{ display:'flex', gap:8 }}>
                       <Btn onClick={()=>setAdding(false)}>Cancel</Btn>
-                      <Btn onClick={add} variant="primary" disabled={!nf.label.trim()}>Add field</Btn>
+                      <Btn onClick={addCustom} variant="primary" disabled={!nf.label.trim()}>Add field</Btn>
                     </div>
                   </div>
                 </div>
@@ -313,6 +280,7 @@ function FieldsModal({ catId, catName, onClose }) {
     </div>
   )
 }
+
 
 // ── Recursive category tree node ──────────────────────────────────
 // Supports unlimited nesting via parent_id
