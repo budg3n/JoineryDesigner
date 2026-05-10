@@ -60,30 +60,31 @@ const FIELD_TYPES = [
   { value:'select', label:'Dropdown' }, { value:'toggle', label:'Toggle' },
 ]
 
+// Fields that are native columns on the materials table — always present, can't be removed
+const NATIVE_FIELDS = [
+  { key:'supplier',     label:'Supplier',         field_type:'text',   group:'Identity',       native:true },
+  { key:'panel_type',   label:'Panel type',        field_type:'text',   group:'Specification',  native:true },
+  { key:'thickness',    label:'Thickness (mm)',     field_type:'number', group:'Specification',  native:true },
+  { key:'colour_code',  label:'Colour code',        field_type:'text',   group:'Specification',  native:true },
+  { key:'finish',       label:'Finish',             field_type:'text',   group:'Specification',  native:true },
+]
+
+// Extra standard fields stored in category_fields — can be toggled per category
 const TEMPLATE_FIELDS = [
-  // Identity
-  { key:'supplier',     label:'Supplier',         field_type:'text',   group:'Identity' },
-  { key:'brand',        label:'Brand',             field_type:'text',   group:'Identity' },
-  { key:'sku',          label:'SKU / Product code',field_type:'text',   group:'Identity' },
-  // Material specs
-  { key:'panel_type',   label:'Panel type',        field_type:'text',   group:'Specification' },
-  { key:'thickness',    label:'Thickness (mm)',     field_type:'number', group:'Specification' },
-  { key:'finish',       label:'Finish',             field_type:'text',   group:'Specification' },
-  { key:'colour_code',  label:'Colour code',        field_type:'text',   group:'Specification' },
+  { key:'brand',        label:'Brand',              field_type:'text',   group:'Identity' },
+  { key:'sku',          label:'SKU / Product code', field_type:'text',   group:'Identity' },
   { key:'colour',       label:'Colour name',        field_type:'text',   group:'Specification' },
   { key:'grade',        label:'Grade',              field_type:'text',   group:'Specification' },
   { key:'edge_profile', label:'Edge profile',       field_type:'text',   group:'Specification' },
   { key:'grain',        label:'Grain direction',    field_type:'select', group:'Specification', options:['Grained','No grain','Any'] },
   { key:'dimensions',   label:'Sheet dimensions',   field_type:'text',   group:'Specification' },
   { key:'weight',       label:'Weight (kg)',         field_type:'number', group:'Specification' },
-  // Ordering
   { key:'unit',         label:'Order unit',         field_type:'select', group:'Ordering', options:['sheets','m','m²','m³','lm','kg','pcs','boxes','rolls','litres'] },
   { key:'qty',          label:'Default qty',        field_type:'number', group:'Ordering' },
   { key:'price',        label:'Unit price ($)',      field_type:'number', group:'Ordering' },
   { key:'lead_time',    label:'Lead time (days)',    field_type:'number', group:'Ordering' },
   { key:'min_order',    label:'Minimum order qty',  field_type:'number', group:'Ordering' },
   { key:'po_number',    label:'PO number',          field_type:'text',   group:'Ordering' },
-  // Notes
   { key:'notes',        label:'Notes',              field_type:'text',   group:'Other' },
 ]
 
@@ -174,13 +175,36 @@ function FieldsModal({ catId, catName, onClose }) {
         <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
           {loading ? <div className="spinner" style={{ margin:'20px auto' }} /> : <>
 
-            {/* Template fields section */}
+            {/* Native fields — always on, can't be removed */}
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:8 }}>
+                Core fields — always included
+              </div>
+              <div style={{ background:'#F9FAFB', borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                {NATIVE_FIELDS.map((nf, i) => (
+                  <div key={nf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px',
+                    borderBottom: i < NATIVE_FIELDS.length-1 ? '1px solid #F3F4F6' : 'none' }}>
+                    <div style={{ width:36, height:20, borderRadius:10, background:'#1D9E75', position:'relative', flexShrink:0 }}>
+                      <div style={{ position:'absolute', top:2, right:2, width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{nf.label}</span>
+                      <span style={{ fontSize:11, color:'#9CA3AF', marginLeft:8 }}>Built-in</span>
+                    </div>
+                    <span style={{ fontSize:10, color:'#9CA3AF', fontStyle:'italic' }}>always on</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Optional extra standard fields — toggle per category */}
             <div style={{ marginBottom:18 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
-                Standard fields — toggle on/off per category
+                Optional fields — toggle on/off per category
               </div>
               {['Identity','Specification','Ordering','Other'].map(group => {
                 const groupFields = TEMPLATE_FIELDS.filter(tf => tf.group === group)
+                if (!groupFields.length) return null
                 return (
                   <div key={group} style={{ marginBottom:14 }}>
                     <div style={{ fontSize:10, fontWeight:700, color:'#C4C9D4', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, paddingLeft:2 }}>{group}</div>
@@ -190,7 +214,6 @@ function FieldsModal({ catId, catName, onClose }) {
                         <div key={tf.key} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px',
                           background: state.enabled ? '#F0F4FF' : '#F9FAFB',
                           borderRadius:9, border:`1px solid ${state.enabled?'#C4D4F8':'#E8ECF0'}`, marginBottom:5 }}>
-                          {/* Toggle switch */}
                           <div onClick={()=>toggleTemplate(tf)}
                             style={{ width:36, height:20, borderRadius:10, background:state.enabled?'#5B8AF0':'#D1D5DB',
                               position:'relative', cursor:'pointer', flexShrink:0, transition:'background .15s' }}>
