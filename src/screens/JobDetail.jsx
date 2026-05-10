@@ -2265,14 +2265,14 @@ export default function JobDetail() {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
     const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
-      supabase.from('jobs').select('id,name,job_number,client,type,status,notes,start_date,due_date,budget_hours,time_logged,tasks,mat_colors,delivery_address,kitchen_specs,customers(id,first_name,last_name,company)').eq('id', id).single(),
+      supabase.from('jobs').select('*,customers(id,first_name,last_name,company)').eq('id', id).single(),
       supabase.from('attachments').select('id,name,size,type,storage_path,created_at,file_type_id').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
       Promise.resolve({ data: [] }), // materials loaded lazily on tab open
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       Promise.resolve({ data: [] }), // appliances loaded lazily on tab open
       supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
-      cachedQuery('file_types', () => supabase.from('file_types').select('id,name,icon,color').order('name')),
+      cachedQuery('file_types', () => supabase.from('file_types').select('id,name,icon').order('name')),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])
@@ -2294,10 +2294,10 @@ export default function JobDetail() {
     // Load rooms
     // Load secondary data in parallel — don't block main job render
     Promise.all([
-      supabase.from('rooms').select('id,name,type,notes,sort_order,tasks').eq('job_id', id).order('sort_order'),
+      supabase.from('rooms').select('*').eq('job_id', id).order('sort_order'),
       supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
-      supabase.from('job_feedback').select('id,title,description,status,severity,created_at,resolved_at').eq('job_id', id).order('created_at',{ascending:false}),
-      supabase.from('notifications').select('id,read').eq('user_id', profile?.id||'').eq('job_id', id),
+      supabase.from('job_feedback').select('*').eq('job_id', id).order('created_at',{ascending:false}),
+      Promise.resolve({ data: [] }), // notifications handled separately
     ]).then(([{data:roomData},{data:procData},{data:fbData},{data:notifData}]) => {
       setRooms(roomData||[])
       setProcesses(procData||[])

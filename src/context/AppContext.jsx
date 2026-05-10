@@ -58,7 +58,7 @@ export function AppProvider({ children }) {
   async function loadProfile(uid, showLoading = false) {
     // Show app immediately with cached/default profile, then update
     if (showLoading) setLoading(false)
-    const { data } = await supabase.from('profiles').select('id,full_name,email,role,phone,position,department,notes,avatar_url').eq('id', uid).single()
+    const { data } = await supabase.from('profiles').select('id,full_name,email,role,phone,position,department,notes').eq('id', uid).single()
     setProfile(data || { id: uid, role: 'Production Team' })
     // Keep Supabase warm — ping every 4 minutes to avoid cold starts
     if (!window._sbKeepAlive) {
