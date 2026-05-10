@@ -2272,7 +2272,7 @@ export default function JobDetail() {
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       Promise.resolve({ data: [] }), // appliances loaded lazily on tab open
       supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
-      cachedQuery('file_types', () => supabase.from('file_types').select('id,name,icon').order('name')),
+      supabase.from('file_types').select('*').order('name'),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[]); setJobMats(jm||[])

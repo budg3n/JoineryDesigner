@@ -331,7 +331,7 @@ function CopyBtn({ row, format }) {
   )
 }
 
-function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat, rooms }) {
+function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat, rooms, onEnsureMaterials }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
   const qty = parseFloat(row.qty); const price = parseFloat(row.price)
   const total = !isNaN(qty) && !isNaN(price) && qty > 0 && price > 0 ? (qty*price).toFixed(2) : null
@@ -346,7 +346,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
       {cols.map(col=>{
         if (col.type === 'item') return (
           <ItemCell key={col.key} value={row.item} width={col.w} materials={materials}
-                onFocus={ensureMaterialsLoaded}
+                onFocus={onEnsureMaterials}
             onCommit={p=>onUpdate(row.id,p)} />
         )
         if (col.type === 'room') return (
@@ -403,7 +403,7 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
 }
 
 // ── Group section ─────────────────────────────────────────────────
-function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms }) {
+function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms, onEnsureMaterials }) {
   const [collapsed, setCollapsed] = useState(false)
   const [groupCols, setGroupCols] = useState(null)  // null = use default cols
   const toOrder = rows.filter(r=>r.status==='To order').length
@@ -503,7 +503,7 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
             </div>
             {rows.map(row=>(
               <OrderRow key={row.id} row={row} materials={materials}
-                onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={activeCols} copyFormat={copyFormat} rooms={rooms} />
+                onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={activeCols} copyFormat={copyFormat} rooms={rooms} onEnsureMaterials={onEnsureMaterials} />
             ))}
             <div onClick={()=>onAddRow(title)} style={{ padding:'7px 16px', fontSize:12, color:'#9CA3AF', cursor:'pointer', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, background:'#FAFAFA' }}
               onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
@@ -1015,7 +1015,7 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
               materials={materials} onUpdate={updateRow} onDelete={deleteRow}
               onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered}
-              cols={cols} copyFormat={copyFormat} rooms={rooms} />
+              cols={cols} copyFormat={copyFormat} rooms={rooms} onEnsureMaterials={ensureMaterialsLoaded} />
           ))}
           {groups.length===0 && (
             <div style={{ padding:'40px 0', textAlign:'center', color:'#9CA3AF', fontSize:13 }}>No items yet — click + Add row to start</div>
