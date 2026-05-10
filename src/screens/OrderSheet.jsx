@@ -477,61 +477,83 @@ export default function OrderSheet() {
       supabase.from('order_items').select('*').eq('job_id',id).order('created_at'),
       supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
       supabase.from('material_categories').select('id,name,parent_id').order('name'),
-      supabase.from('room_materials').select('*,materials(*),rooms!inner(id,name,job_id)').eq('rooms.job_id',id),
-      supabase.from('room_appliances').select('*,appliances(*),rooms!inner(id,name,job_id)').eq('rooms.job_id',id),
-    ]).then(([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:rm},{data:ra}])=>{
+      supabase.from('job_materials').select('*,materials(*)').eq('job_id',id),
+      supabase.from('job_appliances').select('*,appliances(*)').eq('job_id',id),
+      supabase.from('room_materials').select('*,materials(*),rooms(id,name)').eq('rooms.job_id',id),
+    ]).then(([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:jm},{data:ja},{data:rm}])=>{
       setJob(j)
       setMaterials(m||[])
       setRooms(r||[])
       setAllCats(cats||[])
 
-      // Convert room_materials → order_item rows (only if not already in order_items)
+      // Convert job_materials → order rows (only if not already in order_items)
       const existingMatIds  = new Set((o||[]).map(row=>row.material_id).filter(Boolean))
       const existingAppIds  = new Set((o||[]).map(row=>row.appliance_id).filter(Boolean))
 
-      const fromRoomMats = (rm||[])
+      const fromJobMats = (jm||[])
         .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
         .map(entry => {
-          const mat  = entry.materials
-          const room = entry.rooms
+          const mat = entry.materials
           return makeRow({
-            item:        mat.name || '',
-            supplier:    mat.supplier || '',
-            brand:       mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
-            panel_type:  mat.panel_type || '',
-            thickness:   mat.thickness ? String(mat.thickness) : '',
-            colour:      mat.colour_code || '',
-            finish:      mat.finish || '',
-            sku:         mat.sku || '',
-            price:       mat.price ? String(mat.price) : '',
-            category:    mat.panel_type ? 'Board' : 'Hardware',
-            material_id: entry.material_id,
-            room_id:     entry.room_id,
+            item:          mat.name || '',
+            supplier:      mat.supplier || '',
+            brand:         mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
+            panel_type:    mat.panel_type || '',
+            thickness:     mat.thickness ? String(mat.thickness) : '',
+            colour:        mat.colour_code || '',
+            finish:        mat.finish || '',
+            sku:           mat.sku || '',
+            price:         mat.price ? String(mat.price) : '',
+            notes:         mat.notes || '',
+            category:      mat.panel_type ? 'Board' : 'Hardware',
+            material_id:   entry.material_id,
             custom_fields: mat.custom_fields || '{}',
-            _fromRoom:   true,
+            _fromRoom:     true,
           })
         })
 
-      const fromRoomApps = (ra||[])
+      const fromJobApps = (ja||[])
         .filter(entry => entry.appliances && !existingAppIds.has(entry.appliance_id))
         .map(entry => {
-          const app  = entry.appliances
-          const room = entry.rooms
+          const app = entry.appliances
           return makeRow({
             item:         `${app.brand||''} ${app.model||''}`.trim() || app.type || '',
             supplier:     app.supplier || '',
-            panel_type:   '',
             category:     'Appliance',
             sku:          app.sku || '',
             price:        app.price ? String(app.price) : '',
             appliance_id: entry.appliance_id,
-            room_id:      entry.room_id,
             _fromRoom:    true,
           })
         })
 
-      // Merge: existing order_items first, then room-sourced rows
-      setRows([...(o||[]), ...fromRoomMats, ...fromRoomApps])
+      // Also include room-specific material assignments
+      const fromRoomMats = (rm||[])
+        .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
+        .map(entry => {
+          const mat = entry.materials
+          return makeRow({
+            item:          mat.name || '',
+            supplier:      mat.supplier || '',
+            brand:         mat.custom_fields ? (JSON.parse(mat.custom_fields||'{}').brand||'') : '',
+            panel_type:    mat.panel_type || '',
+            thickness:     mat.thickness ? String(mat.thickness) : '',
+            colour:        mat.colour_code || '',
+            finish:        mat.finish || '',
+            sku:           mat.sku || '',
+            price:         mat.price ? String(mat.price) : '',
+            notes:         mat.notes || '',
+            category:      mat.panel_type ? 'Board' : 'Hardware',
+            material_id:   entry.material_id,
+            room_id:       entry.room_id,
+            room_name:     entry.rooms?.name || '',
+            custom_fields: mat.custom_fields || '{}',
+            _fromRoom:     true,
+          })
+        })
+
+      // Merge: existing order_items first, then job-sourced rows, then room-sourced rows
+      setRows([...(o||[]), ...fromJobMats, ...fromJobApps, ...fromRoomMats])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})

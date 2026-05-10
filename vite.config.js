@@ -5,7 +5,6 @@ export default defineConfig({
   plugins: [react()],
 
   define: {
-    // Cache buster — change this value to force Vercel to rebuild
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
 
@@ -14,6 +13,11 @@ export default defineConfig({
 
     rollupOptions: {
       output: {
+        // Content-hashed filenames — browser never serves stale chunks
+        entryFileNames:  'assets/[name]-[hash].js',
+        chunkFileNames:  'assets/[name]-[hash].js',
+        assetFileNames:  'assets/[name]-[hash].[ext]',
+
         manualChunks(id) {
           if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) {
             return 'react-core'
