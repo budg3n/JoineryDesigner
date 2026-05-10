@@ -43,7 +43,7 @@ function useCategoryFields(catId) {
   const [extraCols, setExtraCols] = useState([])
   useEffect(() => {
     if (!catId) { setExtraCols([]); return }
-    supabase.from('category_fields').select('*').eq('category_id', catId).eq('show_in_orders', true).order('sort_order')
+    supabase.from('category_fields').select('*').eq('category_id', catId).order('sort_order')
       .then(({ data }) => {
         setExtraCols((data||[]).map(f => ({
           key: '_cf_' + f.id,
@@ -52,6 +52,7 @@ function useCategoryFields(catId) {
           type: f.field_type==='price' ? 'price' : f.field_type==='number' ? 'number' : f.field_type==='toggle' ? 'toggle' : f.field_type==='select' ? 'select' : 'text',
           options: f.field_type==='select' && f.options ? JSON.parse(f.options) : undefined,
           fieldId: f.id,
+          fieldLabel: f.label,
           isCustom: true,
         })))
       })
@@ -355,7 +356,15 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
         return (
           <Cell key={col.key} col={col}
             value={col.key.startsWith('_cf_')
-              ? (()=>{ try { const cf=JSON.parse(row.custom_fields||'{}'); return cf[col.key.replace('_cf_','')]||'' } catch{ return '' } })()
+              ? (()=>{
+                  try {
+                    const cf = JSON.parse(row.custom_fields||'{}')
+                    // Try by field ID first, then by label (Materials stores by label)
+                    const byId = cf[col.fieldId] || cf[col.key.replace('_cf_','')]
+                    const byLabel = cf[col.fieldLabel] || cf[(col.fieldLabel||'').toLowerCase().replace(/\s+/g,'_')]
+                    return byId || byLabel || ''
+                  } catch { return '' }
+                })()
               : (row[col.key]||'')}
             onChange={v=>onUpdate(row.id,{[col.key]:v})} />
         )
@@ -498,6 +507,7 @@ export default function OrderSheet() {
             category:    mat.panel_type ? 'Board' : 'Hardware',
             material_id: entry.material_id,
             room_id:     entry.room_id,
+            custom_fields: mat.custom_fields || '{}',
             _fromRoom:   true,
           })
         })

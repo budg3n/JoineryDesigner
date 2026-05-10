@@ -707,6 +707,24 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
     </div>
   )
 
+  if (type==='price') return (
+    <div style={{...base, cursor:readOnly?'default':'text'}} onClick={()=>!readOnly&&setEditing(true)}>
+      {editing
+        ? <div style={{ display:'flex', alignItems:'center', width:'100%' }}>
+            <span style={{ color:'#9CA3AF', fontSize:12, marginRight:2 }}>$</span>
+            <input ref={ref} type="number" step="0.01" min="0" value={val}
+              onChange={e=>setVal(e.target.value)}
+              onBlur={e=>{ const v=parseFloat(e.target.value||0).toFixed(2); setVal(v); commit(v) }}
+              onKeyDown={e=>{if(e.key==='Enter'||e.key==='Tab'){const v=parseFloat(val||0).toFixed(2);setVal(v);commit(v)}}}
+              style={{ flex:1, border:'none', outline:'none', background:'transparent', fontSize:12 }} />
+          </div>
+        : <span style={{ color:val&&val!=='0.00'?'#374151':'#C4C9D4', whiteSpace:'nowrap' }}>
+            {val && val!=='0.00' ? `$${parseFloat(val).toFixed(2)}` : placeholder}
+          </span>
+      }
+    </div>
+  )
+
   return (
     <div style={{...base, cursor:readOnly?'default':'text', color:val?'#374151':'#C4C9D4'}} onClick={()=>!readOnly&&setEditing(true)}>
       {editing
@@ -781,7 +799,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     { key:'edge_profile', label:'Edge profile',    w:110, type:'text',   settingKey:'edge_profile' },
     { key:'dimensions',   label:'Dimensions',      w:130, type:'text',   settingKey:'dimensions', placeholder:'e.g. 2400×1220' },
     { key:'weight',       label:'Weight (kg)',      w:90,  type:'text',   settingKey:'weight' },
-    { key:'price',        label:'Price',           w:90,  type:'text',   settingKey:'price', placeholder:'0.00' },
+    { key:'price',        label:'Price',           w:90,  type:'price',  settingKey:'price', placeholder:'0.00' },
     { key:'unit',         label:'Unit',            w:90,  type:'text',   settingKey:'unit' },
     { key:'qty',          label:'Default qty',     w:80,  type:'text',   settingKey:'qty' },
     { key:'lead_time',    label:'Lead time',       w:90,  type:'text',   settingKey:'lead_time' },
