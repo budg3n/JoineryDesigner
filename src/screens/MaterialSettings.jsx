@@ -134,14 +134,22 @@ function FieldsModal({ catId, catName, onClose }) {
 
   async function addCustom() {
     if (!nf.label.trim()) return
-    const opts = nf.field_type==='select' ? nf.options.split(',').map(s=>s.trim()).filter(Boolean) : null
-    const { data, error } = await supabase.from('category_fields')
-      .insert({ category_id:catId, label:nf.label.trim(), field_type:nf.field_type,
-        required:nf.required, sort_order:customFields.length, options:opts?JSON.stringify(opts):null })
-      .select().single()
-    if (error) { toast(error.message,'error'); return }
-    setCustomFields(p=>[...p,data])
-    setNf({ label:'', field_type:'text', required:false, options:'' }); setAdding(false)
+    const opts = nf.field_type==='select'
+      ? nf.options.split(',').map(s=>s.trim()).filter(Boolean)
+      : null
+    const payload = {
+      category_id: catId,
+      label:       nf.label.trim(),
+      field_type:  nf.field_type,
+      sort_order:  customFields.length,
+    }
+    if (opts) payload.options = JSON.stringify(opts)
+    const { data, error } = await supabase
+      .from('category_fields').insert(payload).select().single()
+    if (error) { toast(error.message, 'error'); return }
+    setCustomFields(p => [...p, data])
+    setNf({ label:'', field_type:'text', required:false, options:'' })
+    setAdding(false)
     toast('Field added ✓')
   }
 
@@ -152,8 +160,9 @@ function FieldsModal({ catId, catName, onClose }) {
   }
 
   async function toggleReq(f) {
-    await supabase.from('category_fields').update({ required:!f.required }).eq('id',f.id)
-    setCustomFields(p=>p.map(x=>x.id===f.id?{...x,required:!f.required}:x))
+    const { error } = await supabase.from('category_fields')
+      .update({ required: !f.required }).eq('id', f.id)
+    if (!error) setCustomFields(p => p.map(x => x.id===f.id ? {...x, required:!f.required} : x))
   }
 
   return (
