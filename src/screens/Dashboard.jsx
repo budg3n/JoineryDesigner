@@ -493,13 +493,13 @@ export default function Dashboard() {
               onFocus={e=>e.target.style.borderColor='#5B8AF0'} onBlur={e=>e.target.style.borderColor='#DDE3EC'} />
           </div>
         </div>
-        {/* tabs */}
-        <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', flexShrink:0 }}>
+        {/* tabs — horizontally scrollable on mobile */}
+        <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', flexShrink:0, WebkitOverflowScrolling:'touch', scrollbarWidth:'none', msOverflowStyle:'none' }}>
           {TABS.map(t => {
             const count = jobs.filter(t.f).length
             return (
               <button key={t.key} onClick={() => setTab(t.key)}
-                style={{ fontSize:12, fontWeight: tab===t.key ? 600 : 500, padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', background: tab===t.key ? '#fff' : 'transparent', color: tab===t.key ? '#2A3042' : '#9CA3AF', boxShadow: tab===t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition:'all .12s', display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap' }}>
+                style={{ fontSize:12, fontWeight: tab===t.key ? 600 : 500, padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', background: tab===t.key ? '#fff' : 'transparent', color: tab===t.key ? '#2A3042' : '#9CA3AF', boxShadow: tab===t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition:'all .12s', display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap', flexShrink:0 }}>
                 {t.label}
                 {!t.hideCount && (
                   <span style={{ fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:8, background: tab===t.key ? '#EEF2FF' : '#E8ECF0', color: tab===t.key ? '#5B8AF0' : '#9CA3AF', minWidth:16, textAlign:'center' }}>

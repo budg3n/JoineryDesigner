@@ -180,23 +180,31 @@ function SiteMeasures({ jobId }) {
 }
 
 // ── Image lightbox ────────────────────────────────────────────────
-function Lightbox({ image, jobId, profiles, profile, onClose, onDeleted }) {
+function Lightbox({ image, images, currentIndex, jobId, profiles, profile, onClose, onDeleted, onNavigate }) {
   const toast = useToast()
   const [comments, setComments] = useState([])
   const [newComment, setNewComment] = useState('')
   const [saving, setSaving] = useState(false)
   const [mentionQ, setMentionQ] = useState(null)
   const [mentionSel, setMentionSel] = useState(0)
+  const [showComments, setShowComments] = useState(false)
   const inputRef = useRef()
+  const touchStartX = useRef(null)
 
-  // Escape key closes
+  // Escape key + arrow keys
   useEffect(() => {
-    const h = e => { if (e.key === 'Escape') onClose() }
+    const h = e => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowLeft'  && currentIndex > 0)              onNavigate(currentIndex - 1)
+      if (e.key === 'ArrowRight' && currentIndex < images.length-1) onNavigate(currentIndex + 1)
+    }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [onClose])
+  }, [onClose, currentIndex, images.length, onNavigate])
 
+  // Load comments when image changes
   useEffect(() => {
+    setComments([])
     supabase.from('site_image_comments')
       .select('*, profiles(id,full_name,email)')
       .eq('image_id', image.id)
@@ -204,7 +212,17 @@ function Lightbox({ image, jobId, profiles, profile, onClose, onDeleted }) {
       .then(({ data }) => setComments(data||[]))
   }, [image.id])
 
-  // @ detection
+  // Touch swipe
+  function handleTouchStart(e) { touchStartX.current = e.touches[0].clientX }
+  function handleTouchEnd(e) {
+    if (touchStartX.current === null) return
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    touchStartX.current = null
+    if (Math.abs(dx) < 50) return
+    if (dx < 0 && currentIndex < images.length - 1) onNavigate(currentIndex + 1)
+    if (dx > 0 && currentIndex > 0) onNavigate(currentIndex - 1)
+  }
+
   function handleCommentChange(val) {
     setNewComment(val)
     const lastAt = val.lastIndexOf('@')
@@ -218,7 +236,6 @@ function Lightbox({ image, jobId, profiles, profile, onClose, onDeleted }) {
     setNewComment(newComment.slice(0,lastAt) + `@${p.full_name||p.email} `)
     setMentionQ(null)
     inputRef.current?.focus()
-    // notify
     if (p.id !== profile?.id) {
       supabase.from('notifications').insert({ user_id:p.id, type:'mention', title:`${profile?.full_name||'Someone'} mentioned you`, body:`on a site image`, job_id:jobId, read:false })
     }
@@ -250,127 +267,163 @@ function Lightbox({ image, jobId, profiles, profile, onClose, onDeleted }) {
     onClose()
   }
 
-  const filteredProfiles = (profiles||[]).filter(p => mentionQ ? (p.full_name||p.email||'').toLowerCase().includes(mentionQ.toLowerCase()) : true).slice(0,5)
+  const filteredProfiles = (profiles||[]).filter(p => !mentionQ || (p.full_name||p.email||'').toLowerCase().includes(mentionQ.toLowerCase())).slice(0,5)
+  const isMobile = window.innerWidth < 768
+  const imgUrl = supabase.storage.from('job-files').getPublicUrl(image.storage_path).data.publicUrl
+  const looksHeic = image.storage_path?.toLowerCase().match(/\.heic|\.heif/)
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:800,background:'rgba(0,0,0,0.92)',display:'flex',alignItems:'stretch'}}>
-      {/* Close button — always on top, outside the flex children */}
-      <button onClick={onClose}
-        style={{position:'absolute',top:16,right:356,background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#fff',fontSize:22,zIndex:20,backdropFilter:'blur(4px)'}}
-        onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.35)'}
-        onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.2)'}>×</button>
+    <div style={{position:'fixed',inset:0,zIndex:800,background:'rgba(0,0,0,0.95)',display:'flex',flexDirection:'column'}}
+      onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
 
-      {/* Image area — click to close */}
-      <div onClick={onClose} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:24,minWidth:0,cursor:'pointer'}}>
-        {(() => {
-          const imgUrl = supabase.storage.from('job-files').getPublicUrl(image.storage_path).data.publicUrl
-          const looksHeic = image.storage_path?.toLowerCase().includes('.heic') || image.storage_path?.toLowerCase().includes('.heif')
-          return looksHeic ? (
-            <div style={{textAlign:'center',color:'#fff'}} onClick={e=>e.stopPropagation()}>
-              <div style={{fontSize:48,marginBottom:16}}>🖼</div>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>HEIC Image</div>
-              <div style={{fontSize:13,color:'rgba(255,255,255,0.7)',marginBottom:20}}>This format may not display in all browsers</div>
-              <a href={imgUrl} download target="_blank" rel="noreferrer"
-                style={{fontSize:13,fontWeight:700,padding:'10px 20px',borderRadius:10,background:'#5B8AF0',color:'#fff',textDecoration:'none',display:'inline-block'}}>
-                ↓ Download to view
-              </a>
-            </div>
-          ) : (
-            <img src={imgUrl} alt={image.caption||'Site photo'}
-              onClick={e=>e.stopPropagation()}
-              style={{maxWidth:'100%',maxHeight:'calc(100vh - 48px)',objectFit:'contain',borderRadius:8,cursor:'default'}}/>
-          )
-        })()}
+      {/* Top bar */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',flexShrink:0}}>
+        <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',borderRadius:8,padding:'6px 12px',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+          ← Close
+        </button>
+        <div style={{fontSize:12,color:'rgba(255,255,255,0.6)'}}>
+          {images.length > 1 && `${currentIndex+1} / ${images.length}`}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {profile?.id === image.user_id && (
+            <button onClick={deleteImage} style={{background:'rgba(226,75,74,0.3)',border:'none',borderRadius:8,padding:'6px 12px',color:'#fff',fontSize:13,cursor:'pointer'}}>Delete</button>
+          )}
+          <button onClick={()=>setShowComments(s=>!s)}
+            style={{position:'relative',background:showComments?'#5B8AF0':'rgba(255,255,255,0.15)',border:'none',borderRadius:8,padding:'6px 12px',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            💬
+            {comments.length > 0 && <span style={{fontSize:11,fontWeight:700}}>{comments.length}</span>}
+          </button>
+        </div>
       </div>
 
-      {/* Sidebar */}
-      <div style={{width:340,background:'#fff',display:'flex',flexDirection:'column',flexShrink:0}}>
-        {/* Header */}
-        <div style={{padding:'14px 16px',borderBottom:'1px solid #F3F4F6',display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:32,height:32,borderRadius:'50%',background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'#5B8AF0',flexShrink:0}}>
-            {(image.profiles?.full_name||'?')[0].toUpperCase()}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{image.profiles?.full_name||'Unknown'}</div>
-            <div style={{fontSize:11,color:'#9CA3AF'}}>{fmtTime(image.created_at)}</div>
-          </div>
-          {profile?.id === image.user_id && (
-            <button onClick={deleteImage} style={{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:11,fontWeight:600}}
-              onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>Delete</button>
-          )}
-        </div>
-
-        {/* Caption */}
-        {image.caption && (
-          <div style={{padding:'12px 16px',borderBottom:'1px solid #F3F4F6',fontSize:13,color:'#374151',lineHeight:1.6}}>{image.caption}</div>
+      {/* Image area */}
+      <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}}>
+        {/* Prev arrow */}
+        {currentIndex > 0 && (
+          <button onClick={()=>onNavigate(currentIndex-1)}
+            style={{position:'absolute',left:12,zIndex:10,background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#fff',fontSize:20}}>‹</button>
         )}
 
-        {/* Comments */}
-        <div style={{flex:1,overflowY:'auto',padding:'10px 16px'}}>
-          {comments.length === 0 && <div style={{fontSize:12,color:'#9CA3AF',textAlign:'center',padding:'20px 0'}}>No comments yet</div>}
-          {comments.map(c => (
-            <div key={c.id} style={{display:'flex',gap:8,marginBottom:12,alignItems:'flex-start'}}>
-              <div style={{width:28,height:28,borderRadius:'50%',background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:'#5B8AF0',flexShrink:0}}>
-                {(c.profiles?.full_name||'?')[0].toUpperCase()}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,lineHeight:1.6}}>
-                  <span style={{fontWeight:700,color:'#2A3042',marginRight:6}}>{c.profiles?.full_name||'Unknown'}</span>
-                  <span style={{color:'#374151'}} dangerouslySetInnerHTML={{__html: c.content.replace(/@(\w[\w\s]*)/g,'<span style="color:#5B8AF0;font-weight:600">@$1</span>')}}/>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginTop:2}}>
-                  <span style={{fontSize:10,color:'#9CA3AF'}}>{fmtTime(c.created_at)}</span>
-                  {c.user_id===profile?.id && (
-                    <button onClick={()=>deleteComment(c.id)} style={{fontSize:10,color:'#9CA3AF',background:'none',border:'none',cursor:'pointer',padding:0}}
-                      onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>Delete</button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        {looksHeic ? (
+          <div style={{textAlign:'center',color:'#fff'}}>
+            <div style={{fontSize:48,marginBottom:16}}>🖼</div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>HEIC Image</div>
+            <a href={imgUrl} download target="_blank" rel="noreferrer"
+              style={{fontSize:13,fontWeight:700,padding:'10px 20px',borderRadius:10,background:'#5B8AF0',color:'#fff',textDecoration:'none',display:'inline-block'}}>
+              ↓ Download to view
+            </a>
+          </div>
+        ) : (
+          <img src={imgUrl} alt={image.caption||''}
+            style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:4,userSelect:'none',pointerEvents:'none'}}/>
+        )}
 
-        {/* Comment input */}
-        <div style={{padding:'12px 16px',borderTop:'1px solid #F3F4F6',position:'relative'}}>
-          {/* Mention picker */}
-          {mentionQ !== null && filteredProfiles.length > 0 && (
-            <div style={{position:'absolute',bottom:'calc(100% + 4px)',left:16,right:16,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',overflow:'hidden',zIndex:10}}>
-              <div style={{padding:'4px 10px',fontSize:9,fontWeight:700,color:'#5B8AF0',textTransform:'uppercase',letterSpacing:'.06em',background:'#F8FAFF',borderBottom:'1px solid #F3F4F6'}}>Mention</div>
-              {filteredProfiles.map((p,i)=>(
-                <div key={p.id} onClick={()=>insertMention(p)}
-                  style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',cursor:'pointer',background:i===mentionSel?'#EEF2FF':'transparent'}}
-                  onMouseEnter={()=>setMentionSel(i)}>
-                  <div style={{width:24,height:24,borderRadius:'50%',background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#5B8AF0',flexShrink:0}}>
-                    {(p.full_name||'?')[0].toUpperCase()}
+        {/* Next arrow */}
+        {currentIndex < images.length-1 && (
+          <button onClick={()=>onNavigate(currentIndex+1)}
+            style={{position:'absolute',right:12,zIndex:10,background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#fff',fontSize:20}}>›</button>
+        )}
+
+        {/* Dot indicators */}
+        {images.length > 1 && (
+          <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:6}}>
+            {images.map((_,i) => (
+              <div key={i} onClick={()=>onNavigate(i)} style={{width:i===currentIndex?20:7,height:7,borderRadius:4,background:i===currentIndex?'#fff':'rgba(255,255,255,0.4)',cursor:'pointer',transition:'all .2s'}}/>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Caption */}
+      {image.caption && (
+        <div style={{padding:'8px 16px',color:'rgba(255,255,255,0.8)',fontSize:13,textAlign:'center',flexShrink:0}}>{image.caption}</div>
+      )}
+
+      {/* Comments panel — slides up from bottom on mobile */}
+      {showComments && (
+        <div style={{
+          position: isMobile ? 'fixed' : 'static',
+          bottom: isMobile ? 0 : 'auto',
+          left: isMobile ? 0 : 'auto',
+          right: isMobile ? 0 : 'auto',
+          width: isMobile ? '100%' : 340,
+          maxHeight: isMobile ? '70vh' : '100%',
+          background:'#fff',
+          borderRadius: isMobile ? '16px 16px 0 0' : 0,
+          display:'flex',flexDirection:'column',
+          boxShadow: isMobile ? '0 -8px 32px rgba(0,0,0,0.3)' : 'none',
+          zIndex:10,
+        }}>
+          {/* Comments header */}
+          <div style={{padding:'12px 16px',borderBottom:'1px solid #F3F4F6',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:'#2A3042'}}>Comments {comments.length>0&&`(${comments.length})`}</div>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <div style={{fontSize:11,color:'#9CA3AF'}}>{image.profiles?.full_name} · {fmtTime(image.created_at)}</div>
+              <button onClick={()=>setShowComments(false)} style={{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:20,lineHeight:1}}>×</button>
+            </div>
+          </div>
+
+          {/* Comment list */}
+          <div style={{flex:1,overflowY:'auto',padding:'10px 16px'}}>
+            {comments.length===0 && <div style={{fontSize:12,color:'#9CA3AF',textAlign:'center',padding:'20px 0'}}>No comments yet. Be first!</div>}
+            {comments.map(cm => (
+              <div key={cm.id} style={{display:'flex',gap:8,marginBottom:12,alignItems:'flex-start'}}>
+                <div style={{width:28,height:28,borderRadius:'50%',background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:'#5B8AF0',flexShrink:0}}>
+                  {(cm.profiles?.full_name||'?')[0].toUpperCase()}
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,lineHeight:1.6}}>
+                    <span style={{fontWeight:700,color:'#2A3042',marginRight:6}}>{cm.profiles?.full_name||'Unknown'}</span>
+                    <span style={{color:'#374151'}} dangerouslySetInnerHTML={{__html:cm.content.replace(/@(\w[\w\s]*)/g,'<span style="color:#5B8AF0;font-weight:600">@$1</span>')}}/>
                   </div>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:600,color:'#2A3042'}}>{p.full_name||'—'}</div>
-                    <div style={{fontSize:10,color:'#9CA3AF'}}>{p.email}</div>
+                  <div style={{display:'flex',gap:8,marginTop:2}}>
+                    <span style={{fontSize:10,color:'#9CA3AF'}}>{fmtTime(cm.created_at)}</span>
+                    {cm.user_id===profile?.id && (
+                      <button onClick={()=>deleteComment(cm.id)} style={{fontSize:10,color:'#9CA3AF',background:'none',border:'none',cursor:'pointer',padding:0}}
+                        onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>Delete</button>
+                    )}
                   </div>
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Comment input */}
+          <div style={{padding:'10px 16px',borderTop:'1px solid #F3F4F6',position:'relative',flexShrink:0}}>
+            {mentionQ !== null && filteredProfiles.length > 0 && (
+              <div style={{position:'absolute',bottom:'calc(100% + 4px)',left:16,right:16,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',overflow:'hidden',zIndex:10}}>
+                {filteredProfiles.map((p,i)=>(
+                  <div key={p.id} onClick={()=>insertMention(p)}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',cursor:'pointer',background:i===mentionSel?'#EEF2FF':'transparent'}}>
+                    <div style={{width:24,height:24,borderRadius:'50%',background:'#EEF2FF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#5B8AF0',flexShrink:0}}>
+                      {(p.full_name||'?')[0].toUpperCase()}
+                    </div>
+                    <div style={{fontSize:12,fontWeight:600,color:'#2A3042'}}>{p.full_name||'—'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+              <textarea ref={inputRef} value={newComment} onChange={e=>handleCommentChange(e.target.value)}
+                onKeyDown={e=>{
+                  if(mentionQ!==null&&filteredProfiles.length){
+                    if(e.key==='ArrowDown'){e.preventDefault();setMentionSel(s=>Math.min(s+1,filteredProfiles.length-1))}
+                    if(e.key==='ArrowUp'){e.preventDefault();setMentionSel(s=>Math.max(s-1,0))}
+                    if(e.key==='Enter'){e.preventDefault();insertMention(filteredProfiles[mentionSel]);return}
+                  }
+                  if(e.key==='Enter'&&!e.shiftKey&&mentionQ===null){e.preventDefault();addComment()}
+                }}
+                placeholder="Add a comment… @ to mention"
+                rows={2}
+                style={{flex:1,padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',resize:'none',fontFamily:'inherit',lineHeight:1.5}}/>
+              <button onClick={addComment} disabled={!newComment.trim()||saving}
+                style={{padding:'8px 14px',borderRadius:9,border:'none',background:newComment.trim()?'#5B8AF0':'#E8ECF0',color:newComment.trim()?'#fff':'#9CA3AF',fontSize:12,fontWeight:700,cursor:newComment.trim()?'pointer':'not-allowed',flexShrink:0}}>
+                Post
+              </button>
             </div>
-          )}
-          <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
-            <textarea ref={inputRef} value={newComment} onChange={e=>handleCommentChange(e.target.value)}
-              onKeyDown={e=>{
-                if(mentionQ!==null&&filteredProfiles.length){
-                  if(e.key==='ArrowDown'){e.preventDefault();setMentionSel(s=>Math.min(s+1,filteredProfiles.length-1))}
-                  if(e.key==='ArrowUp'){e.preventDefault();setMentionSel(s=>Math.max(s-1,0))}
-                  if(e.key==='Enter'){e.preventDefault();insertMention(filteredProfiles[mentionSel]);return}
-                }
-                if(e.key==='Enter'&&!e.shiftKey&&mentionQ===null){e.preventDefault();addComment()}
-              }}
-              placeholder="Add a comment… @ to mention"
-              rows={2}
-              style={{flex:1,padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',resize:'none',fontFamily:'inherit',lineHeight:1.5}}/>
-            <button onClick={addComment} disabled={!newComment.trim()||saving}
-              style={{padding:'8px 14px',borderRadius:9,border:'none',background:newComment.trim()?'#5B8AF0':'#E8ECF0',color:newComment.trim()?'#fff':'#9CA3AF',fontSize:12,fontWeight:700,cursor:newComment.trim()?'pointer':'not-allowed',flexShrink:0}}>
-              Post
-            </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -556,11 +609,14 @@ function SiteImages({ jobId, profile, profiles, roomId=null, rooms=[] }) {
       {lightbox && (
         <Lightbox
           image={lightbox}
+          images={images}
+          currentIndex={images.findIndex(i=>i.id===lightbox.id)}
           jobId={jobId}
           profiles={profiles}
           profile={profile}
           onClose={()=>setLightbox(null)}
-          onDeleted={id=>setImages(p=>p.filter(i=>i.id!==id))}
+          onNavigate={idx=>setLightbox(images[idx])}
+          onDeleted={id=>{ setImages(p=>p.filter(i=>i.id!==id)); setLightbox(null) }}
         />
       )}
     </div>
