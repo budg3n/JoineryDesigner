@@ -13,8 +13,10 @@ function isHeic(file) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2) }
 function fmtTime(d) {
   if (!d) return ''
-  const s = String(d).endsWith('Z') ? d : d + 'Z'
-  return new Date(s).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+  const s = String(d).endsWith('Z') || String(d).includes('+') ? d : d + 'Z'
+  const date = new Date(s)
+  if (isNaN(date.getTime())) return ''
+  return date.toLocaleString('en-NZ', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 }
 
 // ── Measurement groups (reuse from spec builder concept) ──────────
