@@ -402,13 +402,65 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
 }
 
 // ── Group section ─────────────────────────────────────────────────
-function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms, selectedCatId, onSelectCat, extraCols }) {
+function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, showAddLib, onMarkOrdered, cols, copyFormat, rooms }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [groupCols, setGroupCols] = useState(null)  // null = use default cols
   const toOrder = rows.filter(r=>r.status==='To order').length
   const subtotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
 
+  // Load category-specific columns for this group
+  useEffect(() => {
+    // Get the category_id from rows in this group
+    const catId = rows.find(r=>r.category_id)?.category_id
+    if (!catId) { setGroupCols(null); return }
+
+    Promise.all([
+      supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${catId}`).maybeSingle(),
+      supabase.from('category_fields').select('*').eq('category_id', catId).order('sort_order'),
+    ]).then(([{data:cfg},{data:cf}]) => {
+      const visibleKeys = cfg?.value ? new Set(JSON.parse(cfg.value)) : new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes'])
+
+      // Build columns from visible standard fields
+      const ALL_STD = [
+        { key:'item',       label:'Name',        w:190, type:'item' },
+        { key:'room_name',  label:'Room',        w:100, type:'room' },
+        { key:'supplier',   label:'Supplier',    w:120, type:'text',   settingKey:'supplier' },
+        { key:'brand',      label:'Brand',       w:100, type:'text',   settingKey:'brand' },
+        { key:'panel_type', label:'Panel type',  w:100, type:'text',   settingKey:'panel_type' },
+        { key:'thickness',  label:'Thickness',   w:80,  type:'text',   settingKey:'thickness', placeholder:'mm' },
+        { key:'colour',     label:'Colour',      w:100, type:'text',   settingKey:'colour_code' },
+        { key:'finish',     label:'Finish',      w:100, type:'text',   settingKey:'finish' },
+        { key:'dimensions', label:'Dimensions',  w:120, type:'text',   settingKey:'dimensions' },
+        { key:'qty',        label:'Qty',         w:60,  type:'number' },
+        { key:'unit',       label:'Unit',        w:80,  type:'select', settingKey:'unit', options:UNIT_OPTIONS },
+        { key:'sku',        label:'SKU',         w:90,  type:'text',   settingKey:'sku' },
+        { key:'price',      label:'Unit price',  w:90,  type:'price',  settingKey:'price' },
+        { key:'po_number',  label:'PO Number',   w:100, type:'text',   settingKey:'po_number' },
+        { key:'status',     label:'Status',      w:110, type:'status' },
+        { key:'needed',     label:'Date needed', w:110, type:'date' },
+        { key:'notes',      label:'Notes',       w:140, type:'text',   settingKey:'notes' },
+      ]
+      const stdCols = ALL_STD.filter(c => !c.settingKey || visibleKeys.has(c.settingKey))
+
+      // Add custom category fields
+      const customCols = (cf||[]).map(f => ({
+        key: '_cf_' + f.id,
+        label: f.label,
+        w: f.field_type==='number'||f.field_type==='price' ? 80 : 110,
+        type: f.field_type==='price' ? 'price' : f.field_type==='number' ? 'number' : f.field_type==='select' ? 'select' : 'text',
+        options: f.field_type==='select' && f.options ? JSON.parse(f.options) : undefined,
+        fieldId: f.id, fieldLabel: f.label, isCustom: true,
+      }))
+
+      setGroupCols([...stdCols, ...customCols])
+    })
+  }, [rows])
+
+  const activeCols = groupCols || cols
+  const totalW = 28 + activeCols.reduce((a,c)=>a+c.w,0) + 80 + 50
+
   return (
-    <div style={{ marginBottom:2 }}>
+    <div style={{ marginBottom:8 }}>
       {/* group header */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'#F9FAFB', borderBottom:'1px solid #E8ECF0', cursor:'pointer', userSelect:'none' }}
         onClick={()=>setCollapsed(c=>!c)}>
@@ -432,17 +484,33 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
         )}
       </div>
       {!collapsed && (
-        <>
-          {rows.map(row=>(
-            <OrderRow key={row.id} row={row} materials={materials}
-              onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={cols} copyFormat={copyFormat} rooms={rooms} />
-          ))}
-          <div onClick={()=>onAddRow(title)} style={{ padding:'7px 16px', fontSize:12, color:'#9CA3AF', cursor:'pointer', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, background:'#FAFAFA' }}
-            onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
-            onMouseLeave={e=>e.currentTarget.style.background='#FAFAFA'}>
-            <span style={{ fontSize:14 }}>+</span> Add {title} item
+        <div style={{ overflowX:'auto' }}>
+          <div style={{ minWidth:totalW }}>
+            {/* Per-group column headers */}
+            <div style={{ display:'flex', background:'#EEF2FF', borderBottom:'1px solid #C4D4F8', position:'sticky', top:0, zIndex:5 }}>
+              <div style={{ width:28, flexShrink:0, borderRight:'1px solid #C4D4F8' }} />
+              {activeCols.map(col=>(
+                <div key={col.key} style={{ width:col.w, minWidth:col.w, padding:'6px 8px',
+                  fontSize:9, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', letterSpacing:'.06em',
+                  borderRight:'1px solid #C4D4F8', flexShrink:0, boxSizing:'border-box',
+                  textAlign:col.type==='number'||col.type==='price'?'right':'left' }}>
+                  {col.label}
+                </div>
+              ))}
+              <div style={{ width:80, minWidth:80, padding:'6px 8px', fontSize:9, fontWeight:700, color:'#5B8AF0', textTransform:'uppercase', borderRight:'1px solid #C4D4F8', flexShrink:0, textAlign:'right' }}>Total</div>
+              <div style={{ width:50, flexShrink:0 }} />
+            </div>
+            {rows.map(row=>(
+              <OrderRow key={row.id} row={row} materials={materials}
+                onUpdate={onUpdate} onDelete={onDelete} showAddLib={showAddLib} cols={activeCols} copyFormat={copyFormat} rooms={rooms} />
+            ))}
+            <div onClick={()=>onAddRow(title)} style={{ padding:'7px 16px', fontSize:12, color:'#9CA3AF', cursor:'pointer', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6, background:'#FAFAFA' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#F3F4F6'}
+              onMouseLeave={e=>e.currentTarget.style.background='#FAFAFA'}>
+              <span style={{ fontSize:14 }}>+</span> Add {title} item
+            </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   )
@@ -539,7 +607,8 @@ export default function OrderSheet() {
           })
         })
 
-      // Also include room-specific material assignments
+      // Room materials — dedup against job_materials (room version wins, has room context)
+      const roomMatIds = new Set((rm||[]).map(e=>e.material_id).filter(Boolean))
       const fromRoomMats = (rm||[])
         .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
         .map(entry => {
@@ -547,7 +616,7 @@ export default function OrderSheet() {
           return makeRow({
             item:          mat.name || '',
             supplier:      mat.supplier || '',
-            brand:         mat.custom_fields ? (safeParse(mat.custom_fields).brand||'') : '',
+            brand:         safeParse(mat.custom_fields).brand || '',
             panel_type:    mat.panel_type || '',
             thickness:     mat.thickness ? String(mat.thickness) : '',
             colour:        mat.colour_code || '',
@@ -559,24 +628,21 @@ export default function OrderSheet() {
             material_id:   entry.material_id,
             room_id:       entry.room_id,
             room_name:     entry.rooms?.name || '',
+            category_id:   mat.category_id || null,
             custom_fields: safeParse(mat.custom_fields),
             _fromRoom:     true,
           })
         })
 
-      // Merge: existing order_items first, then job-sourced rows, then room-sourced rows
-      console.log('OrderSheet data:', {
-        orderItems: (o||[]).length,
-        jobMaterials: (jm||[]).length,
-        jobAppliances: (ja||[]).length,
-        roomMaterials: (rm||[]).length,
-        fromJobMats: fromJobMats.length,
-        fromJobApps: fromJobApps.length,
-        fromRoomMats: fromRoomMats.length,
-        jmSample: (jm||[]).slice(0,2),
-        rmSample: (rm||[]).slice(0,2),
-      })
-      setRows([...(o||[]), ...fromJobMats, ...fromJobApps, ...fromRoomMats])
+      // Remove job_materials that also appear in room_materials (avoid duplicates)
+      const deduped_fromJobMats = fromJobMats
+        .filter(r => !roomMatIds.has(r.material_id))
+        .map(r => {
+          const mat = (jm||[]).find(e=>e.material_id===r.material_id)?.materials
+          return { ...r, category_id: mat?.category_id || null }
+        })
+
+      setRows([...(o||[]), ...deduped_fromJobMats, ...fromJobApps, ...fromRoomMats])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
@@ -795,43 +861,17 @@ export default function OrderSheet() {
         })}
       </div>
 
-      {/* table */}
-      <div style={{ overflowX:'auto', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)' }}>
-        <div style={{ minWidth:totalW }}>
-          {/* header — draggable columns */}
-          <div style={{ display:'flex', background:'#F9FAFB', borderBottom:'2px solid #E8ECF0', position:'sticky', top:0, zIndex:10 }}>
-            <div style={{ width:28, flexShrink:0, borderRight:'1px solid #E8ECF0' }} />
-            {cols.map((col,ci)=>(
-              <div key={col.key}
-                {...getHeaderProps(ci, col.label, {
-                  width:col.w, minWidth:col.w, padding:'9px 8px',
-                  fontSize:10, fontWeight:700, color:'#9CA3AF',
-                  textTransform:'uppercase', letterSpacing:'.06em',
-                  borderRight:'1px solid #E8ECF0', flexShrink:0,
-                  boxSizing:'border-box',
-                  textAlign: col.type==='number'||col.type==='price'?'right':'left',
-                  display:'flex', alignItems:'center', gap:4,
-                })}>
-                <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>
-                {col.label}
-              </div>
-            ))}
-            <div style={{ width:80, minWidth:80, padding:'9px 8px', fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', borderRight:'1px solid #E8ECF0', flexShrink:0, textAlign:'right' }}>Total</div>
-            <div style={{ width:50, flexShrink:0 }} />
-          </div>
-
-          {/* groups */}
+      {/* table — groups each have their own column headers */}
+      <div style={{ borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', overflow:'hidden' }}>
           {groups.map(([groupTitle, groupRows])=>(
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
               materials={materials} onUpdate={updateRow} onDelete={deleteRow}
-              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered} cols={cols} copyFormat={copyFormat} rooms={rooms}
-              selectedCatId={selectedCatId} onSelectCat={setSelectedCatId} extraCols={extraCols} />
+              onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered}
+              cols={cols} copyFormat={copyFormat} rooms={rooms} />
           ))}
-
           {groups.length===0 && (
             <div style={{ padding:'40px 0', textAlign:'center', color:'#9CA3AF', fontSize:13 }}>No items yet — click + Add row to start</div>
           )}
-        </div>
       </div>
 
       {/* grand total row */}
