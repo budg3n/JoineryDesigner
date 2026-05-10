@@ -479,12 +479,18 @@ export default function OrderSheet() {
       supabase.from('material_categories').select('id,name,parent_id').order('name'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id',id),
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id',id),
-      supabase.from('room_materials').select('*,materials(*),rooms(id,name)').eq('rooms.job_id',id),
-    ]).then(([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:jm},{data:ja},{data:rm}])=>{
+      Promise.resolve({ data: [] }), // room_materials loaded after rooms
+    ]).then(async ([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:jm},{data:ja}])=>{
       setJob(j)
       setMaterials(m||[])
       setRooms(r||[])
       setAllCats(cats||[])
+
+      // Load room_materials using actual room IDs
+      const roomIds = (r||[]).map(x=>x.id)
+      const { data: rm } = roomIds.length
+        ? await supabase.from('room_materials').select('*,materials(*),rooms(id,name)').in('room_id', roomIds)
+        : { data: [] }
 
       // Convert job_materials → order rows (only if not already in order_items)
       const existingMatIds  = new Set((o||[]).map(row=>row.material_id).filter(Boolean))
@@ -553,6 +559,17 @@ export default function OrderSheet() {
         })
 
       // Merge: existing order_items first, then job-sourced rows, then room-sourced rows
+      console.log('OrderSheet data:', {
+        orderItems: (o||[]).length,
+        jobMaterials: (jm||[]).length,
+        jobAppliances: (ja||[]).length,
+        roomMaterials: (rm||[]).length,
+        fromJobMats: fromJobMats.length,
+        fromJobApps: fromJobApps.length,
+        fromRoomMats: fromRoomMats.length,
+        jmSample: (jm||[]).slice(0,2),
+        rmSample: (rm||[]).slice(0,2),
+      })
       setRows([...(o||[]), ...fromJobMats, ...fromJobApps, ...fromRoomMats])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
