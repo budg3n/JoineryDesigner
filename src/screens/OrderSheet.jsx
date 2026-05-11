@@ -521,6 +521,7 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
 export default function OrderSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { profile } = useApp()
   const location = useLocation()
   const toast = useToast()
   const roomFilter = new URLSearchParams(location.search).get('room') || null
@@ -654,6 +655,60 @@ export default function OrderSheet() {
   function triggerSave(r) {
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(()=>doSave(r), 1500)
+    // Sync order materials task whenever rows change
+    clearTimeout(taskTimer.current)
+    taskTimer.current = setTimeout(()=>syncOrderTask(r), 2000)
+  }
+
+  const taskTimer = useRef()
+  const ORDER_TASK_PREFIX = '🛒 Order materials'
+
+  async function syncOrderTask(currentRows) {
+    if (!job?.id) return
+    const toOrderItems = currentRows.filter(r => r.item?.trim() && r.status === 'To order')
+    const allDone = toOrderItems.length === 0
+
+    // Load current job tasks
+    const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', job.id).single()
+    if (!jobData) return
+    const tasks = typeof jobData.tasks === 'string'
+      ? JSON.parse(jobData.tasks || '[]')
+      : (jobData.tasks || [])
+
+    // Find existing order task
+    const existingIdx = tasks.findIndex(t => t.title?.startsWith(ORDER_TASK_PREFIX))
+
+    if (allDone) {
+      // All ordered — mark task done if it exists
+      if (existingIdx >= 0 && !tasks[existingIdx].done) {
+        tasks[existingIdx] = { ...tasks[existingIdx], done: true, completedAt: new Date().toISOString() }
+        await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', job.id)
+        window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId: job.id } }))
+      }
+    } else {
+      // Items to order — create or update the task
+      const itemNames = toOrderItems.slice(0, 3).map(r => r.item).join(', ')
+      const extra = toOrderItems.length > 3 ? ` +${toOrderItems.length - 3} more` : ''
+      const title = `${ORDER_TASK_PREFIX}: ${itemNames}${extra}`
+
+      if (existingIdx >= 0) {
+        // Update existing task — refresh title and mark undone
+        tasks[existingIdx] = { ...tasks[existingIdx], title, done: false, completedAt: null }
+      } else {
+        // Create new task assigned to current user
+        tasks.push({
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+          title,
+          done: false,
+          assignedTo: profile?.id || null,
+          assignedName: profile?.full_name || profile?.email || null,
+          createdAt: new Date().toISOString(),
+          source: 'order_sheet',
+        })
+      }
+      await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', job.id)
+      window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId: job.id } }))
+    }
   }
 
   async function doSave(rowsToSave) {
@@ -690,11 +745,11 @@ export default function OrderSheet() {
         return base
       })
       triggerSave(updated)
+      // Sync order task when status changes
+      if ('status' in patch) syncOrderTask(updated)
       return updated
     })
   }
-
-  function addRow(groupTitle) {
     const defaults = groupBy==='Category'
       ? { panel_type: groupTitle!=='Other'?groupTitle:'', category: 'Board' }
       : { supplier: groupTitle==='No supplier'?'':groupTitle }
@@ -717,6 +772,7 @@ export default function OrderSheet() {
     setRows(prev=>{
       const updated = prev.map(r=>ids.includes(r.id)&&r.status==='To order'?{...r,status:'Ordered'}:r)
       doSave(updated)
+      syncOrderTask(updated)
       return updated
     })
     toast(`${ids.length} item${ids.length>1?'s':''} marked as ordered ✓`)
