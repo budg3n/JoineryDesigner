@@ -4,6 +4,15 @@ import { useApp } from './context/AppContext'
 import Layout from './components/Layout'
 import Login from './screens/Login'
 import Dashboard from './screens/Dashboard'
+import { Navigate } from 'react-router-dom'
+import { useApp } from './context/AppContext'
+
+function RoleRedirect() {
+  const { profile, previewRole } = useApp()
+  const role = previewRole || profile?.role
+  if (role === 'Production Team') return <Navigate to="/production" replace />
+  return <Dashboard />
+}
 import JobDetail from './screens/JobDetail'
 import Sketch from './screens/Sketch'
 import Calendar from './screens/Calendar'
@@ -42,7 +51,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<RoleRedirect />} />
         <Route path="job/:id" element={<JobDetail />} />
         <Route path="job/:id/sketch" element={<Sketch />} />
         <Route path="job/:id/sketch/:attId" element={<Sketch />} />
