@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { fmtDate, fmtDateLong, fmtDateTime, fmtTime } from '../lib/dates'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -261,10 +262,13 @@ export default function Calendar() {
             if (!date) return []
             const ds = date.toISOString().slice(0,10)
             return jobs.filter(j => {
-              if (!j.start_date && !j.due_date) return false
-              const s = j.start_date ? j.start_date.slice(0,10) : ds
-              const e = j.due_date   ? j.due_date.slice(0,10)   : s
-              return ds >= s && ds <= e
+              const s = j.start_date ? j.start_date.slice(0,10) : null
+              const e = j.due_date   ? j.due_date.slice(0,10)   : null
+              if (!s && !e) return false
+              if (s && e)  return ds >= s && ds <= e  // has both — show in range
+              if (s)       return ds === s             // only start — show on start day
+              if (e)       return ds === e             // only due — show on due day
+              return false
             })
           }
 

@@ -11,6 +11,7 @@ function fmtNZTime(dt) {
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][nz.getUTCMonth()]
   return `${nz.getUTCDate()} ${mon}, ${h12}:${min} ${ampm}`
 }
+import { fmtDate, fmtDateLong, fmtDateTime, fmtTime } from '../lib/dates'
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
@@ -294,7 +295,7 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
           </div>
           {job.due_date && (
             <div style={{ fontSize:11, color:'#6B7280', marginBottom:12 }}>
-              Due {new Date(job.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'short', timeZone:'Pacific/Auckland' })}
+              Due {fmtDate(job.due_date)}
             </div>
           )}
           <div style={{ height:1, background:'#F3F4F6', marginBottom:12 }} />

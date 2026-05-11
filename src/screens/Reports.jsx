@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
+import { fmtDate, fmtDateLong, fmtDateTime, fmtTime } from '../lib/dates'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 
 // ── Helpers ───────────────────────────────────────────────────────
 function fmtDate(d) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' })
+  return fmtDate(d)
 }
-function fmtTime(d) {
-  if (!d) return '—'
-  return new Date(d).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
-}
+// fmtTime imported from lib/dates
 function fmtDuration(mins) {
   if (!mins) return '—'
   const h = Math.floor(mins / 60), m = mins % 60
