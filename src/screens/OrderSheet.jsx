@@ -759,7 +759,6 @@ export default function OrderSheet() {
       triggerSave(updated)
       return updated
     })
-  }
 
   async function deleteRow(rowId) {
     const { error } = await supabase.from('order_items').delete().eq('id', rowId)
