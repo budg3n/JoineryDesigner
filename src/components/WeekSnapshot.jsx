@@ -120,7 +120,7 @@ export default function WeekSnapshot() {
 
       {/* Dropdown */}
       {open && (
-        <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', width:340, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 12px 40px rgba(0,0,0,0.14)', zIndex:500, overflow:'hidden' }}>
+        <div style={{ position:'fixed', top:54, right:8, width:340, maxWidth:'calc(100vw - 16px)', background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 12px 40px rgba(0,0,0,0.14)', zIndex:500, overflow:'hidden', maxHeight:'calc(100vh - 70px)', overflowY:'auto' }}>
 
           {/* Header */}
           <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>

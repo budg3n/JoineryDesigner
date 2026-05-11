@@ -494,7 +494,8 @@ export default function Dashboard() {
           </div>
         </div>
         {/* tabs — horizontally scrollable on mobile */}
-        <div style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', flexShrink:0, WebkitOverflowScrolling:'touch', scrollbarWidth:'none', msOverflowStyle:'none' }}>
+        <style>{'.tab-scroll::-webkit-scrollbar{display:none}'}</style>
+        <div className="tab-scroll" style={{ display:'flex', gap:2, background:'#F0F2F5', borderRadius:10, padding:3, overflowX:'auto', overflowY:'visible', flexShrink:0, WebkitOverflowScrolling:'touch', scrollbarWidth:'none', msOverflowStyle:'none', minWidth:0, maxWidth:'100%' }}>
           {TABS.map(t => {
             const count = jobs.filter(t.f).length
             return (

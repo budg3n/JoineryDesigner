@@ -155,7 +155,7 @@ export default function TaskCounter() {
 
       {open && (
         <div style={{ position:'fixed', top:54, right:8, zIndex:600, width:380, maxWidth:'calc(100vw - 16px)',
-          background:'#fff', borderRadius:14, boxShadow:'0 16px 48px rgba(0,0,0,0.2)', border:'1px solid #E8ECF0', overflow:'hidden' }}>
+          maxHeight:'calc(100vh - 70px)', overflowY:'auto', background:'#fff', borderRadius:14, boxShadow:'0 16px 48px rgba(0,0,0,0.2)', border:'1px solid #E8ECF0', overflow:'hidden' }}>
           <div style={{ padding:'12px 16px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div>
               <span style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>My Tasks</span>

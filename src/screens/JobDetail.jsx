@@ -2722,7 +2722,8 @@ export default function JobDetail() {
       )}
 
       {/* TABS */}
-      <div style={{ display:'flex', gap:2, overflowX:'auto', background:'#F3F4F6', borderRadius:12, padding:4, marginBottom:16 }}>
+      <style>{'.jd-tabs::-webkit-scrollbar{display:none}'}</style>
+      <div className="jd-tabs" style={{ display:'flex', gap:2, overflowX:'auto', overflowY:'visible', background:'#F3F4F6', borderRadius:12, padding:4, marginBottom:16, WebkitOverflowScrolling:'touch', scrollbarWidth:'none', msOverflowStyle:'none', minWidth:0 }}>
         {[
           { key:'details',    label:'Details' },
           { key:'rooms',      label:'Rooms',     badge: rooms.length||null },

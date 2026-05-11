@@ -156,7 +156,7 @@ export default function JobClock() {
 
       {/* Dropdown */}
       {open && (
-        <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', width:320,
+        <div style={{ position:'fixed', top:54, right:8, maxWidth:'calc(100vw - 16px)', width:320,
           background:'#fff', borderRadius:14, border:'1px solid #E8ECF0',
           boxShadow:'0 12px 40px rgba(0,0,0,0.14)', zIndex:500, overflow:'hidden' }}>
 
