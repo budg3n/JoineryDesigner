@@ -21,7 +21,7 @@ export default function Calendar() {
   const [loading, setLoading] = useState(true)
   const [assignments, setAssignments] = useState([])  // {job_id, user_id}
   const [profiles, setProfiles]   = useState({})
-  const { profile } = useApp()
+  const { profile, can } = useApp()
   const [weekOffset, setWeekOffset] = useState(0)  // 0=current week, -1=prev, +1=next
   const [myProcesses, setMyProcesses] = useState([])
   const [view, setView]       = useState(() => new URLSearchParams(window.location.search).get('view') || 'gantt')
@@ -258,16 +258,24 @@ export default function Calendar() {
             'Pending':     { bg:'#FEF2F2', color:'#991B1B', dot:'#EF4444' },
           }
 
+          // Only show jobs assigned to current user (via job_assignments or process)
+          const myJobIds = new Set([
+            ...assignments.filter(a => a.user_id === profile?.id).map(a => a.job_id),
+            ...myProcesses.filter(p => p.assigned_to === profile?.id).map(p => p.job_id),
+          ])
+
           function jobsForDay(date) {
             if (!date) return []
             const ds = date.toISOString().slice(0,10)
             return jobs.filter(j => {
+              // Admins/PMs see all jobs; others see only assigned
+              if (!can('seeAllJobs') && !myJobIds.has(j.id)) return false
               const s = j.start_date ? j.start_date.slice(0,10) : null
               const e = j.due_date   ? j.due_date.slice(0,10)   : null
               if (!s && !e) return false
-              if (s && e)  return ds >= s && ds <= e  // has both — show in range
-              if (s)       return ds === s             // only start — show on start day
-              if (e)       return ds === e             // only due — show on due day
+              if (s && e)  return ds >= s && ds <= e
+              if (s)       return ds === s
+              if (e)       return ds === e
               return false
             })
           }
