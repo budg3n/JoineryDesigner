@@ -4,10 +4,6 @@ import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 
 // ── Helpers ───────────────────────────────────────────────────────
-function fmtDate(d) {
-  if (!d) return '—'
-  return fmtDate(d)
-}
 // fmtTime imported from lib/dates
 function fmtDuration(mins) {
   if (!mins) return '—'
