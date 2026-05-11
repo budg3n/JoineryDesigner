@@ -244,11 +244,23 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
 function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
-  const colors   = job.mat_colors ? JSON.parse(job.mat_colors) : []
-  const accent   = PALETTE[index % PALETTE.length]
-
+  const colors     = job.mat_colors ? JSON.parse(job.mat_colors) : []
+  const accent     = PALETTE[index % PALETTE.length]
   const badgeColor = statusColor || '#9CA3AF'
-  const badge = { bg: badgeColor + '22', color: badgeColor }
+  const badge      = { bg: badgeColor + '22', color: badgeColor }
+
+  const clientLabel = (() => {
+    const linked = job.customers
+    if (linked?.company) return linked.company
+    if (linked) return `${linked.first_name||''} ${linked.last_name||''}`.trim() || job.client
+    const byId = job.customer_id ? allCustomers.find(cu => cu.id === job.customer_id) : null
+    if (byId?.company) return byId.company
+    if (byId) return `${byId.first_name||''} ${byId.last_name||''}`.trim() || job.client
+    const byName = allCustomers.find(cu =>
+      job.client && (cu.company?.toLowerCase() === job.client.toLowerCase() ||
+        (`${cu.first_name} ${cu.last_name}`).toLowerCase() === job.client.toLowerCase()))
+    return byName?.company || job.client || '—'
+  })()
 
   return (
     <div style={{ position:'relative' }}
@@ -256,67 +268,67 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
       onMouseLeave={() => { timerRef.current = setTimeout(() => setHovered(false), 100) }}>
       <div onClick={onClick} style={{
         background:'#fff', borderRadius:12, border:`1px solid ${hovered ? accent+'55' : '#E8ECF0'}`,
-        overflow:'hidden', cursor:'pointer',
+        overflow:'hidden', cursor:'pointer', display:'flex', flexDirection:'column',
         boxShadow: hovered ? `0 4px 20px rgba(0,0,0,0.08), 0 0 0 1px ${accent}22` : '0 1px 3px rgba(0,0,0,0.04)',
         transition:'all .15s ease',
       }}>
         {/* accent stripe */}
-        <div style={{ height:3, background: accent }} />
-        <div style={{ padding:16 }}>
-          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:10 }}>
-<div>
-              <span style={{ fontSize:16, fontWeight:800, color:'#2A3042', fontFamily:'monospace', letterSpacing:'-0.5px', lineHeight:1 }}>
-                {job.job_number || job.mvnum || ''}
-              </span>
-            </div>
-            <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:20, background:badge.bg, color:badge.color }}>{job.status}</span>
+        <div style={{ height:3, background:accent, flexShrink:0 }} />
+
+        <div style={{ padding:14, display:'flex', flexDirection:'column', flex:1 }}>
+          {/* Row 1: job number + status badge — fixed height */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, minHeight:22 }}>
+            <span style={{ fontSize:13, fontWeight:800, color:'#9CA3AF', fontFamily:'monospace', letterSpacing:'-0.5px' }}>
+              {job.job_number ? `#${job.job_number}` : <span style={{opacity:0}}>—</span>}
+            </span>
+            <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:badge.bg, color:badge.color, flexShrink:0 }}>
+              {job.status}
+            </span>
           </div>
-          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:2, lineHeight:1.3 }}>{job.name?.replace(/^.+?[—–-]{1,2}\s*/, '') || job.name}</div>
-          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom: job.due_date ? 4 : 12 }}>
-            {(() => {
-              // Try linked customer first
-              const linked = job.customers
-              if (linked?.company) return linked.company
-              if (linked) return `${linked.first_name||''} ${linked.last_name||''}`.trim() || job.client
-              // Try to match by customer_id in our full list
-              const byId = job.customer_id ? allCustomers.find(cu => cu.id === job.customer_id) : null
-              if (byId?.company) return byId.company
-              if (byId) return `${byId.first_name||''} ${byId.last_name||''}`.trim() || job.client
-              // Try match by client name
-              const byName = allCustomers.find(cu =>
-                job.client && (
-                  cu.company?.toLowerCase() === job.client.toLowerCase() ||
-                  (`${cu.first_name} ${cu.last_name}`).toLowerCase() === job.client.toLowerCase()
-                )
-              )
-              if (byName?.company) return byName.company
-              return job.client || '—'
-            })()}
+
+          {/* Row 2: job name — 2 lines fixed */}
+          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', lineHeight:1.3, minHeight:36,
+            overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', marginBottom:4 }}>
+            {job.name?.replace(/^.+?[—–-]{1,2}\s*/, '') || job.name}
           </div>
-          {job.due_date && (
-            <div style={{ fontSize:11, color:'#6B7280', marginBottom:12 }}>
-              Due {fmtDate(job.due_date)}
-            </div>
-          )}
-          <div style={{ height:1, background:'#F3F4F6', marginBottom:12 }} />
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+
+          {/* Row 3: client — 1 line fixed */}
+          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:4, minHeight:18,
+            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {clientLabel}
+          </div>
+
+          {/* Row 4: due date — always takes space even if empty */}
+          <div style={{ fontSize:11, color:'#6B7280', marginBottom:10, minHeight:16 }}>
+            {job.due_date ? `Due ${fmtDate(job.due_date)}` : ''}
+          </div>
+
+          {/* Divider */}
+          <div style={{ height:1, background:'#F3F4F6', marginBottom:10 }} />
+
+          {/* Row 5: tasks + swatches — fixed height */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, minHeight:22, marginBottom:6 }}>
             <TaskPill job={job} />
-            {colors.length > 0 && (
-              <div style={{ display:'flex', gap:3, alignItems:'center', flexShrink:0 }}>
-                {colors.slice(0,4).map((c,i) => <SwatchDot key={i} c={c} />)}
-                {colors.length > 4 && <span style={{ fontSize:10, color:'#9CA3AF', marginLeft:2 }}>+{colors.length-4}</span>}
+            <div style={{ display:'flex', gap:3, alignItems:'center', flexShrink:0, minWidth:0 }}>
+              {colors.slice(0,4).map((c,i) => <SwatchDot key={i} c={c} />)}
+              {colors.length > 4 && <span style={{ fontSize:10, color:'#9CA3AF' }}>+{colors.length-4}</span>}
+            </div>
+          </div>
+
+          {/* Row 6: time/process status — fixed height */}
+          <div style={{ minHeight:28 }}>
+            <JobTimeStatus job={job} activeEntries={activeEntries} procEntries={procEntries} procStatuses={procStatuses} accent={accent} />
+          </div>
+
+          {/* Row 7: to-order tag — always takes space */}
+          <div style={{ minHeight:28, marginTop:2 }}>
+            {unorderedCount > 0 && (
+              <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 8px', background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:8 }}>
+                <span style={{ fontSize:12, lineHeight:1 }}>📦</span>
+                <span style={{ fontSize:11, fontWeight:600, color:'#854D0E' }}>{unorderedCount} to order</span>
               </div>
             )}
           </div>
-          <JobTimeStatus job={job} activeEntries={activeEntries} procEntries={procEntries} procStatuses={procStatuses} accent={accent} />
-
-          {/* Unordered materials */}
-          {unorderedCount > 0 && (
-            <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 8px', background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:8, marginTop:4 }}>
-              <span style={{ fontSize:12,lineHeight:1 }}>📦</span>
-              <span style={{ fontSize:11,fontWeight:600,color:'#854D0E' }}>{unorderedCount} item{unorderedCount!==1?'s':''} to order</span>
-            </div>
-          )}
         </div>
       </div>
       {colors.length > 0 && <MatHoverPanel colors={colors} visible={hovered} />}
@@ -518,7 +530,7 @@ export default function Dashboard() {
       {loading ? (
         <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,240px),1fr))', gap:12 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,240px),1fr))', gap:12, alignItems:'stretch' }}>
           {filtered.length === 0 && (
             <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
               {search ? `No jobs match "${search}"` : 'No jobs in this category'}
