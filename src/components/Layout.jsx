@@ -154,7 +154,7 @@ export default function Layout() {
               <span style={{ fontSize:11 }}>👁</span>
               <span style={{ fontSize:11, fontWeight:700, color:'#FCD34D' }}>Viewing as {previewRole}</span>
             </div>
-            <button onClick={() => setPreviewRole(null)} title="Back to Admin"
+            <button onClick={() => { setPreviewRole(null); navigate('/') }} title="Back to Admin"
               style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(252,211,77,0.7)', fontSize:14, lineHeight:1, padding:0 }}
               onMouseEnter={e=>e.currentTarget.style.color='#FCD34D'} onMouseLeave={e=>e.currentTarget.style.color='rgba(252,211,77,0.7)'}>×</button>
           </div>
@@ -185,7 +185,7 @@ export default function Layout() {
           <div style={{ marginTop:10, background:'rgba(255,255,255,0.08)', borderRadius:10, overflow:'hidden', border:'1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ padding:'8px 12px 4px', fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'.08em' }}>Preview as</div>
             {['Admin','Project Manager','Setout','Designer','Production Team'].map(r => (
-              <button key={r} onClick={() => { setPreviewRole(r === 'Admin' ? null : r); setShowRoleMenu(false) }}
+              <button key={r} onClick={() => { setPreviewRole(r === 'Admin' ? null : r); setShowRoleMenu(false); navigate('/') }}
                 style={{ width:'100%', textAlign:'left', padding:'8px 12px', background: (previewRole===r || (!previewRole&&r==='Admin')) ? 'rgba(255,255,255,0.12)' : 'none',
                   border:'none', cursor:'pointer', color:'#fff', fontSize:13, display:'flex', alignItems:'center', gap:8 }}
                 onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.12)'}
