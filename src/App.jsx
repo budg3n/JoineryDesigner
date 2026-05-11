@@ -4,15 +4,6 @@ import { useApp } from './context/AppContext'
 import Layout from './components/Layout'
 import Login from './screens/Login'
 import Dashboard from './screens/Dashboard'
-import { Navigate } from 'react-router-dom'
-import { useApp } from './context/AppContext'
-
-function RoleRedirect() {
-  const { profile, previewRole } = useApp()
-  const role = previewRole || profile?.role
-  if (role === 'Production Team') return <Navigate to="/production" replace />
-  return <Dashboard />
-}
 import JobDetail from './screens/JobDetail'
 import Sketch from './screens/Sketch'
 import Calendar from './screens/Calendar'
@@ -35,6 +26,13 @@ import SpecBuilder from './screens/SpecBuilder'
 import JobStatuses from './screens/JobStatuses'
 import RoomTypeSettings from './screens/RoomTypeSettings'
 import ApplianceSettings from './screens/ApplianceSettings'
+
+function RoleRedirect() {
+  const { profile, previewRole } = useApp()
+  const role = previewRole || profile?.role
+  if (role === 'Production Team') return <Navigate to="/production" replace />
+  return <Dashboard />
+}
 
 function RequireAuth({ children }) {
   const { user, loading } = useApp()
