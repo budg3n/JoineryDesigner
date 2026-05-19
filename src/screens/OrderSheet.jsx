@@ -413,7 +413,27 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
   useEffect(() => {
     // Get the category_id from rows in this group
     const catId = rows.find(r=>r.category_id)?.category_id
-    if (!catId) { setGroupCols(null); return }
+    if (!catId) {
+      // No category — only show columns that have actual data in this group
+      const ALL_STD = [
+        { key:'item',       label:'Name',        w:190, type:'item' },
+        { key:'room_name',  label:'Room',        w:100, type:'room' },
+        { key:'supplier',   label:'Supplier',    w:120, type:'text',   settingKey:'supplier' },
+        { key:'panel_type', label:'Panel type',  w:100, type:'text',   settingKey:'panel_type' },
+        { key:'thickness',  label:'Thickness',   w:80,  type:'text',   settingKey:'thickness', placeholder:'mm' },
+        { key:'colour',     label:'Colour',      w:100, type:'text',   settingKey:'colour_code' },
+        { key:'finish',     label:'Finish',      w:100, type:'text',   settingKey:'finish' },
+        { key:'qty',        label:'Qty',         w:60,  type:'number' },
+        { key:'unit',       label:'Unit',        w:80,  type:'select', settingKey:'unit', options:UNIT_OPTIONS },
+        { key:'price',      label:'Unit price',  w:90,  type:'price',  settingKey:'price' },
+        { key:'status',     label:'Status',      w:110, type:'status' },
+        { key:'notes',      label:'Notes',       w:140, type:'text',   settingKey:'notes' },
+      ]
+      // Only include optional columns that have at least one non-empty value
+      const hasData = k => rows.some(r => r[k] && String(r[k]).trim())
+      setGroupCols(ALL_STD.filter(c => !c.settingKey || c.type === 'item' || c.type === 'status' || c.type === 'number' || hasData(c.key)))
+      return
+    }
 
     Promise.all([
       supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${catId}`).maybeSingle(),
@@ -551,11 +571,11 @@ export default function OrderSheet() {
     Promise.all([
       supabase.from('jobs').select('id,name,client').eq('id',id).single(),
       Promise.resolve({ data: [] }), // materials loaded lazily on first item search
-      supabase.from('order_items').select('*').eq('job_id',id).order('created_at'),
+      supabase.from('order_items').select('*,materials(id,category_id)').eq('job_id',id).order('created_at'),
       supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
       supabase.from('material_categories').select('id,name,parent_id').order('name'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id',id),
-      supabase.from('job_appliances').select('*,appliances(*)').eq('job_id',id),
+      Promise.resolve({ data: [] }), // appliances not included on order sheet
       Promise.resolve({ data: [] }), // room_materials loaded after rooms
     ]).then(async ([{data:j},{data:m},{data:o},{data:r},{data:cats},{data:jm},{data:ja}])=>{
       setJob(j)
@@ -645,23 +665,27 @@ export default function OrderSheet() {
           return { ...r, category_id: mat?.category_id || null }
         })
 
-      setRows([...(o||[]), ...deduped_fromJobMats, ...fromJobApps, ...fromRoomMats])
+      // Enrich existing order_items with category_id from their linked material
+      const enrichedOrders = (o||[]).map(row => ({
+        ...row,
+        category_id: row.materials?.category_id || row.category_id || null,
+      }))
+      setRows([...enrichedOrders, ...deduped_fromJobMats, ...fromRoomMats])
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
     })
   },[id])
 
+  const taskTimer = useRef()
+  const ORDER_TASK_PREFIX = '🛒 Order materials'
+
   function triggerSave(r) {
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(()=>doSave(r), 1500)
-    // Sync order materials task whenever rows change
     clearTimeout(taskTimer.current)
     taskTimer.current = setTimeout(()=>syncOrderTask(r), 2000)
   }
-
-  const taskTimer = useRef()
-  const ORDER_TASK_PREFIX = '🛒 Order materials'
 
   async function syncOrderTask(currentRows) {
     if (!job?.id) return
@@ -750,6 +774,8 @@ export default function OrderSheet() {
       return updated
     })
   }
+
+  function addRow(groupTitle) {
     const defaults = groupBy==='Category'
       ? { panel_type: groupTitle!=='Other'?groupTitle:'', category: 'Board' }
       : { supplier: groupTitle==='No supplier'?'':groupTitle }
@@ -759,6 +785,7 @@ export default function OrderSheet() {
       triggerSave(updated)
       return updated
     })
+  }
 
   async function deleteRow(rowId) {
     const { error } = await supabase.from('order_items').delete().eq('id', rowId)

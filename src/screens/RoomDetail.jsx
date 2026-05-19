@@ -105,67 +105,128 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
-  const [adding,  setAdding]  = useState(false)
-  const [form,    setForm]    = useState(EMPTY_FORM)
+  const [allMats, setAllMats] = useState([])
+  const matsLoadedRef = useRef(false)
+
+  // Load materials immediately on mount so search is instant
+  useEffect(() => {
+    if (matsLoadedRef.current) return
+    matsLoadedRef.current = true
+    supabase.from('materials').select('*').order('name')
+      .then(({ data, error }) => {
+        if (error) console.error('Materials load error:', error.message)
+        else setAllMats(data || [])
+      })
+  }, [])
   const [search,  setSearch]  = useState('')
   const [showDrop,setShowDrop]= useState(false)
+  const [selected, setSelected] = useState(null)   // picked material
+  const [catFields, setCatFields] = useState([])   // visible fields for this category
+  const [catVisibility, setCatVisibility] = useState(null) // Set of visible keys
+  const [qty,    setQty]    = useState('')
+  const [unit,   setUnit]   = useState('pcs')
+  const [notes,  setNotes]  = useState('')
   const searchRef = useRef()
+
+  const UNIT_OPTIONS = ['pcs','sheets','m','m²','m³','lm','kg','boxes','rolls','litres']
+
+  const ALL_STANDARD_FIELDS = [
+    { key:'supplier',     label:'Supplier' },
+    { key:'brand',        label:'Brand' },
+    { key:'sku',          label:'SKU / Product code' },
+    { key:'panel_type',   label:'Panel type' },
+    { key:'thickness',    label:'Thickness', suffix:'mm' },
+    { key:'colour_code',  label:'Colour code' },
+    { key:'colour',       label:'Colour name' },
+    { key:'finish',       label:'Finish' },
+    { key:'grade',        label:'Grade' },
+    { key:'edge_profile', label:'Edge profile' },
+    { key:'dimensions',   label:'Sheet dimensions' },
+    { key:'price',        label:'Unit price', prefix:'$' },
+  ]
 
   useEffect(()=>{
     supabase.from('order_items').select('*').eq('job_id',jobId).eq('room_id',room.id).order('created_at')
       .then(({data})=>{ setOrders(data||[]); setLoading(false) })
   },[room.id,jobId])
 
-  // Materials available to search — job materials + full library
-  const [allMats, setAllMats] = useState([])
-  useEffect(()=>{
-    supabase.from('materials').select('*').order('name').then(({data})=>setAllMats(data||[]))
-  },[])
-
   const matches = search.trim().length > 0
-    ? allMats.filter(m =>
-        (m.name||'').toLowerCase().includes(search.toLowerCase()) ||
-        (m.supplier||'').toLowerCase().includes(search.toLowerCase()) ||
-        (m.colour_code||'').toLowerCase().includes(search.toLowerCase()) ||
-        (m.panel_type||'').toLowerCase().includes(search.toLowerCase())
-      ).slice(0,8)
+    ? allMats.filter(m => {
+        const q = search.toLowerCase()
+        const cf = m.custom_fields ? (typeof m.custom_fields === 'object' ? m.custom_fields : JSON.parse(m.custom_fields||'{}')) : {}
+        return (m.name||'').toLowerCase().includes(q) ||
+               (m.supplier||'').toLowerCase().includes(q) ||
+               (m.panel_type||'').toLowerCase().includes(q) ||
+               (m.sku||'').toLowerCase().includes(q) ||
+               Object.values(cf).some(v => v && String(v).toLowerCase().includes(q))
+      }).slice(0, 10)
     : []
 
-  function pickMaterial(m) {
-    setForm({
-      item:        m.name||'',
-      supplier:    m.supplier||'',
-      panel_type:  m.panel_type||'',
-      thickness:   m.thickness ? String(m.thickness) : '',
-      colour:      m.colour_code||'',
-      finish:      m.finish||'',
-      dimensions:  m.dimensions||'',
-      sku:         m.sku||'',
-      price:       m.price ? String(m.price) : '',
-      notes:       '',
-      qty:         '',
-      unit:        'sheets',
-      material_id: m.id,
-    })
-    setSearch(m.name)
+  async function pickMaterial(m) {
+    setSelected(m)
+    setSearch(m.name||'')
     setShowDrop(false)
+    setQty('')
+    setUnit(m.unit || 'pcs')
+    // Load category visibility settings
+    if (m.category_id) {
+      const [{ data: cfg }, { data: cf }] = await Promise.all([
+        supabase.from('app_settings').select('value').eq('key',`mat_cat_fields_${m.category_id}`).maybeSingle(),
+        supabase.from('category_fields').select('*').eq('category_id', m.category_id).order('sort_order'),
+      ])
+      if (cfg?.value) setCatVisibility(new Set(JSON.parse(cfg.value)))
+      else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
+      setCatFields(cf||[])
+    } else {
+      // No category — show basic fields that have values
+      setCatVisibility(null)
+      setCatFields([])
+    }
   }
 
-  function setF(k,v) { setForm(p=>({...p,[k]:v})) }
+  function clearSelection() {
+    setSelected(null); setSearch(''); setQty(''); setUnit('pcs'); setNotes('')
+    setCatFields([]); setCatVisibility(null)
+    setTimeout(()=>searchRef.current?.focus(), 50)
+  }
+
+  function getCF(m) {
+    if (!m?.custom_fields) return {}
+    if (typeof m.custom_fields === 'object') return m.custom_fields
+    try { return JSON.parse(m.custom_fields) } catch { return {} }
+  }
+
+  function getVal(m, key) {
+    const cf = getCF(m)
+    // Try native column first, then custom_fields
+    const native = m[key]
+    if (native !== undefined && native !== null && native !== '') return native
+    return cf[key] || ''
+  }
 
   async function addItem() {
-    if (!form.item.trim()) { toast('Enter an item name','error'); return }
+    if (!selected) { toast('Select or enter a material first','error'); return }
+    const cf = getCF(selected)
     const row = {
       id: Date.now().toString(36)+Math.random().toString(36).slice(2),
-      job_id:jobId, room_id:room.id, status:'To order',
-      category: form.panel_type ? 'Board' : 'Hardware',
+      job_id: jobId, room_id: room.id, status:'To order',
+      item:       selected.name||'',
+      supplier:   selected.supplier||'',
+      panel_type: selected.panel_type||'',
+      thickness:  selected.thickness ? String(selected.thickness) : '',
+      colour:     selected.colour_code||cf.colour||'',
+      finish:     selected.finish||'',
+      sku:        selected.sku||cf.sku||'',
+      price:      selected.price ? String(selected.price) : '',
+      category:   selected.panel_type ? 'Board' : 'Hardware',
+      material_id: selected.id || null,
+      qty: qty||'', unit, notes,
       updated_at: new Date().toISOString(),
-      ...form,
     }
     const {data,error} = await supabase.from('order_items').insert(row).select().single()
     if (error) { toast(error.message,'error'); return }
     setOrders(p=>[...p,data])
-    setForm(EMPTY_FORM); setSearch(''); setAdding(false)
+    clearSelection()
     toast('Added to order sheet ✓')
   }
 
@@ -180,8 +241,15 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
     setOrders(p=>p.map(x=>x.id===o.id?{...x,status:next}:x))
   }
 
+  // Which standard fields to show for selected material
+  const visibleStdFields = selected ? ALL_STANDARD_FIELDS.filter(f => {
+    const val = getVal(selected, f.key)
+    if (catVisibility) return catVisibility.has(f.key) && val !== ''
+    // No config — only show fields that actually have a value
+    return val !== '' && val !== null && val !== undefined
+  }) : []
+
   const toOrder = orders.filter(o=>o.status==='To order').length
-  const inp = {width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',fontFamily:'inherit'}
 
   return (
     <div>
@@ -196,6 +264,134 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           Full order sheet
         </button>
+      </div>
+
+      {/* search + add */}
+      <div style={{background:'#F8FAFF',borderRadius:12,border:'1px solid #C4D4F8',padding:14,marginBottom:12}}>
+        {/* Search box */}
+        <div style={{position:'relative',marginBottom: selected ? 12 : 0}}>
+          <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
+            width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input ref={searchRef} value={search}
+            onChange={e=>{setSearch(e.target.value);setShowDrop(true)}}
+            onFocus={()=>setShowDrop(true)}
+            onBlur={()=>setTimeout(()=>setShowDrop(false),300)}
+            placeholder="Search materials library…"
+            style={{width:'100%',padding:'9px 32px 9px 32px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',boxSizing:'border-box',background:'#fff'}}/>
+          {search && (
+            <button onClick={clearSelection} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:16}}>×</button>
+          )}
+          {/* Dropdown */}
+          {showDrop && search.trim().length > 0 && (
+            <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',zIndex:50,overflow:'hidden',maxHeight:280,overflowY:'auto'}}>
+              {allMats.length === 0 ? (
+                <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',textAlign:'center'}}>Loading materials…</div>
+              ) : matches.length > 0 ? (
+                matches.map(m=>(
+                  <div key={m.id} onMouseDown={()=>pickMaterial(m)}
+                    style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name}</div>
+                    <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>
+                      {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',borderBottom:'1px solid #F9FAFB'}}>
+                    No materials found for "{search}"
+                  </div>
+                  <div onMouseDown={()=>{ setSelected({id:null,name:search.trim(),custom_fields:{}});setShowDrop(false);setCatFields([]);setCatVisibility(null) }}
+                    style={{padding:'10px 14px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,background:'#F8FAFF'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
+                    onMouseLeave={e=>e.currentTarget.style.background='#F8FAFF'}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:'#5B8AF0'}}>Add "{search}" as custom item</div>
+                      <div style={{fontSize:11,color:'#9CA3AF'}}>Enter qty and notes below</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Selected material details — read only, category-aware */}
+        {selected && (
+          <div>
+            {/* Material card */}
+            <div style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',padding:12,marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                <div style={{fontSize:14,fontWeight:700,color:'#2A3042'}}>{selected.name}</div>
+                <span style={{fontSize:10,color:'#9CA3AF',fontStyle:'italic'}}>from library — read only</span>
+              </div>
+              {visibleStdFields.length > 0 ? (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:8}}>
+                  {visibleStdFields.map(f => {
+                    const val = getVal(selected, f.key)
+                    return (
+                      <div key={f.key} style={{background:'#F9FAFB',borderRadius:7,padding:'6px 10px',border:'1px solid #F3F4F6'}}>
+                        <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:2}}>{f.label}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:'#9CA3AF'}}>
+                          {f.prefix||''}{val}{f.suffix && val ? f.suffix : ''}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {/* Custom fields */}
+                  {catFields.map(cf => {
+                    const cfData = getCF(selected)
+                    const val = cfData[cf.label] || cfData[cf.id] || ''
+                    if (!val) return null
+                    return (
+                      <div key={cf.id} style={{background:'#F9FAFB',borderRadius:7,padding:'6px 10px',border:'1px solid #F3F4F6'}}>
+                        <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:2}}>{cf.label}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:'#9CA3AF'}}>{val}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div style={{fontSize:12,color:'#9CA3AF',fontStyle:'italic'}}>No additional details recorded for this material</div>
+              )}
+              <div style={{fontSize:11,color:'#9CA3AF',marginTop:8,display:'flex',alignItems:'center',gap:4}}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                Edit details in the Materials library
+              </div>
+            </div>
+
+            {/* Qty + unit + notes */}
+            <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:8,marginBottom:8}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:'#6B7280',display:'block',marginBottom:4}}>Qty</label>
+                <input type="number" min="0" value={qty} onChange={e=>setQty(e.target.value)}
+                  placeholder="0"
+                  style={{width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:'#6B7280',display:'block',marginBottom:4}}>Unit</label>
+                <select value={unit} onChange={e=>setUnit(e.target.value)}
+                  style={{width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:13,outline:'none',background:'#fff',boxSizing:'border-box'}}>
+                  {UNIT_OPTIONS.map(u=><option key={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:11,fontWeight:600,color:'#6B7280',display:'block',marginBottom:4}}>Notes (optional)</label>
+              <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Any specific notes for this order…"
+                style={{width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <button onClick={addItem}
+              style={{width:'100%',padding:'10px',borderRadius:9,border:'none',background:'#2A3042',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+              + Add to order sheet
+            </button>
+          </div>
+        )}
       </div>
 
       {/* existing items */}
@@ -255,116 +451,10 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
         </div>
       )}
 
-      {!loading && orders.length===0 && !adding && (
-        <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:13,marginBottom:8}}>
-          No items to order for this room yet
+      {!loading && orders.length===0 && !selected && (
+        <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:13}}>
+          Search for a material above to add it to the order sheet
         </div>
-      )}
-
-      {/* add form */}
-      {adding ? (
-        <div style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:14}}>
-          {/* material search */}
-          <div style={{position:'relative',marginBottom:10}}>
-            <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:4}}>Search materials library</label>
-            <input ref={searchRef} value={search}
-              onChange={e=>{setSearch(e.target.value);setShowDrop(true);if(!e.target.value)setForm(EMPTY_FORM)}}
-              onFocus={()=>setShowDrop(true)}
-              placeholder="Type to search — or fill in manually below…"
-              style={{...inp,fontWeight:form.material_id?600:400,color:form.material_id?'#2A3042':'#374151'}}/>
-            {showDrop && matches.length > 0 && (
-              <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',marginTop:2,overflow:'hidden'}}>
-                {matches.map(m=>(
-                  <div key={m.id} onMouseDown={()=>pickMaterial(m)}
-                    style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
-                    onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-                    {m.storage_path
-                      ? <img src={pubUrl(m.storage_path)} style={{width:32,height:32,borderRadius:6,objectFit:'cover',flexShrink:0}} alt=""/>
-                      : <div style={{width:32,height:32,borderRadius:6,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)'}}/>
-                    }
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,fontWeight:700,color:'#2A3042'}}>{m.name}</div>
-                      <div style={{fontSize:10,color:'#9CA3AF'}}>
-                        {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
-                      </div>
-                    </div>
-                    {m.price&&<div style={{fontSize:11,fontWeight:600,color:'#374151',flexShrink:0}}>${m.price}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* fields — pre-filled if material picked, all editable */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
-            {[
-              ['Name *','item','span2'],
-              ['Supplier','supplier',''],
-              ['Panel type','panel_type',''],
-              ['Thickness (mm)','thickness',''],
-              ['Colour','colour',''],
-              ['Finish','finish',''],
-              ['Dimensions','dimensions',''],
-              ['SKU','sku',''],
-            ].map(([label,key,cls])=>(
-              <div key={key} style={{gridColumn:cls==='span2'?'span 2':'auto'}}>
-                <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>{label}</label>
-                <input value={form[key]} onChange={e=>setF(key,e.target.value)}
-                  style={{...inp}} placeholder={label.replace(' *','')}/>
-              </div>
-            ))}
-          </div>
-
-          {/* qty / unit / price row */}
-          <div style={{display:'grid',gridTemplateColumns:'70px 1fr 80px',gap:8,marginBottom:10}}>
-            <div>
-              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Qty</label>
-              <input type="number" min="0" value={form.qty} onChange={e=>setF('qty',e.target.value)}
-                placeholder="0" style={inp}/>
-            </div>
-            <div>
-              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Unit</label>
-              <select value={form.unit} onChange={e=>setF('unit',e.target.value)}
-                style={{...inp,cursor:'pointer',background:'#fff'}}>
-                {UNITS.map(u=><option key={u}>{u}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Unit price</label>
-              <input type="number" min="0" step="0.01" value={form.price} onChange={e=>setF('price',e.target.value)}
-                placeholder="0.00" style={inp}/>
-            </div>
-          </div>
-
-          <div style={{marginBottom:12}}>
-            <label style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:3}}>Notes</label>
-            <input value={form.notes} onChange={e=>setF('notes',e.target.value)}
-              placeholder="Any additional notes…" style={inp}/>
-          </div>
-
-          {form.qty&&form.price&&(
-            <div style={{fontSize:12,fontWeight:700,color:'#2A3042',background:'#F9FAFB',borderRadius:8,padding:'6px 10px',marginBottom:10}}>
-              Total: ${(parseFloat(form.qty)*parseFloat(form.price)).toFixed(2)}
-            </div>
-          )}
-
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={addItem}
-              style={{flex:1,padding:'9px',borderRadius:9,border:'none',background:'#5B8AF0',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>
-              Add to order sheet
-            </button>
-            <button onClick={()=>{setAdding(false);setForm(EMPTY_FORM);setSearch('')}}
-              style={{padding:'9px 14px',borderRadius:9,border:'1px solid #E8ECF0',background:'#fff',color:'#6B7280',fontSize:13,cursor:'pointer'}}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={()=>setAdding(true)}
-          style={{width:'100%',fontSize:13,fontWeight:600,padding:'9px',borderRadius:10,border:'1px dashed #C4D4F8',background:'#F0F4FF',color:'#5B8AF0',cursor:'pointer'}}>
-          + Add item to order
-        </button>
       )}
     </div>
   )
