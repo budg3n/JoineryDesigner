@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
+import { useLocation } from 'react-router-dom'
 
 const APPLIANCE_TYPES = [
   'Oven','Microwave','Combi Steam Oven','Warming Drawer',
@@ -436,14 +437,24 @@ function ApplianceDetail({ appliance, allAppliances, onBack, onUpdated, categori
 // ── Main Screen ───────────────────────────────────────────────────
 // Stack-based navigation: [] = category tiles, [catId] = appliance list in category
 export default function Appliances() {
+  const location = useLocation()
   const toast = useToast()
   const [appliances, setAppliances] = useState([])
   const [categories,  setCategories] = useState([])
   const [loading,    setLoading]    = useState(true)
-  const [stack,      setStack]      = useState([])   // array of category ids drilled into
+  const [stack,      setStack]      = useState([])
   const [search,     setSearch]     = useState('')
   const [adding,     setAdding]     = useState(false)
   const [active,     setActive]     = useState(null)
+  const [viewMode, setViewMode]     = useState(() => localStorage.getItem('app_view_mode') || 'tile')
+
+  // Reset to top level when user clicks Appliances in sidebar
+  useEffect(() => {
+    setStack([])
+    setSearch('')
+    setAdding(false)
+    setActive(null)
+  }, [location.key])
 
   function load() {
     return Promise.all([
@@ -525,6 +536,19 @@ export default function Appliances() {
             + Add appliance
           </button>
         )}
+        <div style={{ display:'flex', gap:2, background:'#F3F4F6', borderRadius:8, padding:3 }}>
+          {[['tile','⊞'],['list','☰']].map(([mode, icon]) => (
+            <button key={mode} onClick={() => { setViewMode(mode); localStorage.setItem('app_view_mode', mode) }}
+              title={mode === 'tile' ? 'Tile view' : 'List view'}
+              style={{ width:32, height:28, border:'none', borderRadius:6, cursor:'pointer', fontSize:15,
+                background: viewMode===mode ? '#fff' : 'transparent',
+                color: viewMode===mode ? '#2A3042' : '#9CA3AF',
+                boxShadow: viewMode===mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition:'all .12s' }}>
+              {icon}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Add form */}
@@ -548,8 +572,8 @@ export default function Appliances() {
         </div>
       )}
 
-      {/* Category tiles — drill down like Materials */}
-      {categories.length > 0 && !showList && (
+      {/* Category grid — tile or list view */}
+      {categories.length > 0 && !showList && viewMode === 'tile' && (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
           {children.map(cat => {
             const count = appliances.filter(a => a.category_id === cat.id).length
@@ -560,26 +584,17 @@ export default function Appliances() {
                 onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
                 onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
                 <div style={{ width:'100%', height:110, background:'linear-gradient(135deg,#FFF7ED,#FFEDD5)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40 }}>
-                  {cat.name.includes('Oven')||cat.name.includes('oven')?'🔲':
-                   cat.name.includes('Cooktop')||cat.name.includes('cooktop')?'🍳':
-                   cat.name.includes('Hood')||cat.name.includes('hood')||cat.name.includes('Range')?'💨':
-                   cat.name.includes('Dish')||cat.name.includes('dish')?'🫧':
-                   cat.name.includes('Fridge')||cat.name.includes('fridge')?'🧊':
-                   cat.name.includes('Sink')||cat.name.includes('sink')?'🚿':
-                   cat.name.includes('Microwave')?'📡':'🔌'}
+                  {cat.name.includes('Oven')||cat.name.includes('oven')?'🔲':cat.name.includes('Cooktop')||cat.name.includes('cooktop')?'🍳':cat.name.includes('Hood')||cat.name.includes('Range')?'💨':cat.name.includes('Dish')?'🫧':cat.name.includes('Fridge')?'🧊':cat.name.includes('Sink')?'🚿':cat.name.includes('Microwave')?'📡':'🔌'}
                 </div>
                 <div style={{ padding:'10px 14px 12px' }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
                   <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                    {grandchildren.length > 0
-                      ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
-                      : `${count} appliance${count!==1?'s':''}`}
+                    {grandchildren.length > 0 ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}` : `${count} appliance${count!==1?'s':''}`}
                   </div>
                 </div>
               </div>
             )
           })}
-          {/* Uncategorised tile — only if there are legacy appliances */}
           {!currentCatId && appliances.some(a=>!a.category_id) && (
             <div onClick={() => setStack(['__uncategorised__'])}
               style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', overflow:'hidden', cursor:'pointer', transition:'all .15s' }}
@@ -592,6 +607,34 @@ export default function Appliances() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* List view for categories */}
+      {categories.length > 0 && !showList && viewMode === 'list' && (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+          {children.map((cat, i) => {
+            const count = appliances.filter(a => a.category_id === cat.id).length
+            const grandchildren = categories.filter(c => c.parent_id === cat.id)
+            return (
+              <div key={cat.id} onClick={() => setStack(s=>[...s,cat.id])}
+                style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px',
+                  borderBottom: i < children.length-1 ? '1px solid #F3F4F6' : 'none', cursor:'pointer' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{ width:44, height:44, borderRadius:10, background:'linear-gradient(135deg,#FFF7ED,#FFEDD5)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:22 }}>
+                  {cat.name.includes('Oven')?'🔲':cat.name.includes('Cooktop')?'🍳':cat.name.includes('Hood')||cat.name.includes('Range')?'💨':cat.name.includes('Dish')?'🫧':cat.name.includes('Fridge')?'🧊':cat.name.includes('Sink')?'🚿':cat.name.includes('Microwave')?'📡':'🔌'}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+                  <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>
+                    {grandchildren.length > 0 ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}` : `${count} appliance${count!==1?'s':''}`}
+                  </div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -614,12 +657,36 @@ export default function Appliances() {
             <div style={{ textAlign:'center', padding:'48px 0', color:'#9CA3AF', fontSize:13 }}>No appliances in this category yet</div>
           )}
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14 }}>
-            {(stack[0] === '__uncategorised__'
-              ? appliances.filter(a=>!a.category_id)
-              : filtered
-            ).map(a => <ApplianceTile key={a.id} app={a} catName={catName} onClick={()=>setActive(a)} />)}
-          </div>
+          {viewMode === 'tile' ? (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14 }}>
+              {(stack[0] === '__uncategorised__' ? appliances.filter(a=>!a.category_id) : filtered)
+                .map(a => <ApplianceTile key={a.id} app={a} catName={catName} onClick={()=>setActive(a)} />)}
+            </div>
+          ) : (
+            <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+              {(stack[0] === '__uncategorised__' ? appliances.filter(a=>!a.category_id) : filtered)
+                .map((a, i, arr) => (
+                  <div key={a.id} onClick={() => setActive(a)}
+                    style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px',
+                      borderBottom: i < arr.length-1 ? '1px solid #F3F4F6' : 'none', cursor:'pointer' }}
+                    onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <div style={{ width:40, height:40, borderRadius:8, overflow:'hidden', flexShrink:0, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {a.image_path
+                        ? <img src={pubUrl(a.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />
+                        : <span style={{ fontSize:18 }}>🔌</span>}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{a.brand} {a.model}</div>
+                      <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                        {[a.type, a.supplier, a.price ? `$${a.price}` : null].filter(Boolean).join(' · ')}
+                      </div>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </div>

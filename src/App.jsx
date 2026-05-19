@@ -29,8 +29,16 @@ import ApplianceSettings from './screens/ApplianceSettings'
 
 function RoleRedirect() {
   const { profile, previewRole } = useApp()
-  const role = previewRole || profile?.role
-  if (role === 'Production Team') return <Navigate to="/production" replace />
+  // Only redirect to production dashboard for actual Production Team users
+  // Preview role should not cause a permanent redirect on page reload
+  const actualRole = profile?.role
+  const effectiveRole = previewRole || actualRole
+  if (effectiveRole === 'Production Team' && actualRole === 'Production Team') {
+    return <Navigate to="/production" replace />
+  }
+  if (previewRole === 'Production Team') {
+    return <Navigate to="/production" replace />
+  }
   return <Dashboard />
 }
 

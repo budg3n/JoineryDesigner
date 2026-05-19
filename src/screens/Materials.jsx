@@ -4,6 +4,7 @@ import { cachedQuery } from '../hooks/useCache'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
+import { useLocation } from 'react-router-dom'
 
 // ── safe JSON parse ──────────────────────────────────────────────
 function safeJSON(val) {
@@ -394,7 +395,7 @@ function MaterialForm({ material, category, topCategory, fields, allCats, onSave
     // merge grained into customVals before saving
     const mergedCustom = { ...customVals, grained }
     const row = {
-      name: name.trim(), supplier, color: material?.color || '#cccccc', storage_path,
+      name: name.trim(), supplier, storage_path,
       category_id: finalCatId,
       custom_fields: mergedCustom,
       panel_type: customVals['panel_type'] || material?.panel_type || null,
@@ -708,6 +709,37 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
     </div>
   )
 
+  if (type==='number') return (
+    <div style={{...base, cursor:readOnly?'default':'text'}} onClick={()=>!readOnly&&setEditing(true)}>
+      {editing
+        ? <input ref={ref} type="number" value={val}
+            onChange={e=>setVal(e.target.value)}
+            onBlur={e=>commit(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter'||e.key==='Tab')commit(val)}}
+            style={{ flex:1, border:'none', outline:'none', background:'transparent', fontSize:12 }} />
+        : <span style={{ color:val?'#374151':'#C4C9D4' }}>{val||placeholder}</span>
+      }
+    </div>
+  )
+
+  if (type==='mm') return (
+    <div style={{...base, cursor:readOnly?'default':'text'}} onClick={()=>!readOnly&&setEditing(true)}>
+      {editing
+        ? <div style={{ display:'flex', alignItems:'center', width:'100%', gap:2 }}>
+            <input ref={ref} type="number" step="0.1" min="0" value={val}
+              onChange={e=>setVal(e.target.value)}
+              onBlur={e=>commit(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter'||e.key==='Tab')commit(val)}}
+              style={{ flex:1, border:'none', outline:'none', background:'transparent', fontSize:12 }} />
+            <span style={{ color:'#9CA3AF', fontSize:11, flexShrink:0 }}>mm</span>
+          </div>
+        : <span style={{ color:val?'#374151':'#C4C9D4' }}>
+            {val ? `${val}mm` : <span style={{ color:'#C4C9D4' }}>— mm</span>}
+          </span>
+      }
+    </div>
+  )
+
   if (type==='price') return (
     <div style={{...base, cursor:readOnly?'default':'text'}} onClick={()=>!readOnly&&setEditing(true)}>
       {editing
@@ -788,13 +820,13 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const ALL_COLS = [
     { key:'img',          label:'Image',          w:60,  type:'image' },
     { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:true },
+    { key:'category_name',label:'Category',       w:120, type:'category', settingKey:'category_name' },
     { key:'supplier',     label:'Supplier',        w:130, type:'text',   settingKey:'supplier' },
     { key:'brand',        label:'Brand',           w:110, type:'text',   settingKey:'brand' },
     { key:'sku',          label:'SKU',             w:110, type:'text',   settingKey:'sku' },
     { key:'panel_type',   label:'Panel type',      w:110, type:'text',   settingKey:'panel_type' },
-    { key:'thickness',    label:'Thickness',       w:90,  type:'text',   settingKey:'thickness', placeholder:'mm' },
-    { key:'colour_code',  label:'Colour code',     w:110, type:'text',   settingKey:'colour_code' },
-    { key:'colour',       label:'Colour name',     w:110, type:'text',   settingKey:'colour' },
+    { key:'thickness',    label:'Thickness',       w:90,  type:'mm',     settingKey:'thickness' },
+    { key:'colour_code',  label:'Colour',          w:110, type:'text',   settingKey:'colour_code' },
     { key:'finish',       label:'Finish',          w:110, type:'text',   settingKey:'finish' },
     { key:'grade',        label:'Grade',           w:100, type:'text',   settingKey:'grade' },
     { key:'edge_profile', label:'Edge profile',    w:110, type:'text',   settingKey:'edge_profile' },
@@ -821,8 +853,13 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   // Column definitions — filtered by category visibility settings
   const coreCols = React.useMemo(() => {
     if (!catVisibility) return ALL_COLS.filter(c => c.always || c.type === 'image')
-    return ALL_COLS.filter(c => c.always || c.type === 'image' || (c.settingKey && catVisibility.has(c.settingKey)))
-  }, [catVisibility])
+    return ALL_COLS.filter(c =>
+      c.always || c.type === 'image' ||
+      // Show category column only when viewing multiple categories
+      (c.key === 'category_name' && (allCats||[]).filter(c2 => c2.parent_id === targetCat.id).length > 0) ||
+      (c.settingKey && c.settingKey !== 'category_name' && catVisibility.has(c.settingKey))
+    )
+  }, [catVisibility, allCats, targetCat.id])
 
   const customCols = React.useMemo(() =>
     catFields.map(f => ({
@@ -839,15 +876,34 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const { getHeaderProps } = useDragColumns(cols, setCols)
 
   useEffect(() => {
-    Promise.all([
-      supabase.from('materials').select('*').eq('category_id', targetCat.id).order('name'),
-      supabase.from('category_fields').select('*').eq('category_id', targetCat.id).order('sort_order'),
-    ]).then(([{ data: mats }, { data: flds }]) => {
-      setMaterials(mats || [])
-      setCatFields(flds || [])
+    if (!targetCat?.id) return
+    setLoading(true)
+    setMaterials([])
+
+    // Clear any stale cache
+    try { Object.keys(sessionStorage).filter(k=>k.startsWith('mat_list_')).forEach(k=>sessionStorage.removeItem(k)) } catch {}
+
+    function getDescendantIds(catId, cats) {
+      const children = cats.filter(c => c.parent_id === catId)
+      return [catId, ...children.flatMap(c => getDescendantIds(c.id, cats))]
+    }
+    const ids = getDescendantIds(targetCat.id, allCats || []).filter(Boolean)
+    console.log('Loading materials, catId:', targetCat.id, 'ids:', ids)
+
+    const q = ids.length === 1
+      ? supabase.from('materials').select('*').eq('category_id', ids[0])
+      : supabase.from('materials').select('*').in('category_id', ids)
+    q.order('name').then(({ data, error }) => {
+      console.log('Materials result:', data?.length, 'error:', error?.message)
+      setMaterials(data || [])
       setLoading(false)
     })
-  }, [targetCat.id])
+
+    supabase.from('category_fields').select('*')
+      .eq('category_id', targetCat.id).order('sort_order')
+      .then(({ data }) => setCatFields(data || []))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetCat.id, (allCats||[]).length])
 
   const filtered = materials.filter(m => {
     if (!search) return true
@@ -869,9 +925,20 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   async function doSave(mats) {
     setSaving(true)
-    const toUpsert = mats.map(m => ({ ...m, category_id: targetCat.id }))
+    // Only send columns that exist in the materials table
+    const DB_FIELDS = new Set(['id','name','supplier','panel_type','thickness',
+      'colour_code','finish','price','sku','notes','storage_path',
+      'category_id','created_at','updated_at',
+      'grained','weight','dimensions','unit','qty','lead_time','min_order','po_number'])
+    const toUpsert = mats.map(m => {
+      const row = { category_id: m.category_id || targetCat.id }
+      Object.keys(m).forEach(k => {
+        if (DB_FIELDS.has(k) && m[k] !== undefined) row[k] = m[k]
+      })
+      return row
+    })
     const { error } = await supabase.from('materials').upsert(toUpsert, { onConflict:'id' })
-    if (error) toast(error.message, 'error')
+    if (error) { console.error('Save error:', error.message); toast(error.message, 'error') }
     else setLastSaved(new Date())
     setSaving(false)
   }
@@ -880,22 +947,61 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     setMaterials(prev => {
       const updated = prev.map(m => {
         if (m.id !== id) return m
-        // Handle custom field updates
         if (patch._customFieldId) {
           const cf = safeJSON(m.custom_fields)
           return { ...m, custom_fields: JSON.stringify({ ...cf, [patch._customFieldId]: patch._value }) }
         }
         return { ...m, ...patch }
       })
-      triggerSave(updated)
+      // Save just the changed row directly — much safer than upserting all
+      const changed = updated.find(m => m.id === id)
+      if (changed) triggerSaveSingle(changed, patch)
       return updated
     })
+  }
+
+  function triggerSaveSingle(mat, patch) {
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => doSaveSingle(mat, patch), 1500)
+  }
+
+  async function doSaveSingle(mat, patch) {
+    setSaving(true)
+    // Build minimal patch — only the changed field(s)
+    const NATIVE = new Set(['name','supplier','panel_type','thickness','colour_code','finish','price','sku','notes','storage_path','category_id'])
+    let dbPatch = {}
+    if (patch._customFieldId) {
+      // custom_fields column may not exist — skip silently
+      console.warn('custom_fields column not available — skipping custom field save')
+      setSaving(false); return
+    } else {
+      // Only include fields that are native DB columns
+      Object.keys(patch).forEach(k => { if (NATIVE.has(k)) dbPatch[k] = patch[k] })
+      // Non-native fields — skip (custom_fields column may not exist in DB)
+      const nonNativeKeys = Object.keys(patch).filter(k => !NATIVE.has(k) && k !== '_customFieldId')
+      if (nonNativeKeys.length) {
+        console.warn('Skipping non-native fields:', nonNativeKeys)
+      }
+    }
+    if (!Object.keys(dbPatch).length) { setSaving(false); return }
+    // Convert thickness to number if present
+    if (dbPatch.thickness !== undefined) dbPatch.thickness = parseFloat(dbPatch.thickness) || null
+    const { error } = await supabase.from('materials').update(dbPatch).eq('id', mat.id)
+    if (error) { console.error('Save error:', error.message, 'patch:', dbPatch); toast(error.message, 'error') }
+    else {
+      setLastSaved(new Date())
+      // Invalidate session cache for this category
+      try {
+        Object.keys(sessionStorage).filter(k => k.startsWith('mat_list_')).forEach(k => sessionStorage.removeItem(k))
+      } catch {}
+    }
+    setSaving(false)
   }
 
   async function addRow() {
     const tmp = { id: 'new_' + Date.now(), name:'', supplier:'', panel_type:'', thickness:'', colour_code:'', finish:'', notes:'', custom_fields:'{}', category_id: targetCat.id }
     // Insert immediately so we have a real id for image upload
-    const { data, error } = await supabase.from('materials').insert({ name:'New material', category_id: targetCat.id, custom_fields:'{}' }).select().single()
+    const { data, error } = await supabase.from('materials').insert({ name:'New material', category_id: targetCat.id }).select().single()
     if (error) { toast(error.message,'error'); return }
     setMaterials(prev => [...prev, data])
     toast('Row added — click cells to edit')
@@ -999,6 +1105,31 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                       <ImageCell key={col.key} storagePath={m.storage_path} matId={m.id} w={col.w}
                         onUpdated={path => setMaterials(prev=>prev.map(x=>x.id===m.id?{...x,storage_path:path}:x))} />
                     )
+                    // Category — grouped dropdown showing parent > subcategory hierarchy
+                    if (col.key === 'category_name') {
+                      const topLevelCats = (allCats||[]).filter(c => !c.parent_id)
+                      return (
+                        <div key={col.key} style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', padding:'0 8px' }}>
+                          <select value={m.category_id||''} onChange={e => updateMat(m.id, { category_id: e.target.value })}
+                            style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color:'#374151' }}>
+                            <option value="">— No category —</option>
+                            {topLevelCats.map(parent => {
+                              const children = (allCats||[]).filter(c => c.parent_id === parent.id)
+                              if (children.length === 0) return (
+                                <option key={parent.id} value={parent.id}>{parent.name}</option>
+                              )
+                              return (
+                                <optgroup key={parent.id} label={parent.name}>
+                                  {children.map(child => (
+                                    <option key={child.id} value={child.id}>{child.name}</option>
+                                  ))}
+                                </optgroup>
+                              )
+                            })}
+                          </select>
+                        </div>
+                      )
+                    }
                     if (col.fieldId) {
                       return (
                         <MCell key={col.key} value={cf[col.fieldId]??''} w={col.w}
@@ -1006,7 +1137,6 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                           onChange={v=>updateMat(m.id,{_customFieldId:col.fieldId,_value:v})} />
                       )
                     }
-                    // Non-native standard fields read from custom_fields JSON
                     const isNonNative = NON_NATIVE.includes(col.key)
                     const val = isNonNative ? (cf[col.key]??'') : (m[col.key]??'')
                     return (
@@ -1046,39 +1176,61 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
 // ── Main export ───────────────────────────────────────────────────
 export default function Materials() {
-  // stack = array of category IDs we've drilled into
-  // [] = top level, ['catId'] = inside a category, ['catId','subId'] = inside subcategory, etc.
-  const [stack, setStack]     = useState([])
-  const [allCats, setAllCats] = useState([])
-  const [loading, setLoading] = useState(true)
+  const location = useLocation()
+  const [stack, setStack]               = useState([])
+  const [allCats, setAllCats]           = useState([])
+  const [loading, setLoading]           = useState(true)
+  const [showAllInCat, setShowAllInCat] = useState(false)
+  const [viewMode, setViewMode]         = useState(() => localStorage.getItem('mat_view_mode') || 'tile')
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [globalResults, setGlobalResults] = useState([])
+  const [globalLoading, setGlobalLoading] = useState(false)
+  const searchTimer = useRef()
   const toast = useToast()
+
+  // Reset to top level whenever user navigates to /materials (sidebar click)
+  useEffect(() => {
+    setStack([])
+    setShowAllInCat(false)
+    setGlobalSearch('')
+    setGlobalResults([])
+  }, [location.key])
 
   useEffect(() => {
     supabase.from('material_categories').select('*').order('name')
       .then(({ data }) => { setAllCats(data || []); setLoading(false) })
   }, [])
 
-  function pushCat(cat)  { setStack(s => [...s, cat.id]) }
-  function popStack()    { setStack(s => s.slice(0, -1)) }
-  function goToDepth(d)  { setStack(s => s.slice(0, d)) }
+  function pushCat(cat)  { setStack(s => [...s, cat.id]); setShowAllInCat(false) }
+  function popStack()    { setStack(s => s.slice(0, -1)); setShowAllInCat(false) }
+  function goToDepth(d)  { setStack(s => s.slice(0, d));  setShowAllInCat(false) }
+
+  function handleGlobalSearch(val) {
+    setGlobalSearch(val)
+    clearTimeout(searchTimer.current)
+    if (!val.trim()) { setGlobalResults([]); return }
+    setGlobalLoading(true)
+    searchTimer.current = setTimeout(async () => {
+      const { data } = await supabase.from('materials').select('*').ilike('name', `%${val}%`).order('name').limit(50)
+      setGlobalResults(data || [])
+      setGlobalLoading(false)
+    }, 300)
+  }
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div className="spinner" /></div>
 
-  // Current category = last item in stack
   const currentCatId = stack[stack.length - 1] || null
   const currentCat   = allCats.find(c => c.id === currentCatId) || null
   const children     = allCats.filter(c => c.parent_id === currentCatId)
 
-  // If current category has no children, show the materials list
-  if (currentCat && children.length === 0) {
-    // Find topCat (first in stack) and subCat (last in stack if different)
+  if (currentCat && (children.length === 0 || showAllInCat)) {
     const topCat = allCats.find(c => c.id === stack[0]) || currentCat
     return (
       <MaterialListView
         topCat={topCat}
         subCat={currentCat.id !== topCat.id ? currentCat : null}
         fields={[]} allCats={allCats}
-        onBack={() => popStack()}
+        onBack={() => { setShowAllInCat(false); if (children.length === 0) popStack() }}
         onCatUpdated={updated => setAllCats(prev => prev.map(c => c.id===updated.id ? updated : c))} />
     )
   }
@@ -1088,6 +1240,66 @@ export default function Materials() {
 
   return (
     <div>
+      {/* Global search */}
+      <div style={{ position:'relative', marginBottom:16 }}>
+        <svg style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}
+          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input value={globalSearch} onChange={e => handleGlobalSearch(e.target.value)}
+          placeholder="Search all materials…"
+          style={{ width:'100%', padding:'10px 12px 10px 36px', border:'1px solid #DDE3EC', borderRadius:10, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' }} />
+        {globalSearch && (
+          <button onClick={() => { setGlobalSearch(''); setGlobalResults([]) }}
+            style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:18 }}>×</button>
+        )}
+      </div>
+
+      {/* Global search results */}
+      {globalSearch && (
+        <div style={{ marginBottom:20 }}>
+          {globalLoading ? (
+            <div style={{ textAlign:'center', padding:'20px 0', color:'#9CA3AF' }}>Searching…</div>
+          ) : globalResults.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'20px 0', color:'#9CA3AF' }}>No materials found for "{globalSearch}"</div>
+          ) : (
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:'#9CA3AF', marginBottom:8 }}>{globalResults.length} result{globalResults.length!==1?'s':''}</div>
+              <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                {globalResults.map((m, i) => (
+                  <div key={m.id}
+                    onClick={() => {
+                      const cat = allCats.find(c => c.id === m.category_id)
+                      if (cat) {
+                        const parent = allCats.find(c => c.id === cat.parent_id)
+                        if (parent) setStack([parent.id, cat.id])
+                        else setStack([cat.id])
+                        setGlobalSearch(''); setGlobalResults([])
+                      }
+                    }}
+                    style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottom: i < globalResults.length-1 ? '1px solid #F3F4F6' : 'none', cursor: m.category_id ? 'pointer' : 'default' }}
+                    onMouseEnter={e => { if (m.category_id) e.currentTarget.style.background='#F9FAFB' }}
+                    onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                    <div style={{ width:36, height:36, borderRadius:8, background:m.color||'#E8ECF0', flexShrink:0, overflow:'hidden' }}>
+                      {m.storage_path && <img src={`https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${m.storage_path}`} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
+                      <div style={{ fontSize:11, color:'#9CA3AF' }}>
+                        {[m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null].filter(Boolean).join(' · ')}
+                        {m.category_id && <span style={{ marginLeft:6, color:'#C4D4F8' }}>· {allCats.find(c=>c.id===m.category_id)?.name}</span>}
+                      </div>
+                    </div>
+                    {m.price && <span style={{ fontSize:12, fontWeight:600, color:'#374151' }}>${m.price}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!globalSearch && <>
       {/* Breadcrumb */}
       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:20, flexWrap:'wrap' }}>
         <button onClick={() => setStack([])} style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, color: stack.length===0 ? '#2A3042' : '#6B7280', fontWeight: stack.length===0 ? 700 : 500, padding:0 }}>
@@ -1111,6 +1323,26 @@ export default function Materials() {
         </h1>
       </div>
 
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+        <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>
+          {currentCat ? currentCat.name : 'Materials'}
+        </h1>
+        <div style={{ display:'flex', gap:2, background:'#F3F4F6', borderRadius:8, padding:3 }}>
+          {[['tile','⊞'],['list','☰']].map(([mode, icon]) => (
+            <button key={mode} onClick={() => { setViewMode(mode); localStorage.setItem('mat_view_mode', mode) }}
+              title={mode === 'tile' ? 'Tile view' : 'List view'}
+              style={{ width:32, height:28, border:'none', borderRadius:6, cursor:'pointer', fontSize:15,
+                background: viewMode===mode ? '#fff' : 'transparent',
+                color: viewMode===mode ? '#2A3042' : '#9CA3AF',
+                boxShadow: viewMode===mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition:'all .12s' }}>
+              {icon}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Empty state */}
       {children.length === 0 && !currentCat && (
         <div style={{ textAlign:'center', padding:'60px 0', color:'#9CA3AF', fontSize:14 }}>
@@ -1118,51 +1350,90 @@ export default function Materials() {
         </div>
       )}
 
-      {/* Category tiles grid */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
-        {children.map(cat => {
-          const grandchildren = allCats.filter(c => c.parent_id === cat.id)
-          return (
-            <div key={cat.id} onClick={() => pushCat(cat)}
-              style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
-              onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
-              onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
-              <div style={{ width:'100%', height:110, overflow:'hidden', background: cat.image_path ? 'transparent' : 'linear-gradient(135deg,#F3F4F6,#E8ECF0)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {cat.image_path
-                  ? <img src={pubUrl(cat.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" alt="" />
-                  : <span style={{ fontSize:32 }}>📦</span>
-                }
-              </div>
-              <div style={{ padding:'10px 14px 12px' }}>
-                <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
-                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                  {grandchildren.length > 0
-                    ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
-                    : 'Click to browse'}
+      {/* Category grid — tile or list view */}
+      {viewMode === 'tile' ? (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14 }}>
+          {children.map(cat => {
+            const grandchildren = allCats.filter(c => c.parent_id === cat.id)
+            return (
+              <div key={cat.id} onClick={() => pushCat(cat)}
+                style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', transition:'all .15s' }}
+                onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)';e.currentTarget.style.transform='translateY(-2px)'}}
+                onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';e.currentTarget.style.transform='none'}}>
+                <div style={{ width:'100%', height:110, overflow:'hidden', background: cat.image_path ? 'transparent' : 'linear-gradient(135deg,#F3F4F6,#E8ECF0)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {cat.image_path
+                    ? <img src={pubUrl(cat.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" alt="" />
+                    : <span style={{ fontSize:32 }}>📦</span>
+                  }
+                </div>
+                <div style={{ padding:'10px 14px 12px' }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                    {grandchildren.length > 0
+                      ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
+                      : 'Click to browse'}
+                  </div>
                 </div>
               </div>
+            )
+          })}
+          {currentCat && children.length > 0 && (
+            <div onClick={() => setShowAllInCat(true)}
+              style={{ background:'#fff', borderRadius:14, border:'1px dashed #C4D4F8', overflow:'hidden', cursor:'pointer', transition:'all .15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.background='#F0F4FF';e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.09)'}}
+              onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.boxShadow='none'}}>
+              <div style={{ height:110, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>📋</div>
+              <div style={{ padding:'10px 14px 12px' }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {currentCat.name}</div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>Browse all {children.length} subcategor{children.length===1?'y':'ies'} together</div>
+              </div>
             </div>
-          )
-        })}
-
-        {/* If we're inside a category, also show "Browse all" to view materials directly */}
-        {currentCat && (
-          <div onClick={() => {
-            // Force into list view by temporarily treating this cat as leaf
-            const topCat = allCats.find(c => c.id === stack[0]) || currentCat
-            setStack(s => [...s]) // trigger re-render trick — show list
-          }}
-            style={{ background:'#fff', borderRadius:14, border:'1px dashed #E8ECF0', overflow:'hidden', cursor:'pointer', transition:'all .15s' }}
-            onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
-            onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-            <div style={{ height:110, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>📋</div>
-            <div style={{ padding:'10px 14px 12px' }}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {currentCat.name}</div>
-              <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>Browse materials directly</div>
+          )}
+        </div>
+      ) : (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+          {children.map((cat, i) => {
+            const grandchildren = allCats.filter(c => c.parent_id === cat.id)
+            return (
+              <div key={cat.id} onClick={() => pushCat(cat)}
+                style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px',
+                  borderBottom: i < children.length-1 ? '1px solid #F3F4F6' : 'none',
+                  cursor:'pointer' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{ width:44, height:44, borderRadius:10, overflow:'hidden', flexShrink:0, background:'linear-gradient(135deg,#F3F4F6,#E8ECF0)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {cat.image_path
+                    ? <img src={pubUrl(cat.image_path)} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />
+                    : <span style={{ fontSize:20 }}>📦</span>}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{cat.name}</div>
+                  <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>
+                    {grandchildren.length > 0
+                      ? `${grandchildren.length} subcategor${grandchildren.length===1?'y':'ies'}`
+                      : 'Click to browse'}
+                  </div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            )
+          })}
+          {currentCat && children.length > 0 && (
+            <div onClick={() => setShowAllInCat(true)}
+              style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', cursor:'pointer', background:'#F8FAFF', borderTop:'1px solid #E8ECF0' }}
+              onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
+              onMouseLeave={e=>e.currentTarget.style.background='#F8FAFF'}>
+              <div style={{ width:44, height:44, borderRadius:10, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:20 }}>📋</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#5B8AF0' }}>All {currentCat.name}</div>
+                <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>Browse all subcategories together</div>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4D4F8" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+      </>}
     </div>
   )
 }

@@ -23,14 +23,11 @@ const PERMISSIONS = {
 export function AppProvider({ children }) {
   const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
-  const [previewRole, setPreviewRoleState] = useState(
-    () => sessionStorage.getItem('preview_role') || null
-  )
+  // Preview role is in-memory only — clears on page reload
+  const [previewRole, setPreviewRoleState] = useState(null)
 
   function setPreviewRole(role) {
-    if (role) sessionStorage.setItem('preview_role', role)
-    else sessionStorage.removeItem('preview_role')
-    setPreviewRoleState(role)
+    setPreviewRoleState(role || null)
   }
   const [loading, setLoading] = useState(true)
 
