@@ -941,26 +941,42 @@ export default function OrderSheet() {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Order Sheet — ${job?.name||''} — ${date}</title>
 <style>
+
+/* ── Page & base ── */
 *{box-sizing:border-box;margin:0;padding:0}
 @page{size:A4 landscape;margin:12mm}
-body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#111;background:#fff;padding:0}
-.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
-.title{font-size:20px;font-weight:800}
-.sub{font-size:12px;color:#555;margin-top:3px}
-.meta{text-align:right;font-size:10px;color:#555}
-.stats{display:flex;gap:20px;margin-top:6px}
-.stat-num{font-size:16px;font-weight:800}
-.stat-lbl{font-size:9px;color:#555;margin-left:2px}
-.group{margin-bottom:16px;page-break-inside:avoid}
-.group-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:5px 8px;background:#f0f0f0;border-radius:4px;margin-bottom:4px;display:flex;align-items:center;gap:10px}
-.group-count{font-weight:400;font-size:10px;color:#666}
-.group-subtotal{margin-left:auto;font-size:11px;font-weight:700;color:#000}
-table{width:100%;border-collapse:collapse;font-size:9.5px}
-th{background:#2A3042;color:#fff;padding:4px 6px;text-align:left;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
-td{padding:4px 6px;border-bottom:1px solid #eee;vertical-align:top}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
+  font-size:10px;color:#111;background:#fff;
+  padding:12mm;}
+@media print{body{padding:0}}
+
+/* ── Typography ── */
+h1{font-size:20px;font-weight:800;margin-bottom:4px}
+h2{font-size:14px;font-weight:700;margin:16px 0 8px}
+h3{font-size:12px;font-weight:700;margin:12px 0 6px}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:12px}
+th{background:#2A3042;color:#fff;padding:5px 7px;text-align:left;
+  font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+td{padding:5px 7px;border-bottom:1px solid #eee;vertical-align:top}
 tr:nth-child(even) td{background:#fafafa}
-.footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:9px;color:#888}
-.grand-total{font-size:13px;font-weight:800;color:#000;margin-top:10px;text-align:right}
+
+/* ── Header ── */
+.header{display:flex;justify-content:space-between;align-items:flex-start;
+  border-bottom:2px solid #2A3042;padding-bottom:12px;margin-bottom:16px}
+.title{font-size:22px;font-weight:800;color:#2A3042}
+.subtitle{font-size:12px;color:#555;margin-top:3px}
+.meta{text-align:right;font-size:10px;color:#555;line-height:1.6}
+
+/* ── Footer ── */
+.footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;
+  display:flex;justify-content:space-between;font-size:9px;color:#888}
+
+/* ── Misc ── */
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:9px;font-weight:700}
+.page-break{page-break-before:always}
 </style></head><body>
 <div class="header">
   <div>

@@ -819,7 +819,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   // All possible native + standard columns
   const ALL_COLS = [
     { key:'img',          label:'Image',          w:60,  type:'image' },
-    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:true },
+    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:false },
     { key:'category_name',label:'Category',       w:120, type:'category', settingKey:'category_name' },
     { key:'supplier',     label:'Supplier',        w:130, type:'text',   settingKey:'supplier' },
     { key:'brand',        label:'Brand',           w:110, type:'text',   settingKey:'brand' },
@@ -842,36 +842,56 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   ]
 
   const [catVisibility, setCatVisibility] = React.useState(null)
+  const [primaryField, setPrimaryField] = React.useState('name')
   useEffect(() => {
-    supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${targetCat.id}`).maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) setCatVisibility(new Set(JSON.parse(data.value)))
-        else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
-      })
+    Promise.all([
+      supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${targetCat.id}`).maybeSingle(),
+      supabase.from('app_settings').select('value').eq('key', `mat_primary_field_${targetCat.id}`).maybeSingle(),
+    ]).then(([{ data: cfg }, { data: pf }]) => {
+      if (cfg?.value) setCatVisibility(new Set(JSON.parse(cfg.value)))
+      else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
+      if (pf?.value) setPrimaryField(pf.value)
+      else setPrimaryField('name')
+    })
   }, [targetCat.id])
 
   // Column definitions — filtered by category visibility settings
   const coreCols = React.useMemo(() => {
     if (!catVisibility) return ALL_COLS.filter(c => c.always || c.type === 'image')
-    return ALL_COLS.filter(c =>
-      c.always || c.type === 'image' ||
-      // Show category column only when viewing multiple categories
+    const visible = ALL_COLS.filter(c =>
+      c.type === 'image' ||
+      c.key === primaryField ||  // always show primary field
       (c.key === 'category_name' && (allCats||[]).filter(c2 => c2.parent_id === targetCat.id).length > 0) ||
       (c.settingKey && c.settingKey !== 'category_name' && catVisibility.has(c.settingKey))
     )
-  }, [catVisibility, allCats, targetCat.id])
+    // Sort: image first, then primary field, then rest
+    return [
+      ...visible.filter(c => c.type === 'image'),
+      ...visible.filter(c => c.key === primaryField && c.type !== 'image'),
+      ...visible.filter(c => c.key !== primaryField && c.type !== 'image'),
+    ]
+  }, [catVisibility, allCats, targetCat.id, primaryField])
 
-  const customCols = React.useMemo(() =>
-    catFields.map(f => ({
-      key: `custom_${f.id}`, label: f.label, w: 110,
-      type: f.field_type === 'checkbox' ? 'checkbox' :
-            f.field_type === 'select'   ? 'select' : 'text',
-      options: f.options ? f.options.split(',').map(o=>o.trim()) : [],
-      fieldId: f.id,
-    }))
-  , [catFields])
+  const customCols = React.useMemo(() => {
+    const standardLabels = new Set(ALL_COLS.map(c => c.label.toLowerCase()))
+    const standardKeys   = new Set(ALL_COLS.map(c => c.key.toLowerCase()))
+    return catFields
+      .filter(f => {
+        const label = (f.label||'').toLowerCase()
+        // Skip if this custom field duplicates a standard column by label or key
+        return !standardLabels.has(label) && !standardKeys.has(label.replace(/\s+/g,'_'))
+      })
+      .map(f => ({
+        key: `custom_${f.id}`, label: f.label, w: 110,
+        type: f.field_type === 'checkbox' ? 'checkbox' :
+              f.field_type === 'select'   ? 'select' : 'text',
+        options: f.options ? f.options.split(',').map(o=>o.trim()) : [],
+        fieldId: f.id,
+      }))
+  }, [catFields])
 
-  const [cols, setCols] = React.useState([...coreCols, ...customCols])
+  const [cols, setCols]           = React.useState([...coreCols, ...customCols])
+  const [hoveredMatId, setHoveredMatId] = React.useState(null)
   React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
   const { getHeaderProps } = useDragColumns(cols, setCols)
 
@@ -1069,22 +1089,61 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                 <div key={col.key}
                   {...(col.key !== 'img' ? getHeaderProps(ci, col.label, {
                     width:col.w, minWidth:col.w, padding:'9px 8px',
-                    fontSize:10, fontWeight:700, color:'#9CA3AF',
+                    fontSize:10, fontWeight:700,
+                    color: col.key===primaryField ? '#5B8AF0' : '#9CA3AF',
+                    background: col.key===primaryField ? '#EEF2FF' : 'transparent',
                     textTransform:'uppercase', letterSpacing:'.06em',
                     borderRight:'1px solid #E8ECF0', flexShrink:0,
                     boxSizing:'border-box', display:'flex', alignItems:'center', gap:4,
+                    position:'relative',
                   }) : {
                     style:{ width:col.w, minWidth:col.w, padding:'9px 8px',
                       fontSize:10, fontWeight:700, color:'#9CA3AF',
                       textTransform:'uppercase', letterSpacing:'.06em',
-                      borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box' }
-                  })}>
-                  {col.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>}
+                      borderRight:'1px solid #E8ECF0', flexShrink:0,
+                      boxSizing:'border-box', position:'relative' }
+                  })}
+                  className="mat-col-header">
+                  {col.key===primaryField
+                    ? <span style={{ fontSize:10, color:'#5B8AF0' }}>★</span>
+                    : col.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>
+                  }
                   {col.label}
+                  {/* Set primary button — visible on hover, hidden for img column */}
+                  {col.key !== 'img' && col.key !== primaryField && (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        const settingsKey = `mat_primary_field_${targetCat.id}`
+                        setPrimaryField(col.key)
+                        supabase.from('app_settings')
+                          .upsert({ key: settingsKey, value: col.key, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+                          .then(({ error }) => {
+                            if (error) {
+                              console.error('Primary field save error:', error.message)
+                              // Try insert then update as fallback
+                              supabase.from('app_settings').insert({ key: settingsKey, value: col.key })
+                                .then(({ error: ie }) => {
+                                  if (ie) supabase.from('app_settings').update({ value: col.key }).eq('key', settingsKey)
+                                })
+                            } else {
+                              console.log('Primary field saved:', col.key)
+                            }
+                          })
+                      }}
+                      title="Set as primary display field"
+                      style={{ marginLeft:'auto', opacity:0, background:'none', border:'none',
+                        cursor:'pointer', fontSize:11, color:'#9CA3AF', padding:'0 2px',
+                        transition:'opacity .15s', flexShrink:0 }}
+                      className="set-primary-btn">
+                      ☆
+                    </button>
+                  )}
                 </div>
               ))}
               <div style={{ width:40, flexShrink:0 }} />
             </div>
+            <style>{`.mat-col-header:hover .set-primary-btn { opacity: 1 !important; color: #5B8AF0 !important; }`}</style>
 
             {/* rows */}
             {filtered.length === 0 ? (
@@ -1093,12 +1152,47 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
               </div>
             ) : filtered.map((m, idx) => {
               const cf = safeJSON(m.custom_fields)
-              // Non-native standard fields stored in custom_fields JSON
               const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
+              const getVal = (key) => NON_NATIVE.includes(key) ? (cf[key]||'') : (m[key]||'')
+              const primaryVal = getVal(primaryField)
+              const primaryLabel = ALL_COLS.find(c=>c.key===primaryField)?.label || primaryField
+
+              // Build secondary details — all visible fields except primary and image
+              const secondaryFields = cols
+                .filter(c => c.key !== primaryField && c.type !== 'image' && c.key !== 'category_name')
+                .map(c => {
+                  const v = c.fieldId ? (cf[c.fieldId]||'') : getVal(c.key)
+                  return v ? { label: c.label, value: v } : null
+                }).filter(Boolean).slice(0, 6)
               return (
-                <div key={m.id} style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6' }}
-                  onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
-                  onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?'#fff':'#FAFAFA'}>
+                <div key={m.id}
+                  style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6', position:'relative' }}
+                  onMouseEnter={() => { setHoveredMatId(m.id) }}
+                  onMouseLeave={() => { setHoveredMatId(null) }}>
+
+                  {/* Hover info panel */}
+                  {hoveredMatId === m.id && (primaryVal || secondaryFields.length > 0) && (
+                    <div style={{
+                      position:'fixed', zIndex:999, background:'#1E2535', borderRadius:10,
+                      padding:'10px 14px', minWidth:180, maxWidth:260, pointerEvents:'none',
+                      boxShadow:'0 8px 24px rgba(0,0,0,0.3)',
+                      transform:'translateX(8px)',
+                      right:16, top:'auto',
+                    }}>
+                      {primaryVal && (
+                        <div style={{ marginBottom: secondaryFields.length ? 8 : 0 }}>
+                          <span style={{ fontSize:9, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', display:'block', marginBottom:2 }}>{primaryLabel}</span>
+                          <span style={{ fontSize:14, fontWeight:800, color:'#fff' }}>{primaryVal}</span>
+                        </div>
+                      )}
+                      {secondaryFields.map(f => (
+                        <div key={f.label} style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:3 }}>
+                          <span style={{ fontSize:10, color:'#9CA3AF', flexShrink:0 }}>{f.label}</span>
+                          <span style={{ fontSize:11, color:'#E2E8F0', fontWeight:600, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:140 }}>{f.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', color:'#D1D5DB', fontSize:12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>⠿</div>
                   {cols.map(col => {
                     if (col.type === 'image') return (

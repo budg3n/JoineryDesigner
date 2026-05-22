@@ -2323,22 +2323,24 @@ export default function JobDetail() {
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
     supabase.from('notes').select('id,title,job_id,is_startup').order('updated_at',{ascending:false}).then(({data}) => setAllNotes(data||[]))
 
-    // Silently refresh mat_colors if stored version is missing storage_path data
-    // (happens for jobs created before this field was added)
+    // Always refresh mat_colors to ensure all fields are current
     if (j && jm?.length) {
+      const freshColors = (jm||[]).filter(row => row.materials).map(row => ({
+        name:         row.materials.name,
+        color:        row.materials.color || '#888',
+        storage_path: row.materials.storage_path || null,
+        supplier:     row.materials.supplier || '',
+        panel_type:   row.materials.panel_type || '',
+        thickness:    row.materials.thickness || '',
+        colour_code:  row.materials.colour_code || '',
+        finish:       row.materials.finish || '',
+        category_id:  row.materials.category_id || null,
+      }))
       const stored = j.mat_colors ? JSON.parse(j.mat_colors) : []
-      const needsRefresh = (jm||[]).some(row => 
-        row.materials?.storage_path && !stored.find(s => s.name === row.materials.name && s.storage_path)
+      const needsRefresh = freshColors.some((f, i) =>
+        !stored[i] || stored[i].colour_code !== f.colour_code || stored[i].finish !== f.finish
       )
       if (needsRefresh) {
-        const freshColors = (jm||[]).filter(row => row.materials).map(row => ({
-          name:       row.materials.name,
-          color:      row.materials.color || '#888',
-          storage_path: row.materials.storage_path || null,
-          supplier:   row.materials.supplier || '',
-          panel_type: row.materials.panel_type || '',
-          thickness:  row.materials.thickness || '',
-        }))
         await supabase.from('jobs').update({ mat_colors: JSON.stringify(freshColors) }).eq('id', j.id)
         setJob(prev => prev ? { ...prev, mat_colors: JSON.stringify(freshColors) } : prev)
       }
@@ -2630,7 +2632,13 @@ export default function JobDetail() {
     const { data } = await supabase.from('job_materials').insert({ job_id: id, material_id: mid }).select('*,materials(*)').single()
     if (data) {
       setJobMats(prev => [...prev, data])
-      const colors = [...jobMats, data].filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888', storage_path: jm.materials.storage_path||null, supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'', thickness: jm.materials.thickness||'' }))
+      const colors = [...jobMats, data].filter(jm=>jm.materials).map(jm=>({
+        name: jm.materials.name, color: jm.materials.color||'#888',
+        storage_path: jm.materials.storage_path||null,
+        supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'',
+        thickness: jm.materials.thickness||'', colour_code: jm.materials.colour_code||'',
+        finish: jm.materials.finish||'', category_id: jm.materials.category_id||null,
+      }))
       await supabase.from('jobs').update({ mat_colors: JSON.stringify(colors) }).eq('id', id)
     }
     setMatPickerOpen(false)
@@ -2641,7 +2649,13 @@ export default function JobDetail() {
     await supabase.from('job_materials').delete().eq('id', jmid)
     const remaining = jobMats.filter(x => x.id !== jmid)
     setJobMats(remaining)
-    const colors = remaining.filter(jm=>jm.materials).map(jm=>({ name: jm.materials.name, color: jm.materials.color||'#888', storage_path: jm.materials.storage_path||null, supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'', thickness: jm.materials.thickness||'' }))
+    const colors = remaining.filter(jm=>jm.materials).map(jm=>({
+      name: jm.materials.name, color: jm.materials.color||'#888',
+      storage_path: jm.materials.storage_path||null,
+      supplier: jm.materials.supplier||'', panel_type: jm.materials.panel_type||'',
+      thickness: jm.materials.thickness||'', colour_code: jm.materials.colour_code||'',
+      finish: jm.materials.finish||'', category_id: jm.materials.category_id||null,
+    }))
     await supabase.from('jobs').update({ mat_colors: JSON.stringify(colors) }).eq('id', id)
   }
 

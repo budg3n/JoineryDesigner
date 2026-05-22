@@ -43,39 +43,28 @@ const PRINT_STYLE = `
     #report-print-root { display: block !important; }
     .no-print { display: none !important; }
     .print-page { page-break-after: always; }
-    @page { margin: 15mm; size: A4; }
+    @page { size: A4; margin: 15mm; }
   }
 `
 
-// ── Download CSV ───────────────────────────────────────────────────
-function downloadCSV(rows, filename) {
-  const csv = rows.map(r => r.map(c => `"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename })
-  a.click(); URL.revokeObjectURL(a.href)
-}
-
-// ── Download PDF (print new window) ───────────────────────────────
-function downloadPDF(html, title) {
+function printReport(html, title = 'Report') {
+  const date = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })
   const win = window.open('', '_blank')
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
-  <style>
-    * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif; color:#000; padding:32px 40px; max-width:900px; margin:0 auto; }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th { background:#2A3042; color:#fff; padding:8px 12px; text-align:left; font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
-    td { padding:8px 12px; border-bottom:1px solid #E8ECF0; vertical-align:top; }
-    tr:nth-child(even) td { background:#F9FAFB; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
-    h1 { font-size:24px; font-weight:800; color:#2A3042; margin-bottom:4px; }
-    .sub { font-size:13px; color:#6B7280; margin-bottom:20px; }
-    .summary { display:flex; gap:24px; margin-bottom:24px; padding:14px 18px; background:#F9FAFB; border-radius:10px; border:1px solid #E8ECF0; }
-    .stat { text-align:center; }
-    .stat-num { font-size:24px; font-weight:800; color:#2A3042; }
-    .stat-lbl { font-size:11px; color:#9CA3AF; margin-top:2px; }
-    .section-title { font-size:13px; font-weight:700; color:#2A3042; margin:20px 0 8px; padding-bottom:6px; border-bottom:2px solid #2A3042; }
-    @media print { body { padding:0; } @page { margin:15mm; size:A4; } }
-  </style></head><body>${html}</body></html>`)
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} — ${date}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+@page{size:A4;margin:15mm}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#111;background:#fff;padding:15mm}
+@media print{body{padding:0}}
+table{width:100%;border-collapse:collapse;margin-bottom:12px}
+th{background:#2A3042;color:#fff;padding:5px 7px;text-align:left;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+td{padding:5px 7px;border-bottom:1px solid #eee;vertical-align:top}
+tr:nth-child(even) td{background:#fafafa}
+h1{font-size:20px;font-weight:800;margin-bottom:4px}
+h2{font-size:13px;font-weight:700;margin:14px 0 6px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #2A3042;padding-bottom:10px;margin-bottom:14px}
+.footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:9px;color:#888}
+</style></head><body>${html}</body></html>`)
   win.document.close()
   win.addEventListener('load', () => setTimeout(() => win.print(), 300))
   setTimeout(() => win.print(), 1000)

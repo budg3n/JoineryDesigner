@@ -1085,7 +1085,7 @@ h1{font-size:26px;font-weight:800;margin-bottom:4px}
 .item-note{font-size:11px;background:#e8eeff;border-left:2px solid #5B8AF0;border-radius:3px;padding:4px 8px;margin-top:5px}
 .notes-box{font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 12px;border-radius:4px;margin-top:10px}
 .footer{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:10px;color:#888}
-@media print{body{padding:0}@page{margin:12mm;size:A4}}
+@media print{body{padding:0}}@page{margin:15mm;size:A4}body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;font-size:10px;color:#111;padding:15mm;background:#fff}
 </style></head><body>
 <div class="header"><div><h1>${spec.title||'Untitled Spec'}</h1>${spec.client?`<div class="sub">${spec.client}</div>`:''}<div class="stats"><div><span class="stat-num">${rooms.length}</span><span class="stat-lbl">rooms</span></div><div><span class="stat-num">${totalMats}</span><span class="stat-lbl">materials</span></div><div><span class="stat-num">${totalApps}</span><span class="stat-lbl">appliances</span></div></div></div><div class="header-right"><div class="status-badge">${spec.status||'Draft'}</div><div class="header-date">${date}</div></div></div>
 ${roomSections}

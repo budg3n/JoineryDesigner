@@ -102,26 +102,43 @@ function MatHoverPanel({ colors, visible }) {
     }}>
       <div style={{ background:'#fff', borderRadius:14, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', border:'1px solid #E8ECF0', padding:14, minWidth:200 }}>
         <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:12 }}>Materials</div>
-        {colors.map((c, i) => (
-          <div key={i} style={{
-            display:'flex', alignItems:'center', gap:10, marginBottom: i < colors.length-1 ? 10 : 0,
-            opacity: visible ? 1 : 0,
-            transform: visible ? 'translateX(0)' : 'translateX(-6px)',
-            transition: `opacity 0.13s ease ${i*0.04}s, transform 0.13s ease ${i*0.04}s`,
-          }}>
-            <div style={{ width:40, height:40, borderRadius:9, overflow:'hidden', flexShrink:0, border:'1px solid #E8ECF0' }}>
-              {c.storage_path
-                ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" onError={e=>e.target.style.display='none'} />
-                : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
-              }
+        {colors.map((c, i) => {
+          const hasCc = c.colour_code && c.colour_code.trim()
+          const primary = hasCc ? c.colour_code : c.name
+          const primaryLabel = hasCc ? 'Colour' : 'Name'
+          const secondary = [
+            hasCc && c.name        ? { label:'Name',     val: c.name } : null,
+            c.supplier             ? { label:'Supplier',  val: c.supplier } : null,
+            c.panel_type           ? { label:'Panel',     val: c.thickness ? `${c.panel_type} · ${c.thickness}mm` : c.panel_type } : null,
+            c.finish               ? { label:'Finish',    val: c.finish } : null,
+          ].filter(Boolean)
+          return (
+            <div key={i} style={{
+              display:'flex', alignItems:'flex-start', gap:10, marginBottom: i < colors.length-1 ? 12 : 0,
+              paddingBottom: i < colors.length-1 ? 12 : 0,
+              borderBottom: i < colors.length-1 ? '1px solid #F3F4F6' : 'none',
+              opacity: visible ? 1 : 0,
+              transform: visible ? 'translateX(0)' : 'translateX(-6px)',
+              transition: `opacity 0.13s ease ${i*0.04}s, transform 0.13s ease ${i*0.04}s`,
+            }}>
+              <div style={{ width:40, height:40, borderRadius:9, overflow:'hidden', flexShrink:0, border:'1px solid #E8ECF0' }}>
+                {c.storage_path
+                  ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" onError={e=>e.target.style.display='none'} />
+                  : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
+                }
+              </div>
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ fontSize:9, fontWeight:700, color:'#C4C9D4', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:2 }}>{primaryLabel}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', lineHeight:1.3, marginBottom: secondary.length ? 4 : 0 }}>{primary}</div>
+                {secondary.map(s => (
+                  <div key={s.label} style={{ fontSize:11, color:'#6B7280' }}>
+                    <span style={{ color:'#9CA3AF' }}>{s.label}: </span>{s.val}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{ minWidth:0 }}>
-              <div style={{ fontSize:12, fontWeight:600, color:'#2A3042', lineHeight:1.3 }}>{c.name}</div>
-              {c.supplier && <div style={{ fontSize:11, color:'#9CA3AF' }}>{c.supplier}</div>}
-              {c.panel_type && <div style={{ fontSize:11, color:'#9CA3AF' }}>{c.panel_type}{c.thickness ? ` · ${c.thickness}mm` : ''}</div>}
-            </div>
-          </div>
-        ))}
+          )
+        })}
         <div style={{ position:'absolute', top:16, left:-5, width:10, height:10, background:'#fff', border:'1px solid #E8ECF0', borderRight:'none', borderTop:'none', transform:'rotate(45deg)' }} />
       </div>
     </div>
