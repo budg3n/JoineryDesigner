@@ -21,8 +21,9 @@ const PERMISSIONS = {
 }
 
 export function AppProvider({ children }) {
-  const [user, setUser]       = useState(null)
-  const [profile, setProfile] = useState(null)
+  const [user, setUser]           = useState(null)
+  const [profile, setProfile]     = useState(null)
+  const [connError, setConnError] = useState(false)
   // Preview role is in-memory only — clears on page reload
   const [previewRole, setPreviewRoleState] = useState(null)
 
@@ -32,14 +33,27 @@ export function AppProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Timeout — if Supabase is paused/cold starting, show retry after 15s
+    const timeout = setTimeout(() => {
+      setConnError(true)
+      setLoading(false)
+    }, 15000)
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearTimeout(timeout)
+      setConnError(false)
       if (session) {
         setUser(session.user)
         loadProfile(session.user.id, true)
       } else {
         setLoading(false)
       }
+    }).catch(() => {
+      clearTimeout(timeout)
+      setConnError(true)
+      setLoading(false)
     })
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
@@ -49,7 +63,7 @@ export function AppProvider({ children }) {
         setProfile(null); setLoading(false)
       }
     })
-    return () => subscription.unsubscribe()
+    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
   }, [])
 
   async function loadProfile(uid, showLoading = false) {
@@ -57,11 +71,11 @@ export function AppProvider({ children }) {
     if (showLoading) setLoading(false)
     const { data } = await supabase.from('profiles').select('id,full_name,email,role,phone,position,department,notes').eq('id', uid).single()
     setProfile(data || { id: uid, role: 'Production Team' })
-    // Keep Supabase warm — ping every 4 minutes to avoid cold starts
+    // Keep Supabase warm — ping every 3 minutes to prevent cold starts
     if (!window._sbKeepAlive) {
       window._sbKeepAlive = setInterval(() => {
         supabase.from('profiles').select('id').limit(1).then(() => {})
-      }, 4 * 60 * 1000)
+      }, 3 * 60 * 1000)
     }
     // mat_colors migration disabled — already ran
   }
@@ -129,7 +143,21 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{ user, profile, loading, can, signOut, previewRole, setPreviewRole }}>
-      {children}
+      {connError ? (
+        <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'#F0F2F5', padding:24 }}>
+          <div style={{ background:'#fff', borderRadius:16, padding:'40px 32px', maxWidth:400, width:'100%', textAlign:'center', boxShadow:'0 4px 24px rgba(0,0,0,0.08)' }}>
+            <div style={{ fontSize:40, marginBottom:16 }}>🔌</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#2A3042', marginBottom:8 }}>Connecting…</div>
+            <div style={{ fontSize:13, color:'#9CA3AF', marginBottom:24, lineHeight:1.6 }}>
+              The database is waking up. This can take up to 30 seconds after a period of inactivity.
+            </div>
+            <button onClick={() => { setConnError(false); setLoading(true); window.location.reload() }}
+              style={{ padding:'10px 28px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+              Try again
+            </button>
+          </div>
+        </div>
+      ) : children}
     </AppContext.Provider>
   )
 }
