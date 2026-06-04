@@ -12,6 +12,15 @@ function safeJSON(val) {
   if (typeof val === 'object') return val
   try { return JSON.parse(val) } catch { return {} }
 }
+// Parse options stored as JSON array OR legacy comma-separated string
+function parseOptions(val) {
+  if (!val) return []
+  try {
+    const parsed = JSON.parse(val)
+    if (Array.isArray(parsed)) return parsed.map(o => String(o).trim()).filter(Boolean)
+  } catch {}
+  return val.split(',').map(o => o.trim()).filter(Boolean)
+}
 
 // ── image compression ─────────────────────────────────────────────
 async function compressImage(file, maxPx = 800, quality = 0.82) {
@@ -510,7 +519,7 @@ function MaterialForm({ material, category, topCategory, fields, allCats, onSave
               <select value={customVals[f.id]||''} onChange={e => setCV(f.id, e.target.value)}
                 style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', background:'#fff', cursor:'pointer' }}>
                 <option value="">— Select —</option>
-                {f.options.split(',').map(o => o.trim()).filter(Boolean).map(o => (
+                {parseOptions(f.options).map(o => (
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
@@ -683,8 +692,9 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
     <div style={base}>
       <select value={val} onChange={e=>{ setVal(e.target.value); commit(e.target.value) }}
         disabled={readOnly}
-        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color:'#374151' }}>
-        {options.map(o=><option key={o}>{o}</option>)}
+        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color: val ? '#374151' : '#9CA3AF' }}>
+        <option value="">—</option>
+        {options.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
     </div>
   )
@@ -772,35 +782,297 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
 }
 
 // ── Image upload cell ─────────────────────────────────────────────
-function ImageCell({ storagePath, matId, onUpdated, w=60 }) {
+// ── Category Tree Picker ──────────────────────────────────────────
+function CategoryTreePicker({ allCats, currentCatId, title, onSelect, onClose }) {
+  const [expanded, setExpanded] = React.useState(new Set())
+  const [hovered, setHovered]   = React.useState(null)
+
+  // Build tree from flat list
+  function getChildren(parentId) {
+    return allCats.filter(c => c.parent_id === parentId)
+  }
+
+  function CatNode({ cat, depth }) {
+    const children = getChildren(cat.id)
+    const isExpanded = expanded.has(cat.id)
+    const isCurrent = cat.id === currentCatId
+
+    return (
+      <div>
+        <div
+          onMouseEnter={() => setHovered(cat.id)}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            display:'flex', alignItems:'center', gap:6,
+            padding:`7px 14px 7px ${14 + depth * 20}px`,
+            cursor: isCurrent ? 'default' : 'pointer',
+            background: hovered===cat.id && !isCurrent ? '#F5F7FF' : 'transparent',
+            borderRadius:8, margin:'1px 6px',
+            opacity: isCurrent ? 0.4 : 1,
+          }}>
+          {/* Expand toggle */}
+          <span
+            onClick={e => { e.stopPropagation(); setExpanded(prev => { const n=new Set(prev); n.has(cat.id)?n.delete(cat.id):n.add(cat.id); return n }) }}
+            style={{ width:16, flexShrink:0, color:'#9CA3AF', fontSize:11, cursor: children.length ? 'pointer' : 'default', userSelect:'none' }}>
+            {children.length > 0 ? (isExpanded ? '▾' : '▸') : ''}
+          </span>
+          {/* Folder icon */}
+          <span style={{ fontSize:14 }}>{children.length > 0 ? '📁' : '📄'}</span>
+          {/* Name */}
+          <span style={{ fontSize:13, color: isCurrent ? '#9CA3AF' : '#2A3042', flex:1 }}
+            onClick={() => !isCurrent && onSelect(cat.id)}>
+            {cat.name}
+          </span>
+          {isCurrent && <span style={{ fontSize:10, color:'#9CA3AF', fontStyle:'italic' }}>current</span>}
+          {!isCurrent && hovered===cat.id && (
+            <button onClick={() => onSelect(cat.id)}
+              style={{ padding:'3px 10px', borderRadius:6, border:'none', background:'#5B8AF0', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', flexShrink:0 }}>
+              Move here
+            </button>
+          )}
+        </div>
+        {isExpanded && children.map(child => <CatNode key={child.id} cat={child} depth={depth+1} />)}
+      </div>
+    )
+  }
+
+  const roots = allCats.filter(c => !c.parent_id)
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:1100, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)', overflow:'hidden' }}>
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>{title}</div>
+            <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>Click a category to move selected items there</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#9CA3AF', lineHeight:1 }}>×</button>
+        </div>
+        <div style={{ overflowY:'auto', padding:'8px 0', flex:1 }}>
+          {roots.map(cat => <CatNode key={cat.id} cat={cat} depth={0} />)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Image Library ─────────────────────────────────────────────────
+function ImageLibrary({ onSelect, onClose }) {
   const toast = useToast()
   const fileRef = React.useRef()
+  const [images, setImages]       = React.useState([])
+  const [loading, setLoading]     = React.useState(true)
+  const [search, setSearch]       = React.useState('')
+  const [activeCat, setActiveCat] = React.useState('All')
   const [uploading, setUploading] = React.useState(false)
-  const url = storagePath ? pubUrl(storagePath) : null
+  const [showUpload, setShowUpload] = React.useState(false)
+  const [newName, setNewName]     = React.useState('')
+  const [newCat, setNewCat]       = React.useState('')
+  const [newFile, setNewFile]     = React.useState(null)
+  const [newPreview, setNewPreview] = React.useState(null)
+  const [hoveredId, setHoveredId] = React.useState(null)
 
-  async function handleFile(e) {
-    const file = e.target.files[0]; if (!file) return
+  useEffect(() => { loadImages() }, [])
+
+  async function loadImages() {
+    setLoading(true)
+    const { data, error } = await supabase.from('image_library').select('*').order('created_at', { ascending: false })
+    if (error) toast(error.message, 'error')
+    setImages(data || [])
+    setLoading(false)
+  }
+
+  const categories = ['All', ...Array.from(new Set((images||[]).map(i => i.category).filter(Boolean))).sort()]
+
+  const filtered = images.filter(img => {
+    const matchCat = activeCat === 'All' || img.category === activeCat
+    const q = search.toLowerCase()
+    const matchSearch = !q || (img.name||'').toLowerCase().includes(q) || (img.category||'').toLowerCase().includes(q)
+    return matchCat && matchSearch
+  })
+
+  function handleFileChange(e) {
+    const f = e.target.files[0]; if (!f) return
+    setNewFile(f)
+    setNewName(f.name.replace(/\.[^.]+$/, ''))
+    const reader = new FileReader()
+    reader.onload = ev => setNewPreview(ev.target.result)
+    reader.readAsDataURL(f)
+    setShowUpload(true)
+  }
+
+  async function handleUpload() {
+    if (!newFile) return
     setUploading(true)
-    const path = `materials/${matId}_${Date.now()}.jpg`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert:true })
-    if (error) { toast(error.message,'error'); setUploading(false); return }
-    await supabase.from('materials').update({ storage_path: path }).eq('id', matId)
-    onUpdated(path)
+    const path = `image-library/${Date.now()}_${newFile.name.replace(/\s+/g,'_')}`
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, newFile, { contentType: newFile.type, upsert: false })
+    if (upErr) { toast(upErr.message, 'error'); setUploading(false); return }
+    const { data, error: dbErr } = await supabase.from('image_library').insert({
+      name: newName.trim() || newFile.name,
+      category: newCat.trim() || 'Uncategorised',
+      path,
+    }).select().single()
+    if (dbErr) { toast(dbErr.message, 'error'); setUploading(false); return }
+    setImages(prev => [data, ...prev])
+    setNewFile(null); setNewPreview(null); setNewName(''); setNewCat(''); setShowUpload(false)
     setUploading(false)
-    toast('Image uploaded ✓')
+    toast('Image added to library ✓')
+  }
+
+  async function handleDelete(img, e) {
+    e.stopPropagation()
+    if (!confirm(`Remove "${img.name}" from library?`)) return
+    await supabase.storage.from(BUCKET).remove([img.path])
+    await supabase.from('image_library').delete().eq('id', img.id)
+    setImages(prev => prev.filter(i => i.id !== img.id))
+    toast('Removed from library')
   }
 
   return (
-    <div style={{ width:w, minWidth:w, maxWidth:w, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, cursor:'pointer', position:'relative' }}
-      onClick={()=>fileRef.current?.click()} title="Click to upload image">
-      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:'none' }} />
-      {uploading
-        ? <div style={{ width:24, height:24, borderRadius:4, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}><div className="spinner" style={{ width:12, height:12, borderWidth:2 }} /></div>
-        : url
-        ? <img src={url} style={{ width:28, height:28, borderRadius:5, objectFit:'cover', border:'1px solid #E8ECF0' }} alt="" />
-        : <div style={{ width:28, height:28, borderRadius:5, background:'#F3F4F6', border:'1px dashed #DDE3EC', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, color:'#C4C9D4' }}>+</div>
-      }
+    <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:860, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:700, color:'#2A3042' }}>Image Library</div>
+            <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>Select an image or upload a new one</div>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={() => fileRef.current?.click()}
+              style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ fontSize:16, lineHeight:1 }}>+</span> Upload image
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFileChange} style={{ display:'none' }} />
+            <button onClick={onClose} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:18, cursor:'pointer', lineHeight:1 }}>×</button>
+          </div>
+        </div>
+
+        {/* Upload form */}
+        {showUpload && (
+          <div style={{ padding:'14px 20px', background:'#F8FAFF', borderBottom:'1px solid #E8ECF0', display:'flex', gap:16, alignItems:'flex-end', flexShrink:0 }}>
+            {newPreview && <img src={newPreview} style={{ width:64, height:64, objectFit:'cover', borderRadius:8, border:'1px solid #E8ECF0', flexShrink:0 }} alt="" />}
+            <div style={{ flex:1, display:'flex', gap:10, flexWrap:'wrap' }}>
+              <div style={{ flex:1, minWidth:160 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'#6B7280', marginBottom:4 }}>Image name</div>
+                <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Blum Tandembox"
+                  style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ flex:1, minWidth:160 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'#6B7280', marginBottom:4 }}>Category</div>
+                <input value={newCat} onChange={e=>setNewCat(e.target.value)}
+                  placeholder="e.g. Drawer Runners, Hinges…"
+                  list="lib-cats"
+                  style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                <datalist id="lib-cats">
+                  {categories.filter(c=>c!=='All').map(c=><option key={c} value={c}/>)}
+                </datalist>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+              <button onClick={()=>{setShowUpload(false);setNewFile(null);setNewPreview(null)}}
+                style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, cursor:'pointer' }}>Cancel</button>
+              <button onClick={handleUpload} disabled={uploading || !newFile}
+                style={{ padding:'7px 14px', borderRadius:8, border:'none', background: uploading ? '#9CA3AF' : '#22C55E', color:'#fff', fontSize:13, fontWeight:600, cursor: uploading ? 'default' : 'pointer' }}>
+                {uploading ? 'Uploading…' : 'Save to library'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Category tabs + search */}
+        <div style={{ padding:'12px 20px 0', borderBottom:'1px solid #E8ECF0', flexShrink:0 }}>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10, flexWrap:'wrap' }}>
+            <div style={{ position:'relative', flex:1, minWidth:180, maxWidth:260 }}>
+              <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#9CA3AF', fontSize:13, pointerEvents:'none' }}>⌕</span>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search images…"
+                style={{ width:'100%', padding:'6px 10px 6px 28px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+            </div>
+            <div style={{ fontSize:12, color:'#9CA3AF' }}>{filtered.length} image{filtered.length!==1?'s':''}</div>
+          </div>
+          <div style={{ display:'flex', gap:4, overflowX:'auto', paddingBottom:1 }}>
+            {categories.map(cat => (
+              <button key={cat} onClick={() => setActiveCat(cat)}
+                style={{ padding:'5px 14px', borderRadius:'8px 8px 0 0', border:'none', cursor:'pointer', fontSize:12, fontWeight:600, whiteSpace:'nowrap', flexShrink:0, transition:'all .1s',
+                  background: activeCat===cat ? '#fff' : 'transparent',
+                  color: activeCat===cat ? '#5B8AF0' : '#9CA3AF',
+                  borderBottom: activeCat===cat ? '2px solid #5B8AF0' : '2px solid transparent',
+                }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Image grid */}
+        <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+          {loading ? (
+            <div style={{ display:'flex', justifyContent:'center', padding:'40px 0' }}><div className="spinner" /></div>
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign:'center', color:'#9CA3AF', padding:'40px 0', fontSize:14 }}>
+              {images.length === 0 ? 'No images yet — upload your first image above' : 'No images match your search'}
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(130px, 1fr))', gap:12 }}>
+              {filtered.map(img => (
+                <div key={img.id}
+                  onClick={() => onSelect(img)}
+                  onMouseEnter={() => setHoveredId(img.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  style={{ borderRadius:10, border: hoveredId===img.id ? '2px solid #5B8AF0' : '2px solid #E8ECF0',
+                    cursor:'pointer', overflow:'hidden', transition:'all .12s', background:'#F9FAFB',
+                    boxShadow: hoveredId===img.id ? '0 4px 12px rgba(91,138,240,0.2)' : 'none',
+                    transform: hoveredId===img.id ? 'translateY(-2px)' : 'none',
+                    position:'relative' }}>
+                  <div style={{ height:100, overflow:'hidden', background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <img src={pubUrl(img.path)} alt={img.name}
+                      style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  </div>
+                  <div style={{ padding:'7px 8px' }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{img.name}</div>
+                    {img.category && <div style={{ fontSize:10, color:'#9CA3AF', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{img.category}</div>}
+                  </div>
+                  {/* Delete button */}
+                  {hoveredId===img.id && (
+                    <button onClick={e=>handleDelete(img,e)}
+                      style={{ position:'absolute', top:6, right:6, width:22, height:22, borderRadius:6, border:'none', background:'rgba(0,0,0,0.5)', color:'#fff', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
+  )
+}
+
+function ImageCell({ storagePath, matId, onUpdated, w=60 }) {
+  const toast = useToast()
+  const [showLib, setShowLib] = React.useState(false)
+  const url = storagePath ? pubUrl(storagePath) : null
+
+  async function handleSelect(img) {
+    // Save the library image path to this material
+    await supabase.from('materials').update({ storage_path: img.path }).eq('id', matId)
+    onUpdated(img.path)
+    setShowLib(false)
+    toast('Image set ✓')
+  }
+
+  return (
+    <>
+      <div style={{ width:w, minWidth:w, maxWidth:w, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, cursor:'pointer', position:'relative' }}
+        onClick={() => setShowLib(true)} title="Click to pick from image library">
+        {url
+          ? <img src={url} style={{ width:28, height:28, borderRadius:5, objectFit:'cover', border:'1px solid #E8ECF0' }} alt="" />
+          : <div style={{ width:28, height:28, borderRadius:5, background:'#F3F4F6', border:'1px dashed #DDE3EC', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, color:'#C4C9D4' }}>+</div>
+        }
+      </div>
+      {showLib && <ImageLibrary onSelect={handleSelect} onClose={() => setShowLib(false)} />}
+    </>
   )
 }
 
@@ -843,17 +1115,99 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   const [catVisibility, setCatVisibility] = React.useState(null)
   const [primaryField, setPrimaryField] = React.useState('name')
+  // nameFields: ordered set of col keys whose values are joined to build the material name
+  const [nameFields, setNameFields] = React.useState(new Set())
+
   useEffect(() => {
     Promise.all([
       supabase.from('app_settings').select('value').eq('key', `mat_cat_fields_${targetCat.id}`).maybeSingle(),
       supabase.from('app_settings').select('value').eq('key', `mat_primary_field_${targetCat.id}`).maybeSingle(),
-    ]).then(([{ data: cfg }, { data: pf }]) => {
+      supabase.from('app_settings').select('value').eq('key', `mat_name_fields_${targetCat.id}`).maybeSingle(),
+    ]).then(([{ data: cfg }, { data: pf }, { data: nf }]) => {
       if (cfg?.value) setCatVisibility(new Set(JSON.parse(cfg.value)))
       else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
       if (pf?.value) setPrimaryField(pf.value)
       else setPrimaryField('name')
+      if (nf?.value) setNameFields(new Set(JSON.parse(nf.value)))
+      else setNameFields(new Set())
     })
   }, [targetCat.id])
+
+  // Save nameFields to app_settings
+  async function saveNameFields(newSet) {
+    const settingsKey = `mat_name_fields_${targetCat.id}`
+    const value = JSON.stringify([...newSet])
+    const { error } = await supabase.from('app_settings')
+      .upsert({ key: settingsKey, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    if (error) {
+      supabase.from('app_settings').insert({ key: settingsKey, value })
+        .then(({ error: ie }) => { if (ie) supabase.from('app_settings').update({ value }).eq('key', settingsKey) })
+    }
+  }
+
+  // Toggle a column's participation in the auto-name
+  function toggleNameField(colKey, currentCols) {
+    setNameFields(prev => {
+      const next = new Set(prev)
+      if (next.has(colKey)) next.delete(colKey)
+      else next.add(colKey)
+      saveNameFields(next)
+      // Rebuild names for all materials with updated set
+      rebuildAllNames(next, currentCols)
+      return next
+    })
+  }
+
+  // Get ordered ancestor categories for targetCat (closest first: parent, grandparent, etc.)
+  // Returns array of { id, name, key } where key = 'cat_path_<id>'
+  function getCatAncestors() {
+    const ancestors = []
+    let cur = allCats.find(c => c.id === targetCat.id)
+    while (cur) {
+      ancestors.unshift({ id: cur.id, name: cur.name, key: `cat_path_${cur.id}` })
+      cur = cur.parent_id ? allCats.find(c => c.id === cur.parent_id) : null
+    }
+    return ancestors
+  }
+
+  // Build name for one material given current nameFields set and column order
+  function buildName(m, nfSet, currentCols) {
+    const cf = safeJSON(m.custom_fields)
+    const NON_NATIVE_SET = new Set(['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number'])
+    const parts = []
+    // 1. Category path ancestors in order (top → bottom), only if starred
+    const ancestors = getCatAncestors()
+    ancestors.forEach(a => {
+      if (nfSet.has(a.key)) parts.push(a.name)
+    })
+    // 2. Then each visible col in order (skip img, category_name, name)
+    currentCols.forEach(col => {
+      if (col.type === 'image' || col.key === 'category_name' || col.key === 'name') return
+      if (!nfSet.has(col.key)) return
+      let val = col.fieldId ? (cf[col.fieldId] || '') : NON_NATIVE_SET.has(col.key) ? (cf[col.key] || '') : (m[col.key] || '')
+      if (!val) return
+      // Append mm for mm-type fields
+      if (col.type === 'mm' && val && !String(val).toLowerCase().includes('mm')) val = val + 'mm'
+      parts.push(String(val).trim())
+    })
+    return parts.filter(Boolean).join(' ')
+  }
+
+  // Rebuild name for all materials (called when nameFields or col order changes)
+  function rebuildAllNames(nfSet, currentCols) {
+    if (!nfSet || nfSet.size === 0) return
+    setMaterials(prev => prev.map(m => {
+      const newName = buildName(m, nfSet, currentCols)
+      if (!newName || newName === m.name) return m
+      // Debounce-save the name update
+      setTimeout(() => {
+        supabase.from('materials').update({ name: newName }).eq('id', m.id).then(({ error }) => {
+          if (error) console.warn('Auto-name save error:', error.message)
+        })
+      }, 0)
+      return { ...m, name: newName }
+    }))
+  }
 
   // Column definitions — filtered by category visibility settings
   const coreCols = React.useMemo(() => {
@@ -885,7 +1239,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
         key: `custom_${f.id}`, label: f.label, w: 110,
         type: f.field_type === 'checkbox' ? 'checkbox' :
               f.field_type === 'select'   ? 'select' : 'text',
-        options: f.options ? f.options.split(',').map(o=>o.trim()) : [],
+        options: parseOptions(f.options),
         fieldId: f.id,
       }))
   }, [catFields])
@@ -913,7 +1267,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     const q = ids.length === 1
       ? supabase.from('materials').select('*').eq('category_id', ids[0])
       : supabase.from('materials').select('*').in('category_id', ids)
-    q.order('name').then(({ data, error }) => {
+    q.then(({ data, error }) => {
       console.log('Materials result:', data?.length, 'error:', error?.message)
       setMaterials(data || [])
       setLoading(false)
@@ -925,18 +1279,47 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetCat.id, (allCats||[]).length])
 
-  const filtered = materials.filter(m => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    // Search native columns
-    const nativeMatch = [m.name, m.supplier, m.panel_type, m.thickness,
-      m.colour_code, m.finish, m.notes, m.sku, m.price]
-      .some(v => v && String(v).toLowerCase().includes(q))
-    if (nativeMatch) return true
-    // Search all custom_fields values
+  const [sortCol, setSortCol] = React.useState(null)  // col.key or null
+  const [sortDir, setSortDir] = React.useState('asc')  // 'asc' | 'desc'
+  const [selectedIds, setSelectedIds] = React.useState(new Set())
+  const [showMovePicker, setShowMovePicker] = React.useState(false)
+
+  function getMatVal(m, col) {
+    if (!col) return ''
     const cf = safeJSON(m.custom_fields)
-    return Object.values(cf).some(v => v && String(v).toLowerCase().includes(q))
-  })
+    const NON_NATIVE = new Set(['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number'])
+    if (col.fieldId) return cf[col.fieldId] || ''
+    if (NON_NATIVE.has(col.key)) return cf[col.key] || ''
+    return m[col.key] ?? ''
+  }
+
+  const filtered = React.useMemo(() => {
+    let result = materials.filter(m => {
+      if (!search) return true
+      const q = search.toLowerCase()
+      const nativeMatch = [m.name, m.supplier, m.panel_type, m.thickness,
+        m.colour_code, m.finish, m.notes, m.price]
+        .some(v => v && String(v).toLowerCase().includes(q))
+      if (nativeMatch) return true
+      const cf = safeJSON(m.custom_fields)
+      return Object.values(cf).some(v => v && String(v).toLowerCase().includes(q))
+    })
+    if (sortCol) {
+      const col = cols.find(c => c.key === sortCol)
+      result = [...result].sort((a, b) => {
+        let av = getMatVal(a, col)
+        let bv = getMatVal(b, col)
+        // Numeric sort for mm / price / number-like values
+        const an = parseFloat(String(av).replace(/[^0-9.-]/g,''))
+        const bn = parseFloat(String(bv).replace(/[^0-9.-]/g,''))
+        let cmp = (!isNaN(an) && !isNaN(bn))
+          ? an - bn
+          : String(av).toLowerCase().localeCompare(String(bv).toLowerCase())
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    }
+    return result
+  }, [materials, search, sortCol, sortDir, cols])
 
   function triggerSave(updated) {
     clearTimeout(saveTimer.current)
@@ -945,11 +1328,10 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   async function doSave(mats) {
     setSaving(true)
-    // Only send columns that exist in the materials table
+    // Only confirmed real columns on the materials table
     const DB_FIELDS = new Set(['id','name','supplier','panel_type','thickness',
-      'colour_code','finish','price','sku','notes','storage_path',
-      'category_id','created_at','updated_at',
-      'grained','weight','dimensions','unit','qty','lead_time','min_order','po_number'])
+      'colour_code','finish','price','notes','storage_path',
+      'category_id','custom_fields'])
     const toUpsert = mats.map(m => {
       const row = { category_id: m.category_id || targetCat.id }
       Object.keys(m).forEach(k => {
@@ -967,13 +1349,20 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     setMaterials(prev => {
       const updated = prev.map(m => {
         if (m.id !== id) return m
+        let next
         if (patch._customFieldId) {
           const cf = safeJSON(m.custom_fields)
-          return { ...m, custom_fields: JSON.stringify({ ...cf, [patch._customFieldId]: patch._value }) }
+          next = { ...m, custom_fields: JSON.stringify({ ...cf, [patch._customFieldId]: patch._value }) }
+        } else {
+          next = { ...m, ...patch }
         }
-        return { ...m, ...patch }
+        // Auto-rebuild name if nameFields is active
+        if (nameFields.size > 0) {
+          const newName = buildName(next, nameFields, cols)
+          if (newName) next = { ...next, name: newName }
+        }
+        return next
       })
-      // Save just the changed row directly — much safer than upserting all
       const changed = updated.find(m => m.id === id)
       if (changed) triggerSaveSingle(changed, patch)
       return updated
@@ -987,21 +1376,17 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   async function doSaveSingle(mat, patch) {
     setSaving(true)
-    // Build minimal patch — only the changed field(s)
-    const NATIVE = new Set(['name','supplier','panel_type','thickness','colour_code','finish','price','sku','notes','storage_path','category_id'])
+    const NATIVE = new Set(['name','supplier','panel_type','thickness','colour_code','finish','price','notes','storage_path','category_id','custom_fields'])
     let dbPatch = {}
     if (patch._customFieldId) {
-      // custom_fields column may not exist — skip silently
-      console.warn('custom_fields column not available — skipping custom field save')
-      setSaving(false); return
+      // Save the full custom_fields JSON (includes all custom field values for this material)
+      dbPatch.custom_fields = mat.custom_fields || '{}'
     } else {
-      // Only include fields that are native DB columns
       Object.keys(patch).forEach(k => { if (NATIVE.has(k)) dbPatch[k] = patch[k] })
-      // Non-native fields — skip (custom_fields column may not exist in DB)
-      const nonNativeKeys = Object.keys(patch).filter(k => !NATIVE.has(k) && k !== '_customFieldId')
-      if (nonNativeKeys.length) {
-        console.warn('Skipping non-native fields:', nonNativeKeys)
-      }
+    }
+    // Always include name if it was auto-rebuilt
+    if (patch._customFieldId || (nameFields.size > 0 && mat.name)) {
+      dbPatch.name = mat.name
     }
     if (!Object.keys(dbPatch).length) { setSaving(false); return }
     // Convert thickness to number if present
@@ -1034,7 +1419,37 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     toast('Deleted')
   }
 
-  const totalW = cols.reduce((a,c)=>a+c.w, 0) + 36 + 40 // + drag + actions
+  async function duplicateRow(m) {
+    const { id, created_at, updated_at, ...rest } = m
+    // Build name for the duplicate
+    const dupName = nameFields.size > 0
+      ? buildName(m, nameFields, cols)
+      : (m.name ? `${m.name} (copy)` : 'Copy')
+    const { data, error } = await supabase.from('materials')
+      .insert({ ...rest, name: dupName, category_id: m.category_id || targetCat.id })
+      .select().single()
+    if (error) { toast(error.message, 'error'); return }
+    setMaterials(prev => {
+      const idx = prev.findIndex(x => x.id === m.id)
+      const next = [...prev]
+      next.splice(idx + 1, 0, data)
+      return next
+    })
+    toast('Row duplicated ✓')
+  }
+
+  async function moveToCategory(catId) {
+    const ids = [...selectedIds]
+    const { error } = await supabase.from('materials').update({ category_id: catId }).in('id', ids)
+    if (error) { toast(error.message, 'error'); return }
+    setMaterials(prev => prev.filter(m => !selectedIds.has(m.id)))
+    setSelectedIds(new Set())
+    setShowMovePicker(false)
+    const cat = allCats.find(c => c.id === catId)
+    toast(`Moved ${ids.length} item${ids.length>1?'s':''} to "${cat?.name || 'category'}" ✓`)
+  }
+
+  const totalW = cols.reduce((a,c)=>a+c.w, 0) + 36 + 60 // + drag + actions
 
   return (
     <div>
@@ -1075,6 +1490,15 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${targetCat.name}…`}
           style={{ width:'100%', padding:'8px 10px 8px 32px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
       </div>
+      {sortCol && (
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8 }}>
+          <span style={{ fontSize:11, color:'#6B7280' }}>Sorted by</span>
+          <span style={{ fontSize:11, fontWeight:700, color:'#5B8AF0', background:'#EEF2FF', padding:'2px 8px', borderRadius:20, display:'flex', alignItems:'center', gap:4 }}>
+            {cols.find(c=>c.key===sortCol)?.label || sortCol} {sortDir==='asc'?'↑':'↓'}
+            <button onClick={()=>setSortCol(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:13, padding:'0 0 0 2px', lineHeight:1 }}>×</button>
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ display:'flex', justifyContent:'center', padding:'40px 0' }}><div className="spinner" /></div>
@@ -1082,16 +1506,37 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
         <div style={{ overflowX:'auto', borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ minWidth: totalW }}>
 
+            {/* Bulk action bar */}
+            {selectedIds.size > 0 && (
+              <div style={{ padding:'8px 14px', background:'#EEF2FF', borderBottom:'1px solid #C7D2FE', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+                <span style={{ fontSize:13, fontWeight:600, color:'#3730A3' }}>{selectedIds.size} selected</span>
+                <button onClick={() => setShowMovePicker(true)}
+                  style={{ padding:'5px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                  ↗ Move to category
+                </button>
+                <button onClick={() => setSelectedIds(new Set())}
+                  style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #C7D2FE', background:'#fff', color:'#6B7280', fontSize:12, cursor:'pointer' }}>
+                  Clear
+                </button>
+              </div>
+            )}
+
             {/* header */}
             <div style={{ display:'flex', background:'#F9FAFB', borderBottom:'2px solid #E8ECF0', position:'sticky', top:0, zIndex:10 }}>
-              <div style={{ width:36, flexShrink:0, borderRight:'1px solid #E8ECF0' }} />
+              {/* Select all checkbox */}
+              <div style={{ width:36, flexShrink:0, borderRight:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <input type="checkbox"
+                  checked={filtered.length > 0 && filtered.every(m => selectedIds.has(m.id))}
+                  onChange={e => setSelectedIds(e.target.checked ? new Set(filtered.map(m=>m.id)) : new Set())}
+                  style={{ cursor:'pointer', accentColor:'#5B8AF0' }} />
+              </div>
               {cols.map((col,ci) => (
                 <div key={col.key}
                   {...(col.key !== 'img' ? getHeaderProps(ci, col.label, {
                     width:col.w, minWidth:col.w, padding:'9px 8px',
                     fontSize:10, fontWeight:700,
-                    color: col.key===primaryField ? '#5B8AF0' : '#9CA3AF',
-                    background: col.key===primaryField ? '#EEF2FF' : 'transparent',
+                    color: nameFields.has(col.key) ? '#B45309' : '#9CA3AF',
+                    background: nameFields.has(col.key) ? '#FFFBEB' : 'transparent',
                     textTransform:'uppercase', letterSpacing:'.06em',
                     borderRight:'1px solid #E8ECF0', flexShrink:0,
                     boxSizing:'border-box', display:'flex', alignItems:'center', gap:4,
@@ -1101,49 +1546,111 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                       fontSize:10, fontWeight:700, color:'#9CA3AF',
                       textTransform:'uppercase', letterSpacing:'.06em',
                       borderRight:'1px solid #E8ECF0', flexShrink:0,
-                      boxSizing:'border-box', position:'relative' }
+                      boxSizing:'border-box', display:'flex', alignItems:'center', position:'relative' }
                   })}
                   className="mat-col-header">
-                  {col.key===primaryField
-                    ? <span style={{ fontSize:10, color:'#5B8AF0' }}>★</span>
-                    : col.key!=='img' && <svg width="8" height="10" viewBox="0 0 8 10" fill="#C4C9D4"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/></svg>
-                  }
-                  {col.label}
-                  {/* Set primary button — visible on hover, hidden for img column */}
-                  {col.key !== 'img' && col.key !== primaryField && (
-                    <button
+
+                  {/* Star toggle — shown for all non-image cols; name col shows lock icon */}
+                  {col.key !== 'img' && (
+                    col.key === 'name'
+                      ? <span style={{ fontSize:11, color:'#C4C9D4', flexShrink:0 }} title="Name is auto-built from ★ columns">🔒</span>
+                      : <button
+                          onClick={e => { e.stopPropagation(); toggleNameField(col.key, cols) }}
+                          title={nameFields.has(col.key) ? 'Remove from auto-name' : 'Include in auto-name'}
+                          style={{
+                            background:'none', border:'none', cursor:'pointer', padding:0, flexShrink:0,
+                            fontSize:12, lineHeight:1,
+                            color: nameFields.has(col.key) ? '#F59E0B' : '#D1D5DB',
+                            transition:'color .15s',
+                          }}
+                          className="star-toggle-btn">
+                          {nameFields.has(col.key) ? '★' : '☆'}
+                        </button>
+                  )}
+
+                  {/* Label — click to sort */}
+                  {col.key !== 'img' ? (
+                    <span
                       onClick={e => {
                         e.stopPropagation()
-                        const settingsKey = `mat_primary_field_${targetCat.id}`
-                        setPrimaryField(col.key)
-                        supabase.from('app_settings')
-                          .upsert({ key: settingsKey, value: col.key, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-                          .then(({ error }) => {
-                            if (error) {
-                              console.error('Primary field save error:', error.message)
-                              // Try insert then update as fallback
-                              supabase.from('app_settings').insert({ key: settingsKey, value: col.key })
-                                .then(({ error: ie }) => {
-                                  if (ie) supabase.from('app_settings').update({ value: col.key }).eq('key', settingsKey)
-                                })
-                            } else {
-                              console.log('Primary field saved:', col.key)
-                            }
-                          })
+                        if (sortCol === col.key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                        else { setSortCol(col.key); setSortDir('asc') }
                       }}
-                      title="Set as primary display field"
-                      style={{ marginLeft:'auto', opacity:0, background:'none', border:'none',
-                        cursor:'pointer', fontSize:11, color:'#9CA3AF', padding:'0 2px',
-                        transition:'opacity .15s', flexShrink:0 }}
-                      className="set-primary-btn">
-                      ☆
-                    </button>
+                      title={`Sort by ${col.label}`}
+                      style={{ cursor:'pointer', userSelect:'none', flex:1, display:'flex', alignItems:'center', gap:3 }}>
+                      {col.label}
+                      {sortCol === col.key
+                        ? <span style={{ fontSize:10, color: nameFields.has(col.key) ? '#B45309' : '#5B8AF0' }}>
+                            {sortDir === 'asc' ? ' ↑' : ' ↓'}
+                          </span>
+                        : null}
+                    </span>
+                  ) : null}
+
+                  {/* Drag dots — only show when NOT starred (starred shows star already) */}
+                  {col.key !== 'img' && col.key !== 'name' && !nameFields.has(col.key) && (
+                    <svg style={{ marginLeft:'auto', flexShrink:0 }} width="8" height="10" viewBox="0 0 8 10" fill="#D1D5DB">
+                      <circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/>
+                      <circle cx="2" cy="5" r="1.2"/><circle cx="6" cy="5" r="1.2"/>
+                      <circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/>
+                    </svg>
                   )}
                 </div>
               ))}
               <div style={{ width:40, flexShrink:0 }} />
             </div>
-            <style>{`.mat-col-header:hover .set-primary-btn { opacity: 1 !important; color: #5B8AF0 !important; }`}</style>
+            <style>{`
+              .mat-col-header:hover .star-toggle-btn { color: #F59E0B !important; }
+              .name-preview-tooltip { display:none; }
+              .mat-col-header:hover .name-preview-tooltip { display:block; }
+              tr:hover .row-checkbox, div:hover > .row-checkbox { opacity: 1 !important; }
+            `}</style>
+
+            {/* Category path toggle — let user star ancestor category names into the auto-name */}
+            {(() => {
+              const ancestors = getCatAncestors()
+              if (ancestors.length === 0) return null
+              return (
+                <div style={{ padding:'7px 12px', borderBottom:'1px solid #E8ECF0', background:'#F9FAFB', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', flexShrink:0, marginRight:4 }}>Include in name:</span>
+                  {ancestors.map((a, i) => {
+                    const starred = nameFields.has(a.key)
+                    return (
+                      <button key={a.key}
+                        onClick={() => toggleNameField(a.key, cols)}
+                        style={{
+                          display:'flex', alignItems:'center', gap:4,
+                          padding:'3px 10px', borderRadius:20, cursor:'pointer', fontSize:12,
+                          border: starred ? '1.5px solid #F59E0B' : '1.5px solid #E8ECF0',
+                          background: starred ? '#FFFBEB' : '#fff',
+                          color: starred ? '#B45309' : '#6B7280',
+                          fontWeight: starred ? 700 : 400,
+                          transition:'all .12s',
+                        }}>
+                        <span style={{ fontSize:11 }}>{starred ? '★' : '☆'}</span>
+                        {a.name}
+                        {i < ancestors.length - 1 && <span style={{ fontSize:10, color:'#C4C9D4', marginLeft:2 }}>›</span>}
+                      </button>
+                    )
+                  })}
+                  <span style={{ fontSize:10, color:'#C4C9D4', marginLeft:4 }}>category path</span>
+                </div>
+              )
+            })()}
+
+            {/* Name preview bar — shown when nameFields is active */}
+            {nameFields.size > 0 && (
+              <div style={{ padding:'6px 12px', background:'#FFFBEB', borderBottom:'1px solid #FDE68A', display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:'#B45309', textTransform:'uppercase', letterSpacing:'.05em', flexShrink:0 }}>★ Name preview</span>
+                <span style={{ fontSize:12, color:'#374151', fontStyle: materials.length===0 ? 'italic' : 'normal' }}>
+                  {materials.length > 0
+                    ? buildName(materials[0], nameFields, cols) || <span style={{ color:'#9CA3AF' }}>Fill in ★ columns to see preview</span>
+                    : <span style={{ color:'#9CA3AF' }}>Add a material to see preview</span>
+                  }
+                </span>
+                <span style={{ fontSize:10, color:'#9CA3AF', marginLeft:'auto', flexShrink:0 }}>based on first row</span>
+              </div>
+            )}
 
             {/* rows */}
             {filtered.length === 0 ? (
@@ -1154,16 +1661,16 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
               const cf = safeJSON(m.custom_fields)
               const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
               const getVal = (key) => NON_NATIVE.includes(key) ? (cf[key]||'') : (m[key]||'')
-              const primaryVal = getVal(primaryField)
-              const primaryLabel = ALL_COLS.find(c=>c.key===primaryField)?.label || primaryField
+              const autoName = nameFields.size > 0 ? buildName(m, nameFields, cols) : null
+              const displayName = autoName || m.name || ''
 
-              // Build secondary details — all visible fields except primary and image
+              // Build secondary details — all visible fields except name/image/category
               const secondaryFields = cols
-                .filter(c => c.key !== primaryField && c.type !== 'image' && c.key !== 'category_name')
+                .filter(c => c.type !== 'image' && c.key !== 'category_name' && c.key !== 'name')
                 .map(c => {
                   const v = c.fieldId ? (cf[c.fieldId]||'') : getVal(c.key)
-                  return v ? { label: c.label, value: v } : null
-                }).filter(Boolean).slice(0, 6)
+                  return v ? { label: c.label, value: v, starred: nameFields.has(c.key) } : null
+                }).filter(Boolean).slice(0, 8)
               return (
                 <div key={m.id}
                   style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6', position:'relative' }}
@@ -1171,29 +1678,47 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                   onMouseLeave={() => { setHoveredMatId(null) }}>
 
                   {/* Hover info panel */}
-                  {hoveredMatId === m.id && (primaryVal || secondaryFields.length > 0) && (
+                  {hoveredMatId === m.id && (displayName || secondaryFields.length > 0) && (
                     <div style={{
-                      position:'fixed', zIndex:999, background:'#1E2535', borderRadius:10,
-                      padding:'10px 14px', minWidth:180, maxWidth:260, pointerEvents:'none',
+                      position:'fixed', zIndex:999, background:'#1E2535', borderRadius:12,
+                      padding:'12px 16px', minWidth:200, maxWidth:300, pointerEvents:'none',
                       boxShadow:'0 8px 24px rgba(0,0,0,0.3)',
-                      transform:'translateX(8px)',
                       right:16, top:'auto',
                     }}>
-                      {primaryVal && (
-                        <div style={{ marginBottom: secondaryFields.length ? 8 : 0 }}>
-                          <span style={{ fontSize:9, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', display:'block', marginBottom:2 }}>{primaryLabel}</span>
-                          <span style={{ fontSize:14, fontWeight:800, color:'#fff' }}>{primaryVal}</span>
+                      {/* Name preview section */}
+                      {displayName && (
+                        <div style={{ marginBottom: secondaryFields.length ? 10 : 0, paddingBottom: secondaryFields.length ? 10 : 0, borderBottom: secondaryFields.length ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
+                          <span style={{ fontSize:9, fontWeight:700, color: nameFields.size > 0 ? '#F59E0B' : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', display:'flex', alignItems:'center', gap:4, marginBottom:4 }}>
+                            {nameFields.size > 0 ? '★' : ''} {nameFields.size > 0 ? 'Auto name' : 'Name'}
+                          </span>
+                          <span style={{ fontSize:14, fontWeight:800, color:'#fff', lineHeight:1.3, display:'block' }}>{displayName}</span>
                         </div>
                       )}
+                      {/* Field breakdown */}
                       {secondaryFields.map(f => (
-                        <div key={f.label} style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:3 }}>
-                          <span style={{ fontSize:10, color:'#9CA3AF', flexShrink:0 }}>{f.label}</span>
-                          <span style={{ fontSize:11, color:'#E2E8F0', fontWeight:600, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:140 }}>{f.value}</span>
+                        <div key={f.label} style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:3, alignItems:'center' }}>
+                          <span style={{ fontSize:10, color: f.starred ? '#F59E0B' : '#9CA3AF', flexShrink:0, display:'flex', alignItems:'center', gap:3 }}>
+                            {f.starred && <span style={{ fontSize:9 }}>★</span>}{f.label}
+                          </span>
+                          <span style={{ fontSize:11, color:'#E2E8F0', fontWeight:600, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:150 }}>{f.value}</span>
                         </div>
                       ))}
                     </div>
                   )}
-                  <div style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', color:'#D1D5DB', fontSize:12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>⠿</div>
+                  <div style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'1px solid #E8ECF0', gap:4 }}>
+                    <input type="checkbox"
+                      checked={selectedIds.has(m.id)}
+                      onChange={e => setSelectedIds(prev => {
+                        const next = new Set(prev)
+                        e.target.checked ? next.add(m.id) : next.delete(m.id)
+                        return next
+                      })}
+                      onClick={e=>e.stopPropagation()}
+                      style={{ cursor:'pointer', accentColor:'#5B8AF0', opacity: selectedIds.has(m.id) ? 1 : 0, transition:'opacity .12s' }}
+                      className="row-checkbox"
+                    />
+                    {!selectedIds.has(m.id) && <span style={{ color:'#D1D5DB', fontSize:12, cursor:'grab', position:'absolute' }}>⠿</span>}
+                  </div>
                   {cols.map(col => {
                     if (col.type === 'image') return (
                       <ImageCell key={col.key} storagePath={m.storage_path} matId={m.id} w={col.w}
@@ -1233,6 +1758,25 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                     }
                     const isNonNative = NON_NATIVE.includes(col.key)
                     const val = isNonNative ? (cf[col.key]??'') : (m[col.key]??'')
+                    // Name col is read-only when auto-name is active
+                    if (col.key === 'name' && nameFields.size > 0) {
+                      const builtName = buildName(m, nameFields, cols)
+                      // Find starred cols that have no value yet
+                      const missingStarred = cols.filter(c => {
+                        if (c.type === 'image' || c.key === 'name' || !nameFields.has(c.key)) return false
+                        const v = c.fieldId ? (safeJSON(m.custom_fields)[c.fieldId]||'') : (m[c.key]||'')
+                        return !v
+                      })
+                      return (
+                        <div key="name" style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', padding:'0 8px', gap:5, overflow:'hidden' }}>
+                          <span style={{ fontSize:12, color: builtName ? '#374151' : '#9CA3AF', fontWeight: builtName ? 500 : 400, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}
+                            title={missingStarred.length ? `Missing: ${missingStarred.map(c=>c.label).join(', ')}` : builtName}>
+                            {builtName || <span style={{ color:'#C4C9D4', fontStyle:'italic' }}>Select ★ fields…</span>}
+                          </span>
+                          <span style={{ fontSize:9, fontWeight:700, color:'#D97706', background:'#FEF3C7', borderRadius:4, padding:'1px 4px', flexShrink:0 }}>AUTO</span>
+                        </div>
+                      )
+                    }
                     return (
                       <MCell key={col.key} value={val} w={col.w}
                         type={col.type} placeholder={col.placeholder||col.label}
@@ -1242,11 +1786,19 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                         } />
                     )
                   })}
-                  <div style={{ width:40, display:'flex', alignItems:'center', justifyContent:'center', height:36, flexShrink:0 }}>
-                    <button onClick={()=>deleteRow(m.id)}
-                      style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, padding:'2px 4px', borderRadius:4 }}
+                  <div style={{ width:60, display:'flex', alignItems:'center', justifyContent:'center', gap:2, height:36, flexShrink:0 }}
+                    onMouseEnter={e=>{ e.currentTarget.querySelectorAll('.row-action-btn').forEach(b=>b.style.opacity='1') }}
+                    onMouseLeave={e=>{ e.currentTarget.querySelectorAll('.row-action-btn').forEach(b=>b.style.opacity='0') }}>
+                    <button className="row-action-btn" onClick={()=>duplicateRow(m)}
+                      title="Duplicate row"
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:14, lineHeight:1, padding:'3px 4px', borderRadius:4, opacity:0, transition:'opacity .12s, color .12s' }}
+                      onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'}
+                      onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>⧉</button>
+                    <button className="row-action-btn" onClick={()=>deleteRow(m.id)}
+                      title="Delete row"
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16, lineHeight:1, padding:'2px 4px', borderRadius:4, opacity:0, transition:'opacity .12s, color .12s' }}
                       onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
-                      onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                      onMouseLeave={e=>e.currentTarget.style.color='#9CA3AF'}>×</button>
                   </div>
                 </div>
               )
@@ -1261,6 +1813,16 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
             </div>
           </div>
         </div>
+      )}
+
+      {/* Move to category picker */}
+      {showMovePicker && (
+        <CategoryTreePicker
+          allCats={allCats}
+          currentCatId={targetCat.id}
+          title={`Move ${selectedIds.size} item${selectedIds.size>1?'s':''} to…`}
+          onSelect={moveToCategory}
+          onClose={() => setShowMovePicker(false)} />
       )}
     </div>
   )
@@ -1283,8 +1845,13 @@ export default function Materials() {
   const toast = useToast()
 
   // Reset to top level whenever user navigates to /materials (sidebar click)
+  // BUT if we arrived with a state.stack (e.g. from MaterialSettings), use that
   useEffect(() => {
-    setStack([])
+    if (location.state?.stack?.length) {
+      setStack(location.state.stack)
+    } else {
+      setStack([])
+    }
     setShowAllInCat(false)
     setGlobalSearch('')
     setGlobalResults([])
@@ -1408,13 +1975,6 @@ export default function Materials() {
             </button>
           </span>
         ))}
-      </div>
-
-      {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-        <h1 style={{ fontSize:20, fontWeight:800, color:'#2A3042', margin:0 }}>
-          {currentCat ? currentCat.name : 'Materials'}
-        </h1>
       </div>
 
       {/* Header */}

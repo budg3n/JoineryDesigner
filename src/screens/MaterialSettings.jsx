@@ -303,10 +303,11 @@ function FieldsModal({ catId, catName, onClose }) {
 
 // ── Recursive category tree node ──────────────────────────────────
 // Supports unlimited nesting via parent_id
-function CatNode({ cat, allCats, depth, breadcrumb, onEdit, onDelete, onAddChild, onFields }) {
-  const [open, setOpen] = useState(true)
+function CatNode({ cat, allCats, depth, breadcrumb, ancestorIds, onEdit, onDelete, onAddChild, onFields, onNavigate }) {
+  const [open, setOpen] = useState(false)  // collapsed by default
   const children = allCats.filter(c => c.parent_id === cat.id)
   const indent = depth * 20
+  const hasChildren = children.length > 0
 
   return (
     <div style={{ marginBottom: depth===0 ? 8 : 0 }}>
@@ -320,8 +321,8 @@ function CatNode({ cat, allCats, depth, breadcrumb, onEdit, onDelete, onAddChild
       }}>
         {/* Expand toggle */}
         <button onClick={() => setOpen(o=>!o)}
-          style={{ background:'none', border:'none', cursor:'pointer', padding:'2px', color:'#C4C9D4', flexShrink:0, width:16, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          {children.length > 0
+          style={{ background:'none', border:'none', cursor: hasChildren ? 'pointer' : 'default', padding:'2px', color:'#C4C9D4', flexShrink:0, width:16, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          {hasChildren
             ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform:open?'rotate(90deg)':'none', transition:'transform .15s' }}><polyline points="9 18 15 12 9 6"/></svg>
             : <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#E8ECF0' }} />
           }
@@ -334,9 +335,14 @@ function CatNode({ cat, allCats, depth, breadcrumb, onEdit, onDelete, onAddChild
           </svg>
         </div>
 
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{cat.name}</div>
-          {children.length > 0 && <div style={{ fontSize:11, color:'#9CA3AF' }}>{children.length} subcategor{children.length===1?'y':'ies'}</div>}
+        {/* Name — clickable to navigate into category */}
+        <div style={{ flex:1, minWidth:0, cursor:'pointer' }}
+          onClick={() => onNavigate(cat, ancestorIds)}>
+          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+            {cat.name}
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2.5" style={{ flexShrink:0, opacity:0.6 }}><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+          {hasChildren && <div style={{ fontSize:11, color:'#9CA3AF' }}>{children.length} subcategor{children.length===1?'y':'ies'}</div>}
         </div>
 
         {/* Depth indicator pill */}
@@ -371,12 +377,13 @@ function CatNode({ cat, allCats, depth, breadcrumb, onEdit, onDelete, onAddChild
       </div>
 
       {/* Children — recursive */}
-      {open && children.length > 0 && (
+      {open && hasChildren && (
         <div style={{ marginLeft: 12 + indent + 16, borderLeft:'2px solid #F3F4F6', paddingLeft:8 }}>
           {children.map(child => (
             <CatNode key={child.id} cat={child} allCats={allCats} depth={depth+1}
               breadcrumb={`${breadcrumb} › ${child.name}`}
-              onEdit={onEdit} onDelete={onDelete} onAddChild={onAddChild} onFields={onFields} />
+              ancestorIds={[...ancestorIds, cat.id]}
+              onEdit={onEdit} onDelete={onDelete} onAddChild={onAddChild} onFields={onFields} onNavigate={onNavigate} />
           ))}
         </div>
       )}
@@ -495,10 +502,15 @@ export default function MaterialSettings() {
         {topCats.map(cat => (
           <CatNode key={cat.id} cat={cat} allCats={allCats} depth={0}
             breadcrumb={cat.name}
+            ancestorIds={[]}
             onEdit={(c, bc) => setModal({ type:'edit', cat:c, breadcrumb:bc })}
             onDelete={onDelete}
             onAddChild={(c, bc) => setModal({ type:'add', parentId:c.id, breadcrumb:bc })}
             onFields={(c, bc) => setModal({ type:'fields', catId:c.id, catName:bc })}
+            onNavigate={(cat, ancestorIds) => {
+              // Navigate to /materials with the full stack so it opens directly to this category
+              navigate('/materials', { state: { stack: [...ancestorIds, cat.id] } })
+            }}
           />
         ))}
       </div>
