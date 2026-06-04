@@ -149,9 +149,37 @@ export default function TaskCounter() {
         <span style={{ position:'absolute', top:2, right:2, minWidth:16, height:16, borderRadius:8, padding:'0 4px',
           background: overdue > 0 ? '#E24B4A' : '#5B8AF0',
           color:'#fff', fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center',
-          border:'2px solid #fff' }}>
+          border:'2px solid #fff',
+          animation: overdue > 0 ? 'task-pulse-red 1.8s ease-in-out infinite' : 'task-pulse-blue 2.5s ease-in-out infinite',
+        }}>
           {count > 99 ? '99+' : count}
         </span>
+        {/* Pulse ring */}
+        <span style={{
+          position:'absolute', top:2, right:2, width:16, height:16, borderRadius:8,
+          background: overdue > 0 ? '#E24B4A' : '#5B8AF0',
+          opacity:0,
+          animation: overdue > 0 ? 'task-ring-red 1.8s ease-out infinite' : 'task-ring-blue 2.5s ease-out infinite',
+          pointerEvents:'none',
+        }} />
+        <style>{`
+          @keyframes task-pulse-red {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(226,75,74,0.7); }
+            50% { transform: scale(1.15); box-shadow: 0 0 0 4px rgba(226,75,74,0); }
+          }
+          @keyframes task-pulse-blue {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+          }
+          @keyframes task-ring-red {
+            0% { transform: scale(1); opacity: 0.6; }
+            100% { transform: scale(2.8); opacity: 0; }
+          }
+          @keyframes task-ring-blue {
+            0% { transform: scale(1); opacity: 0.4; }
+            100% { transform: scale(2.4); opacity: 0; }
+          }
+        `}</style>
       </button>
 
       {open && (
