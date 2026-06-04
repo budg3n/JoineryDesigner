@@ -49,6 +49,13 @@ export default function TaskCounter() {
     if (profile?.id) loadTasks()
   }, [profile?.id])
 
+  // Re-load whenever any screen marks a task done
+  useEffect(() => {
+    const handler = () => { if (profile?.id) loadTasks() }
+    window.addEventListener('tasks-updated', handler)
+    return () => window.removeEventListener('tasks-updated', handler)
+  }, [profile?.id])
+
   // Close on outside click
   useEffect(() => {
     const h = e => { if (dropRef.current && !dropRef.current.contains(e.target)) setOpen(false) }
@@ -100,15 +107,16 @@ export default function TaskCounter() {
   }
 
   async function completeTask(task) {
-    // Find the job and update the task
+    // Optimistically remove from UI immediately
+    setTasks(p => p.filter(t => t.id !== task.id))
+    setConfirmId(null)
+    // Then persist to DB
     const { data: job } = await supabase.from('jobs').select('tasks').eq('id', task.jobId).single()
     if (!job) return
     const jobTasks = typeof job.tasks === 'string' ? JSON.parse(job.tasks) : (job.tasks || [])
-    // Handle both direct tasks and room tasks (room_ prefixed ids)
     let updated
     if (task.id.startsWith('room_')) {
-      // Room task — update via rooms table
-      const parts = task.id.split('_') // room_{roomId}_{taskId}
+      const parts = task.id.split('_')
       const roomId = parts[1]
       const realTaskId = parts.slice(2).join('_')
       const { data: room } = await supabase.from('rooms').select('tasks').eq('id', roomId).single()
@@ -122,8 +130,6 @@ export default function TaskCounter() {
       updated = jobTasks.map(t => t.id === task.id ? { ...t, done: true, completed_by: profile?.full_name || 'Unknown', completed_at: new Date().toISOString() } : t)
     }
     await supabase.from('jobs').update({ tasks: JSON.stringify(updated) }).eq('id', task.jobId)
-    setTasks(p => p.filter(t => t.id !== task.id))
-    setConfirmId(null)
     window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId: task.jobId } }))
   }
 

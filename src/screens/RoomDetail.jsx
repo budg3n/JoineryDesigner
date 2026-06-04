@@ -127,6 +127,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const [unit,   setUnit]   = useState('pcs')
   const [notes,  setNotes]  = useState('')
   const searchRef = useRef()
+  const searchWrapRef = useRef()
 
   const UNIT_OPTIONS = ['pcs','sheets','m','m²','m³','lm','kg','boxes','rolls','litres']
 
@@ -269,7 +270,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
       {/* search + add */}
       <div style={{background:'#F8FAFF',borderRadius:12,border:'1px solid #C4D4F8',padding:14,marginBottom:12}}>
         {/* Search box */}
-        <div style={{position:'relative',marginBottom: selected ? 12 : 0}}>
+        <div style={{position:'relative',marginBottom: selected ? 12 : 0}} ref={searchWrapRef}>
           <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
             width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -283,9 +284,23 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
           {search && (
             <button onClick={clearSelection} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:16}}>×</button>
           )}
-          {/* Dropdown */}
-          {showDrop && search.trim().length > 0 && (
-            <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #E8ECF0',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,0.12)',zIndex:50,overflow:'hidden',maxHeight:280,overflowY:'auto'}}>
+          {/* Dropdown — fixed position to escape overflow:hidden parent */}
+          {showDrop && search.trim().length > 0 && (() => {
+            const rect = searchWrapRef.current?.getBoundingClientRect()
+            return (
+              <div style={{
+                position:'fixed',
+                top: rect ? rect.bottom + 4 : 0,
+                left: rect ? rect.left : 0,
+                width: rect ? rect.width : 300,
+                background:'#fff',
+                border:'1px solid #E8ECF0',
+                borderRadius:10,
+                boxShadow:'0 8px 24px rgba(0,0,0,0.12)',
+                zIndex:9999,
+                maxHeight:320,
+                overflowY:'auto'
+              }}>
               {allMats.length === 0 ? (
                 <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',textAlign:'center'}}>Loading materials…</div>
               ) : matches.length > 0 ? (
@@ -318,7 +333,8 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                 </div>
               )}
             </div>
-          )}
+            )
+          })()}
         </div>
 
         {/* Selected material details — read only, category-aware */}
@@ -524,8 +540,8 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     setRoom(r)
     supabase.from('rooms').update({ tasks: JSON.stringify(updated) }).eq('id', room.id)
     if (onSave) onSave(r)
-    // Sync to job tasks — push room tasks up to parent job
     if (onSyncJobTasks) onSyncJobTasks(room.id, room.name, updated)
+    window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { roomId: room.id } }))
   }
   function toggleTask(tid) {
     saveTasks(tasks.map(t => t.id===tid ? {
