@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
+import { enrichMaterialNames } from '../lib/materialName'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import NotionNotes from '../components/NotionNotes'
@@ -106,16 +107,20 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
   const [allMats, setAllMats] = useState([])
-  const matsLoadedRef = useRef(false)
 
-  // Load materials immediately on mount so search is instant
+  // Load materials on mount
   useEffect(() => {
-    if (matsLoadedRef.current) return
-    matsLoadedRef.current = true
     supabase.from('materials').select('*').order('name')
-      .then(({ data, error }) => {
-        if (error) console.error('Materials load error:', error.message)
-        else setAllMats(data || [])
+      .then(async ({ data, error }) => {
+        if (error) { console.error('Materials load error:', error.message); return }
+        const raw = data || []
+        setAllMats(raw) // set immediately so search works even before enrichment
+        try {
+          const enriched = await enrichMaterialNames(raw)
+          setAllMats(enriched)
+        } catch (e) {
+          console.warn('Name enrichment failed, using raw names:', e.message)
+        }
       })
   }, [])
   const [search,  setSearch]  = useState('')
@@ -153,14 +158,21 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
 
   const matches = search.trim().length > 0
     ? allMats.filter(m => {
-        const q = search.toLowerCase()
-        const cf = m.custom_fields ? (typeof m.custom_fields === 'object' ? m.custom_fields : JSON.parse(m.custom_fields||'{}')) : {}
-        return (m.name||'').toLowerCase().includes(q) ||
-               (m.supplier||'').toLowerCase().includes(q) ||
-               (m.panel_type||'').toLowerCase().includes(q) ||
-               (m.sku||'').toLowerCase().includes(q) ||
-               Object.values(cf).some(v => v && String(v).toLowerCase().includes(q))
-      }).slice(0, 10)
+        const cf = m.custom_fields
+          ? (typeof m.custom_fields === 'object' ? m.custom_fields : (() => { try { return JSON.parse(m.custom_fields) } catch { return {} } })())
+          : {}
+        // Collect every string value from this material into one big searchable string
+        const haystack = [
+          m.name, m.supplier, m.panel_type, m.colour_code, m.finish,
+          m.thickness ? String(m.thickness) : null,
+          m.thickness ? String(m.thickness)+'mm' : null,
+          m.notes, m.price ? String(m.price) : null,
+          ...Object.values(cf).map(v => v ? String(v) : null),
+        ].filter(Boolean).join(' ').toLowerCase()
+        // Every word in the query must appear somewhere in the haystack
+        const words = search.trim().toLowerCase().split(/\s+/)
+        return words.every(w => haystack.includes(w))
+      }).slice(0, 20)
     : []
 
   async function pickMaterial(m) {
@@ -309,9 +321,9 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                     style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
                     onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
                     onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name}</div>
+                    <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name || [m.supplier,m.panel_type,m.colour_code,m.finish].filter(Boolean).join(' ')}</div>
                     <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>
-                      {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}
+                      {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                 ))
@@ -500,8 +512,14 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     Promise.all([
       supabase.from('room_materials').select('*,materials(*)').eq('room_id', room.id),
       supabase.from('room_appliances').select('*,appliances(*)').eq('room_id', room.id),
-    ]).then(([{data:rm},{data:ra}]) => {
-      setRoomMats(rm||[])
+    ]).then(async ([{data:rm},{data:ra}]) => {
+      // Enrich material names using auto-name settings
+      const enriched = await Promise.all((rm||[]).map(async row => {
+        if (!row.materials) return row
+        const named = await enrichMaterialNames([row.materials])
+        return { ...row, materials: named[0] }
+      }))
+      setRoomMats(enriched)
       setRoomApps(ra||[])
     })
   }, [room.id])

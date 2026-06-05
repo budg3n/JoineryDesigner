@@ -1091,7 +1091,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   // All possible native + standard columns
   const ALL_COLS = [
     { key:'img',          label:'Image',          w:60,  type:'image' },
-    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:false },
+    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:true },
     { key:'category_name',label:'Category',       w:120, type:'category', settingKey:'category_name' },
     { key:'supplier',     label:'Supplier',        w:130, type:'text',   settingKey:'supplier' },
     { key:'brand',        label:'Brand',           w:110, type:'text',   settingKey:'brand' },
@@ -1211,20 +1211,20 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   // Column definitions — filtered by category visibility settings
   const coreCols = React.useMemo(() => {
-    if (!catVisibility) return ALL_COLS.filter(c => c.always || c.type === 'image')
+    if (!catVisibility) return ALL_COLS.filter(c => c.always || c.type === 'image' || c.key === 'name')
     const visible = ALL_COLS.filter(c =>
       c.type === 'image' ||
-      c.key === primaryField ||  // always show primary field
+      c.key === 'name' ||           // always show name column
       (c.key === 'category_name' && (allCats||[]).filter(c2 => c2.parent_id === targetCat.id).length > 0) ||
       (c.settingKey && c.settingKey !== 'category_name' && catVisibility.has(c.settingKey))
     )
-    // Sort: image first, then primary field, then rest
+    // Sort: image first, then name, then rest
     return [
       ...visible.filter(c => c.type === 'image'),
-      ...visible.filter(c => c.key === primaryField && c.type !== 'image'),
-      ...visible.filter(c => c.key !== primaryField && c.type !== 'image'),
+      ...visible.filter(c => c.key === 'name'),
+      ...visible.filter(c => c.key !== 'name' && c.type !== 'image'),
     ]
-  }, [catVisibility, allCats, targetCat.id, primaryField])
+  }, [catVisibility, allCats, targetCat.id])
 
   const customCols = React.useMemo(() => {
     const standardLabels = new Set(ALL_COLS.map(c => c.label.toLowerCase()))

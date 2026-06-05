@@ -6,6 +6,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
+import { enrichMaterialNames } from '../lib/materialName'
 
 function safeParse(v) {
   if (!v) return {}
@@ -64,6 +65,53 @@ function useCategoryFields(catId) {
       })
   }, [catId])
   return extraCols
+}
+
+function UnorderedNotification({ mats, onAdd, onAddAll }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginBottom:12 }}>
+      <style>{`@keyframes unordered-pulse{0%,100%{box-shadow:0 0 0 0 rgba(226,75,74,0.4)}50%{box-shadow:0 0 0 5px rgba(226,75,74,0)}}`}</style>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 14px', borderRadius:10,
+          border:'1.5px solid #FCA5A5', background:'#FEF2F2', cursor:'pointer', width:'100%', textAlign:'left' }}>
+        <span style={{ width:8, height:8, borderRadius:'50%', background:'#E24B4A', flexShrink:0, display:'inline-block',
+          animation:'unordered-pulse 1.8s ease-in-out infinite' }} />
+        <span style={{ fontSize:13, fontWeight:700, color:'#B91C1C', flex:1 }}>
+          {mats.length} material{mats.length>1?'s':''} on this job not yet on the order sheet
+        </span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" strokeWidth="2.5"
+          style={{ transform: open ? 'rotate(180deg)' : 'none', transition:'transform .15s', flexShrink:0 }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{ marginTop:4, borderRadius:10, border:'1.5px solid #FCA5A5', background:'#fff',
+          padding:'12px 14px', boxShadow:'0 4px 16px rgba(226,75,74,0.1)' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom: mats.length > 1 ? 10 : 0 }}>
+            {mats.map(mat => (
+              <div key={mat.id} style={{ display:'flex', alignItems:'center', gap:6, background:'#FEF2F2',
+                border:'1px solid #FCA5A5', borderRadius:8, padding:'5px 10px', fontSize:12 }}>
+                <span style={{ color:'#374151', fontWeight:500 }}>{mat.name || 'Unnamed material'}</span>
+                <button onClick={() => onAdd(mat)}
+                  style={{ background:'#E24B4A', border:'none', borderRadius:5, color:'#fff',
+                    fontSize:10, fontWeight:700, padding:'2px 7px', cursor:'pointer', flexShrink:0 }}>
+                  + Add
+                </button>
+              </div>
+            ))}
+          </div>
+          {mats.length > 1 && (
+            <button onClick={() => onAddAll(mats)}
+              style={{ background:'#E24B4A', border:'none', borderRadius:8, color:'#fff',
+                fontSize:12, fontWeight:700, padding:'5px 14px', cursor:'pointer' }}>
+              + Add all {mats.length}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function makeRow(overrides={}) {
@@ -548,6 +596,7 @@ export default function OrderSheet() {
   const [job,       setJob]       = useState(null)
   const [rows,      setRows]      = useState([])
   const [materials, setMaterials] = useState([])
+  const [unorderedMats, setUnorderedMats] = useState([]) // materials on job not yet on order sheet
   const materialsLoadedRef = useRef(false)
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(null)
@@ -589,88 +638,41 @@ export default function OrderSheet() {
         ? await supabase.from('room_materials').select('*,materials(*),rooms(id,name)').in('room_id', roomIds)
         : { data: [] }
 
-      // Convert job_materials → order rows (only if not already in order_items)
-      const existingMatIds  = new Set((o||[]).map(row=>row.material_id).filter(Boolean))
-      const existingAppIds  = new Set((o||[]).map(row=>row.appliance_id).filter(Boolean))
+      // Convert existing order_items — keep as-is (don't auto-populate from job/room mats any more)
+      const existingMatIds = new Set((o||[]).map(row=>row.material_id).filter(Boolean))
 
-      const fromJobMats = (jm||[])
-        .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
-        .map(entry => {
-          const mat = entry.materials
-          return makeRow({
-            item:          mat.name || '',
-            supplier:      mat.supplier || '',
-            brand:         mat.custom_fields ? (safeParse(mat.custom_fields).brand||'') : '',
-            panel_type:    mat.panel_type || '',
-            thickness:     mat.thickness ? String(mat.thickness) : '',
-            colour:        mat.colour_code || '',
-            finish:        mat.finish || '',
-            sku:           mat.sku || '',
-            price:         mat.price ? String(mat.price) : '',
-            notes:         mat.notes || '',
-            category:      mat.panel_type ? 'Board' : 'Hardware',
-            material_id:   entry.material_id,
-            custom_fields: safeParse(mat.custom_fields),
-            _fromRoom:     true,
-          })
-        })
+      // Enrich material names using auto-name settings
+      const allMatEntries = [...(jm||[]), ...(rm||[])].map(e => e.materials).filter(Boolean)
+      const uniqueMats = [...new Map(allMatEntries.map(m => [m.id, m])).values()]
+      const enriched = await enrichMaterialNames(uniqueMats)
+      const enrichedById = Object.fromEntries(enriched.map(m => [m.id, m]))
 
-      const fromJobApps = (ja||[])
-        .filter(entry => entry.appliances && !existingAppIds.has(entry.appliance_id))
-        .map(entry => {
-          const app = entry.appliances
-          return makeRow({
-            item:         `${app.brand||''} ${app.model||''}`.trim() || app.type || '',
-            supplier:     app.supplier || '',
-            category:     'Appliance',
-            sku:          app.sku || '',
-            price:        app.price ? String(app.price) : '',
-            appliance_id: entry.appliance_id,
-            _fromRoom:    true,
-          })
-        })
+      // Find ALL materials on the job (job_materials + room_materials, deduped)
+      const allJobMatIds = new Set()
+      ;(jm||[]).filter(e=>e.materials).forEach(e => allJobMatIds.add(e.material_id))
+      ;(rm||[]).filter(e=>e.materials).forEach(e => allJobMatIds.add(e.material_id))
 
-      // Room materials — dedup against job_materials (room version wins, has room context)
-      const roomMatIds = new Set((rm||[]).map(e=>e.material_id).filter(Boolean))
-      const fromRoomMats = (rm||[])
-        .filter(entry => entry.materials && !existingMatIds.has(entry.material_id))
-        .map(entry => {
-          const mat = entry.materials
-          return makeRow({
-            item:          mat.name || '',
-            supplier:      mat.supplier || '',
-            brand:         safeParse(mat.custom_fields).brand || '',
-            panel_type:    mat.panel_type || '',
-            thickness:     mat.thickness ? String(mat.thickness) : '',
-            colour:        mat.colour_code || '',
-            finish:        mat.finish || '',
-            sku:           mat.sku || '',
-            price:         mat.price ? String(mat.price) : '',
-            notes:         mat.notes || '',
-            category:      mat.panel_type ? 'Board' : 'Hardware',
-            material_id:   entry.material_id,
-            room_id:       entry.room_id,
-            room_name:     entry.rooms?.name || '',
-            category_id:   mat.category_id || null,
-            custom_fields: safeParse(mat.custom_fields),
-            _fromRoom:     true,
-          })
-        })
+      // Unordered = on job but NOT on order sheet yet
+      const unordered = [...allJobMatIds]
+        .filter(mid => !existingMatIds.has(mid))
+        .map(mid => {
+          const entry = (jm||[]).find(e=>e.material_id===mid) || (rm||[]).find(e=>e.material_id===mid)
+          const mat = enrichedById[mid] || entry?.materials
+          return mat ? { ...mat, name: enrichedById[mid]?.name || mat.name } : null
+        }).filter(Boolean)
+      setUnorderedMats(unordered)
 
-      // Remove job_materials that also appear in room_materials (avoid duplicates)
-      const deduped_fromJobMats = fromJobMats
-        .filter(r => !roomMatIds.has(r.material_id))
-        .map(r => {
-          const mat = (jm||[]).find(e=>e.material_id===r.material_id)?.materials
-          return { ...r, category_id: mat?.category_id || null }
-        })
-
-      // Enrich existing order_items with category_id from their linked material
-      const enrichedOrders = (o||[]).map(row => ({
-        ...row,
-        category_id: row.materials?.category_id || row.category_id || null,
-      }))
-      setRows([...enrichedOrders, ...deduped_fromJobMats, ...fromRoomMats])
+      // Enrich existing order_items with category_id and correct name from library
+      const enrichedOrders = (o||[]).map(row => {
+        const mat = enrichedById[row.material_id]
+        return {
+          ...row,
+          category_id: row.materials?.category_id || row.category_id || null,
+          // Use enriched name if available, otherwise keep whatever was saved
+          item: (mat?.name && mat.name !== 'New material') ? mat.name : (row.item || ''),
+        }
+      })
+      setRows(enrichedOrders)
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
@@ -877,61 +879,100 @@ export default function OrderSheet() {
     const groupEntries = Object.entries(groupMap)
 
     const groupHTML = groupEntries.map(([groupTitle, groupRows]) => {
-      // Determine visible columns for this group
-      const hasPrice = groupRows.some(r => parseFloat(r.price) > 0)
-      const hasThickness = groupRows.some(r => r.thickness)
-      const hasSupplier = groupRows.some(r => r.supplier)
-      const hasColour = groupRows.some(r => r.colour)
-      const hasFinish = groupRows.some(r => r.finish)
-      const hasPanelType = groupRows.some(r => r.panel_type)
-      const hasSku = groupRows.some(r => r.sku)
-      const hasRoom = groupBy !== 'Room' && groupRows.some(r => r.room_name)
-      const hasQty = groupRows.some(r => r.qty)
-      const hasNotes = groupRows.some(r => r.notes)
+      const friendlyTitle = groupTitle === 'No room' ? 'General / No room assigned' : groupTitle
 
-      // Build col defs for this group
-      const gCols = [
-        { key:'item', label:'Item', always:true },
-        hasRoom      && { key:'room_name',  label:'Room' },
-        hasSupplier  && { key:'supplier',   label:'Supplier' },
-        hasPanelType && { key:'panel_type', label:'Panel type' },
-        hasThickness && { key:'thickness',  label:'Thickness', suffix:'mm' },
-        hasColour    && { key:'colour',     label:'Colour' },
-        hasFinish    && { key:'finish',     label:'Finish' },
-        hasSku       && { key:'sku',        label:'SKU' },
-        hasQty       && { key:'qty',        label:'Qty', num:true },
-        { key:'unit', label:'Unit' },
-        hasPrice     && { key:'price',      label:'Unit price', price:true },
-        hasPrice && hasQty && { key:'_total', label:'Total', price:true },
-        { key:'status', label:'Status' },
-        hasNotes     && { key:'notes',      label:'Notes' },
-      ].filter(Boolean)
+      // Split rows into sub-groups: boards (have panel_type/thickness) and hardware/other
+      const boardRows    = groupRows.filter(r => r.panel_type || r.thickness || r.colour)
+      const hardwareRows = groupRows.filter(r => !r.panel_type && !r.thickness && !r.colour)
 
       const subtotal = groupRows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
 
-      const headerRow = gCols.map(c=>`<th>${c.label}</th>`).join('')
-      const dataRows = groupRows.map(r => {
-        const qty = parseFloat(r.qty), price = parseFloat(r.price)
-        const total = !isNaN(qty)&&!isNaN(price) ? (qty*price).toFixed(2) : ''
-        const statusStyle = r.status==='Ordered'?'color:#1E40AF;font-weight:600':r.status==='Received'?'color:#166534;font-weight:600':'color:#854D0E;font-weight:600'
-        const cells = gCols.map(c => {
-          if (c.key==='_total') return `<td style="text-align:right">${total?`$${total}`:''}</td>`
-          if (c.key==='status') return `<td style="${statusStyle}">${r[c.key]||''}</td>`
-          if (c.price) return `<td style="text-align:right">${r[c.key]?`$${parseFloat(r[c.key]).toFixed(2)}`:''}</td>`
-          if (c.num) return `<td style="text-align:right">${r[c.key]||''}</td>`
-          if (c.suffix) return `<td>${r[c.key]?r[c.key]+c.suffix:''}</td>`
-          return `<td>${r[c.key]||''}</td>`
+      function buildTable(rows) {
+        if (!rows.length) return ''
+        const hasPrice     = rows.some(r => parseFloat(r.price) > 0)
+        const hasThickness = rows.some(r => r.thickness)
+        const hasSupplier  = rows.some(r => r.supplier)
+        const hasColour    = rows.some(r => r.colour)
+        const hasFinish    = rows.some(r => r.finish)
+        const hasPanelType = rows.some(r => r.panel_type)
+        const hasSku       = rows.some(r => r.sku)
+        const hasRoom      = groupBy !== 'Room' && rows.some(r => r.room_name)
+        const hasQty       = rows.some(r => r.qty)
+        const hasNotes     = rows.some(r => r.notes)
+
+        // Custom fields present in this set of rows
+        const customFieldKeys = new Set()
+        rows.forEach(r => {
+          const cf = r.custom_fields || {}
+          Object.entries(cf).forEach(([k, v]) => { if (v) customFieldKeys.add(k) })
+        })
+        const customCols = [...customFieldKeys].map(k => ({
+          key: `_cf_${k}`, label: k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()), cfKey: k
+        }))
+
+        const cols = [
+          { key:'item',      label:'Item', always:true },
+          hasRoom      && { key:'room_name',  label:'Room' },
+          hasSupplier  && { key:'supplier',   label:'Supplier' },
+          hasPanelType && { key:'panel_type', label:'Panel type' },
+          hasThickness && { key:'thickness',  label:'Thickness', suffix:'mm' },
+          hasColour    && { key:'colour',     label:'Colour' },
+          hasFinish    && { key:'finish',     label:'Finish' },
+          hasSku       && { key:'sku',        label:'SKU' },
+          ...customCols,
+          hasQty       && { key:'qty',        label:'Qty', num:true },
+          { key:'unit', label:'Unit' },
+          hasPrice     && { key:'price',      label:'Unit price', price:true },
+          hasPrice && hasQty && { key:'_total', label:'Total', price:true },
+          { key:'status',    label:'Status' },
+          hasNotes     && { key:'notes',      label:'Notes' },
+        ].filter(Boolean)
+
+        const headerRow = cols.map(c => {
+          const align = (c.price || c.num || c.key==='_total') ? ' style="text-align:right"' : ''
+          const w = c.key==='item'?'w:25%':c.key==='notes'?'w:15%':c.price||c.key==='_total'?'w:8%':c.num?'w:5%':c.key==='unit'?'w:5%':c.key==='status'?'w:7%':''
+          return `<th${align}>${c.label}</th>`
         }).join('')
-        return `<tr>${cells}</tr>`
-      }).join('')
+        const dataRows = rows.map(r => {
+          const cf = r.custom_fields || {}
+          const qty = parseFloat(r.qty), price = parseFloat(r.price)
+          const total = !isNaN(qty)&&!isNaN(price) ? (qty*price).toFixed(2) : ''
+          const statusStyle = r.status==='Ordered'?'color:#1E40AF;font-weight:600':r.status==='Received'?'color:#166534;font-weight:600':'color:#854D0E;font-weight:600'
+          const cells = cols.map(c => {
+            if (c.cfKey)          return `<td>${cf[c.cfKey]||''}</td>`
+            if (c.key==='_total') return `<td style="text-align:right">${total?`$${total}`:''}</td>`
+            if (c.key==='status') return `<td style="${statusStyle}">${r[c.key]||''}</td>`
+            if (c.price)          return `<td style="text-align:right">${r[c.key]?`$${parseFloat(r[c.key]).toFixed(2)}`:''}</td>`
+            if (c.num)            return `<td style="text-align:right">${r[c.key]||''}</td>`
+            if (c.suffix)         return `<td>${r[c.key]?r[c.key]+c.suffix:''}</td>`
+            return `<td>${r[c.key]||''}</td>`
+          }).join('')
+          return `<tr>${cells}</tr>`
+        }).join('')
+
+        const colgroup = `<colgroup>${cols.map(c => {
+          const w = c.key==='item' ? '22%'
+            : c.key==='notes'     ? '14%'
+            : c.key==='supplier'  ? '11%'
+            : c.key==='room_name' ? '10%'
+            : (c.price || c.key==='_total') ? '8%'
+            : c.num               ? '5%'
+            : c.key==='unit'      ? '5%'
+            : c.key==='status'    ? '8%'
+            : '9%'
+          return `<col style="width:${w}">`
+        }).join('')}</colgroup>`
+
+        return `<table style="table-layout:fixed">${colgroup}<thead><tr>${headerRow}</tr></thead><tbody>${dataRows}</tbody></table>`
+      }
+
+      const boardsHTML    = boardRows.length    ? `${boardRows.length !== groupRows.length ? '<div style="font-size:10px;font-weight:600;color:#666;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.04em">Boards &amp; Panels</div>' : ''}${buildTable(boardRows)}` : ''
+      const hardwareHTML  = hardwareRows.length ? `${hardwareRows.length !== groupRows.length ? '<div style="font-size:10px;font-weight:600;color:#666;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.04em">Hardware &amp; Other</div>' : ''}${buildTable(hardwareRows)}` : ''
 
       return `
         <div class="group">
-          <div class="group-title">${groupTitle} <span class="group-count">${groupRows.length} item${groupRows.length!==1?'s':''}</span>${subtotal>0?`<span class="group-subtotal">$${subtotal.toFixed(2)}</span>`:''}</div>
-          <table>
-            <thead><tr>${headerRow}</tr></thead>
-            <tbody>${dataRows}</tbody>
-          </table>
+          <div class="group-title">${friendlyTitle} <span class="group-count">${groupRows.length} item${groupRows.length!==1?'s':''}</span>${subtotal>0?`<span class="group-subtotal">$${subtotal.toFixed(2)}</span>`:''}</div>
+          ${boardsHTML}${hardwareHTML}
         </div>`
     }).join('')
 
@@ -946,36 +987,46 @@ export default function OrderSheet() {
 *{box-sizing:border-box;margin:0;padding:0}
 @page{size:A4 landscape;margin:12mm}
 body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
-  font-size:10px;color:#111;background:#fff;
-  padding:12mm;}
+  font-size:10px;color:#111;background:#fff;padding:12mm;}
 @media print{body{padding:0}}
-
-/* ── Typography ── */
-h1{font-size:20px;font-weight:800;margin-bottom:4px}
-h2{font-size:14px;font-weight:700;margin:16px 0 8px}
-h3{font-size:12px;font-weight:700;margin:12px 0 6px}
-
-/* ── Tables ── */
-table{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:12px}
-th{background:#2A3042;color:#fff;padding:5px 7px;text-align:left;
-  font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
-td{padding:5px 7px;border-bottom:1px solid #eee;vertical-align:top}
-tr:nth-child(even) td{background:#fafafa}
 
 /* ── Header ── */
 .header{display:flex;justify-content:space-between;align-items:flex-start;
-  border-bottom:2px solid #2A3042;padding-bottom:12px;margin-bottom:16px}
+  border-bottom:2px solid #2A3042;padding-bottom:12px;margin-bottom:20px}
 .title{font-size:22px;font-weight:800;color:#2A3042}
-.subtitle{font-size:12px;color:#555;margin-top:3px}
-.meta{text-align:right;font-size:10px;color:#555;line-height:1.6}
+.sub{font-size:12px;color:#555;margin-top:3px}
+.meta{text-align:right;font-size:10px;color:#555;line-height:1.8}
+.stats{display:flex;gap:20px;margin-top:8px}
+.stat-num{font-size:14px;font-weight:800;color:#2A3042;margin-right:4px}
+.stat-lbl{font-size:10px;color:#666}
+
+/* ── Typography ── */
+h2{font-size:14px;font-weight:700;margin:16px 0 8px}
+
+/* ── Group ── */
+.group{margin-bottom:24px}
+.group-title{font-size:13px;font-weight:700;color:#2A3042;margin-bottom:8px;
+  display:flex;align-items:center;gap:10px}
+.group-count{font-size:10px;font-weight:500;color:#666}
+.group-subtotal{margin-left:auto;font-size:12px;font-weight:700;color:#2A3042}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:4px;table-layout:fixed}
+th{background:#2A3042;color:#fff;padding:6px 8px;text-align:left;
+  font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden}
+td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:nth-child(even) td{background:#fafafa}
+
+/* ── Grand total ── */
+.grand-total{text-align:right;font-size:13px;font-weight:800;
+  padding:10px 0;border-top:2px solid #2A3042;margin-top:8px}
 
 /* ── Footer ── */
 .footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;
   display:flex;justify-content:space-between;font-size:9px;color:#888}
 
 /* ── Misc ── */
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;
-  font-size:9px;font-weight:700}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
 .page-break{page-break-before:always}
 </style></head><body>
 <div class="header">
@@ -1092,6 +1143,49 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
           </div>
         ) : null
       })()}
+
+      {/* Unordered materials notification — compact collapsible */}
+      {unorderedMats.length > 0 && (
+        <UnorderedNotification
+          mats={unorderedMats}
+          onAdd={mat => {
+            const row = makeRow({
+              item: mat.name || '',
+              supplier: mat.supplier || '',
+              panel_type: mat.panel_type || '',
+              thickness: mat.thickness ? String(mat.thickness) : '',
+              colour: mat.colour_code || '',
+              finish: mat.finish || '',
+              price: mat.price ? String(mat.price) : '',
+              notes: mat.notes || '',
+              category: mat.panel_type ? 'Board' : 'Hardware',
+              material_id: mat.id,
+              category_id: mat.category_id || null,
+              custom_fields: safeParse(mat.custom_fields),
+            })
+            setRows(prev => [...prev, row])
+            setUnorderedMats(prev => prev.filter(m => m.id !== mat.id))
+          }}
+          onAddAll={mats => {
+            const newRows = mats.map(mat => makeRow({
+              item: mat.name || '',
+              supplier: mat.supplier || '',
+              panel_type: mat.panel_type || '',
+              thickness: mat.thickness ? String(mat.thickness) : '',
+              colour: mat.colour_code || '',
+              finish: mat.finish || '',
+              price: mat.price ? String(mat.price) : '',
+              notes: mat.notes || '',
+              category: mat.panel_type ? 'Board' : 'Hardware',
+              material_id: mat.id,
+              category_id: mat.category_id || null,
+              custom_fields: safeParse(mat.custom_fields),
+            }))
+            setRows(prev => [...prev, ...newRows])
+            setUnorderedMats([])
+          }}
+        />
+      )}
 
       {/* status filter */}
       <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>

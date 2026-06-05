@@ -21,6 +21,7 @@ import InlineSpecBuilder from './InlineSpecBuilder'
 import OnSite from './OnSite'
 import DropZone from '../components/DropZone'
 import StatusBadge from '../components/StatusBadge'
+import { enrichMaterialNames } from '../lib/materialName'
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
 // Job statuses loaded dynamically from settings — see useJobStatuses hook
@@ -2772,7 +2773,15 @@ export default function JobDetail() {
       supabase.from('file_types').select('*').order('name'),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
-    setJob(j); setAtts(a||[]); setJobMats(jm||[])
+    setJob(j); setAtts(a||[])
+    // Enrich material names using auto-name settings from Materials screen
+    const rawJm = jm || []
+    const enriched = await Promise.all(rawJm.map(async row => {
+      if (!row.materials) return row
+      const named = await enrichMaterialNames([row.materials])
+      return { ...row, materials: named[0] }
+    }))
+    setJobMats(enriched)
     // Initialise specsRef from loaded job
     specsRef.current = j?.kitchen_specs
       ? (typeof j.kitchen_specs === 'string' ? JSON.parse(j.kitchen_specs) : j.kitchen_specs)
@@ -3128,7 +3137,9 @@ export default function JobDetail() {
   async function addMat(mid) {
     const { data } = await supabase.from('job_materials').insert({ job_id: id, material_id: mid }).select('*,materials(*)').single()
     if (data) {
-      setJobMats(prev => [...prev, data])
+      const named = await enrichMaterialNames([data.materials])
+      const enrichedData = { ...data, materials: named[0] }
+      setJobMats(prev => [...prev, enrichedData])
       const colors = [...jobMats, data].filter(jm=>jm.materials).map(jm=>({
         name: jm.materials.name, color: jm.materials.color||'#888',
         storage_path: jm.materials.storage_path||null,
