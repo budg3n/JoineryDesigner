@@ -26,6 +26,7 @@ import SpecBuilder from './screens/SpecBuilder'
 import JobStatuses from './screens/JobStatuses'
 import RoomTypeSettings from './screens/RoomTypeSettings'
 import ApplianceSettings from './screens/ApplianceSettings'
+import UnitSettings from './screens/UnitSettings'
 
 function RoleRedirect() {
   const { profile, previewRole } = useApp()
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="settings/copy-format" element={<CopyFormat />} />
         <Route path="settings/job-statuses" element={<JobStatuses />} />
         <Route path="settings/room-types" element={<RoomTypeSettings />} />
+        <Route path="settings/unit-types" element={<UnitSettings />} />
       </Route>
     </Routes>
   )

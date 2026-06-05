@@ -170,7 +170,13 @@ export async function enrichMaterialNames(materials) {
   // Now build names (settings are cached)
   return Promise.all(materials.map(async m => {
     const name = await buildMaterialName(m)
-    if (!name) return m
-    return { ...m, name }
+    // Also expose price_breaks from custom_fields so OrderSheet can use them
+    let priceBreaks = []
+    try {
+      const cf = safeJSON(m.custom_fields)
+      priceBreaks = Array.isArray(cf.price_breaks) ? cf.price_breaks : []
+    } catch {}
+    if (!name && !priceBreaks.length) return m
+    return { ...m, ...(name ? {name} : {}), price_breaks: priceBreaks }
   }))
 }

@@ -7,6 +7,7 @@ import { supabase, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import { enrichMaterialNames } from '../lib/materialName'
+import { loadUnitTypes } from './UnitSettings'
 
 function safeParse(v) {
   if (!v) return {}
@@ -15,7 +16,10 @@ function safeParse(v) {
 }
 
 const STATUS_OPTIONS   = ['To order', 'Ordered', 'Received']
-const UNIT_OPTIONS     = ['sheets', 'pcs', 'm', 'm²', 'sets', 'rolls', 'boxes', 'kg', 'L']
+// Unit options loaded dynamically from app_settings (fallback to defaults)
+const DEFAULT_UNIT_OPTIONS = ['sheets', 'pcs', 'm', 'm²', 'sets', 'rolls', 'boxes', 'kg', 'L']
+let UNIT_OPTIONS = DEFAULT_UNIT_OPTIONS
+loadUnitTypes().then(units => { UNIT_OPTIONS = units }).catch(() => {})
 const CATEGORY_OPTIONS = ['Board', 'Hardware', 'Appliance', 'Accessory', 'Other']
 const GROUP_OPTIONS    = ['Category', 'Supplier', 'Room']
 
@@ -120,8 +124,109 @@ function makeRow(overrides={}) {
     item:'', supplier:'', brand:'', panel_type:'', thickness:'', colour:'', finish:'',
     dimensions:'', qty:'', unit:'sheets', sku:'', price:'', po_number:'', notes:'',
     category:'Board', status:'To order', needed:'', material_id:null, room_id:null, appliance_id:null,
+    price_breaks: [],
     ...overrides,
   }
+}
+
+// ── Price breaks helpers ──────────────────────────────────────────
+function getEffectivePrice(row) {
+  const breaks = Array.isArray(row.price_breaks) ? row.price_breaks : []
+  const qty = parseFloat(row.qty) || 0
+  if (!breaks.length) return parseFloat(row.price) || 0
+  // Sort breaks descending by qty, find first threshold met
+  const sorted = [...breaks].sort((a,b) => b.qty - a.qty)
+  for (const b of sorted) {
+    if (qty >= parseFloat(b.qty)) return parseFloat(b.price) || 0
+  }
+  return parseFloat(row.price) || 0
+}
+
+function PriceBreaksPopover({ row, onUpdate, onClose, style={} }) {
+  const [breaks, setBreaks] = useState(() => {
+    const b = Array.isArray(row.price_breaks) ? row.price_breaks : []
+    return b.length ? b : [{ qty: '', price: '' }]
+  })
+  const ref = useRef()
+
+  useEffect(() => {
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function updateBreak(i, field, val) {
+    const next = breaks.map((b,j) => j===i ? {...b,[field]:val} : b)
+    setBreaks(next)
+  }
+  function addBreak() { setBreaks(p => [...p, { qty:'', price:'' }]) }
+  function removeBreak(i) { setBreaks(p => p.filter((_,j)=>j!==i)) }
+  function save() {
+    const valid = breaks.filter(b => b.qty !== '' && b.price !== '')
+    onUpdate({ price_breaks: valid })
+    onClose()
+  }
+
+  return (
+    <div ref={ref} style={{
+      position:'fixed', zIndex:9999, background:'#fff', borderRadius:12,
+      boxShadow:'0 8px 32px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0',
+      padding:16, minWidth:280,
+      top: style.top || 200, left: style.left || 200,
+    }}>
+      <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        Qty price breaks
+        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16 }}>×</button>
+      </div>
+      <div style={{ fontSize:11, color:'#9CA3AF', marginBottom:10 }}>
+        Set lower prices when ordering larger quantities. The best matching price applies automatically.
+      </div>
+      {/* Base price row */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, padding:'6px 8px', background:'#F9FAFB', borderRadius:7 }}>
+        <span style={{ fontSize:11, color:'#6B7280', width:70, flexShrink:0 }}>Base price</span>
+        <span style={{ fontSize:12, fontWeight:600, color:'#2A3042' }}>
+          {row.price ? `$${parseFloat(row.price).toFixed(2)}` : '—'}
+        </span>
+        <span style={{ fontSize:10, color:'#9CA3AF', marginLeft:'auto' }}>any qty</span>
+      </div>
+      {/* Break rows */}
+      {breaks.map((b, i) => (
+        <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+          <span style={{ fontSize:11, color:'#6B7280', flexShrink:0, width:24 }}>{i+1}.</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4, flex:1 }}>
+            <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>≥</span>
+            <input type="number" min="1" value={b.qty} onChange={e=>updateBreak(i,'qty',e.target.value)}
+              placeholder="Qty"
+              style={{ width:60, padding:'5px 7px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
+            <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>units →</span>
+            <div style={{ position:'relative', flex:1 }}>
+              <span style={{ position:'absolute', left:7, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#6B7280' }}>$</span>
+              <input type="number" min="0" step="0.01" value={b.price} onChange={e=>updateBreak(i,'price',e.target.value)}
+                placeholder="0.00"
+                style={{ width:'100%', padding:'5px 7px 5px 18px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+            </div>
+          </div>
+          <button onClick={()=>removeBreak(i)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, padding:'2px' }}
+            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+            onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+        </div>
+      ))}
+      <button onClick={addBreak}
+        style={{ fontSize:11, color:'#5B8AF0', background:'none', border:'1px dashed #C7D2FE', borderRadius:7, padding:'4px 10px', cursor:'pointer', width:'100%', marginTop:4 }}>
+        + Add break
+      </button>
+      <div style={{ display:'flex', gap:8, marginTop:12 }}>
+        <button onClick={save}
+          style={{ flex:1, padding:'7px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+          Save breaks
+        </button>
+        <button onClick={onClose}
+          style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, cursor:'pointer' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ── Inline cell ───────────────────────────────────────────────────
@@ -381,8 +486,12 @@ function CopyBtn({ row, format }) {
 
 function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat, rooms, onEnsureMaterials }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
-  const qty = parseFloat(row.qty); const price = parseFloat(row.price)
-  const total = !isNaN(qty) && !isNaN(price) && qty > 0 && price > 0 ? (qty*price).toFixed(2) : null
+  const [showBreaks, setShowBreaks] = useState(false)
+  const priceRef = useRef()
+  const effPrice = getEffectivePrice(row)
+  const hasBreaks = Array.isArray(row.price_breaks) && row.price_breaks.length > 0
+  const qty = parseFloat(row.qty)
+  const total = !isNaN(qty) && effPrice > 0 && qty > 0 ? (qty * effPrice).toFixed(2) : null
 
   return (
     <div style={{ display:'flex', alignItems:'center', background:'#fff', borderBottom:'1px solid #F3F4F6' }}
@@ -408,13 +517,58 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
             </select>
           </div>
         )
+        if (col.key === 'price') return (
+          <div key="price" ref={priceRef}
+            style={{ width:col.w, minWidth:col.w, maxWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', position:'relative' }}>
+            {/* Price input — shrunk to leave room for button */}
+            <div style={{ flex:1, overflow:'hidden' }}>
+              <Cell col={{...col, w:col.w-26}} value={row.price||''}
+                onChange={v=>onUpdate(row.id,{price:v})} />
+            </div>
+            {/* Qty breaks toggle button */}
+            <button
+              onClick={e=>{ e.stopPropagation(); setShowBreaks(p=>!p) }}
+              title={hasBreaks ? `${row.price_breaks.length} price break${row.price_breaks.length>1?'s':''} active — click to edit` : 'Add qty price breaks'}
+              style={{
+                width:22, height:22, flexShrink:0, marginRight:2,
+                background: hasBreaks ? '#EEF2FF' : '#F3F4F6',
+                border: hasBreaks ? '1px solid #C7D2FE' : '1px solid #E8ECF0',
+                borderRadius:6, cursor:'pointer', padding:0,
+                fontSize:10, fontWeight:700,
+                color: hasBreaks ? '#5B8AF0' : '#9CA3AF',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                transition:'all .12s',
+              }}
+              onMouseEnter={e=>{ e.currentTarget.style.background='#EEF2FF'; e.currentTarget.style.color='#5B8AF0'; e.currentTarget.style.borderColor='#C7D2FE' }}
+              onMouseLeave={e=>{ if(!hasBreaks){ e.currentTarget.style.background='#F3F4F6'; e.currentTarget.style.color='#9CA3AF'; e.currentTarget.style.borderColor='#E8ECF0' } }}>
+              ✦
+            </button>
+            {/* Effective price indicator when break is active */}
+            {hasBreaks && effPrice !== (parseFloat(row.price)||0) && (
+              <div style={{ position:'absolute', bottom:-12, right:28, fontSize:9, color:'#5B8AF0', fontWeight:600, whiteSpace:'nowrap', pointerEvents:'none' }}>
+                eff: ${effPrice.toFixed(2)}
+              </div>
+            )}
+            {/* Popover */}
+            {showBreaks && (() => {
+              const rect = priceRef.current?.getBoundingClientRect()
+              return ReactDOM.createPortal(
+                <PriceBreaksPopover row={row}
+                  onUpdate={patch => onUpdate(row.id, patch)}
+                  onClose={() => setShowBreaks(false)}
+                  style={{ top: rect ? rect.bottom+4 : 200, left: rect ? Math.max(10, rect.left-160) : 200 }}
+                />,
+                document.body
+              )
+            })()}
+          </div>
+        )
         return (
           <Cell key={col.key} col={col}
             value={col.key.startsWith('_cf_')
               ? (()=>{
                   try {
                     const cf = safeParse(row.custom_fields)
-                    // Try by field ID first, then by label (Materials stores by label)
                     const byId = cf[col.fieldId] || cf[col.key.replace('_cf_','')]
                     const byLabel = cf[col.fieldLabel] || cf[(col.fieldLabel||'').toLowerCase().replace(/\s+/g,'_')]
                     return byId || byLabel || ''
@@ -665,10 +819,16 @@ export default function OrderSheet() {
       // Enrich existing order_items with category_id and correct name from library
       const enrichedOrders = (o||[]).map(row => {
         const mat = enrichedById[row.material_id]
+        let priceBreaks = []
+        try {
+          if (row.price_breaks) {
+            priceBreaks = typeof row.price_breaks === 'string' ? JSON.parse(row.price_breaks) : (row.price_breaks || [])
+          }
+        } catch {}
         return {
           ...row,
+          price_breaks: priceBreaks,
           category_id: row.materials?.category_id || row.category_id || null,
-          // Use enriched name if available, otherwise keep whatever was saved
           item: (mat?.name && mat.name !== 'New material') ? mat.name : (row.item || ''),
         }
       })
@@ -742,8 +902,15 @@ export default function OrderSheet() {
     const toSave = rowsToSave
       .filter(r => r.item && r.item.trim())
       .map(r => {
-        const { _fromRoom, ...row } = r
-        return { ...row, job_id: id, updated_at: new Date().toISOString() }
+        const { _fromRoom, price_breaks, ...row } = r
+        const hasPriceBreaks = Array.isArray(price_breaks) && price_breaks.length > 0
+        return {
+          ...row,
+          job_id: id,
+          updated_at: new Date().toISOString(),
+          // Only include price_breaks if non-empty (column may not exist yet — add via SQL migration)
+          ...(hasPriceBreaks ? { price_breaks: JSON.stringify(price_breaks) } : {}),
+        }
       })
     if (toSave.length > 0) {
       const { error } = await supabase.from('order_items').upsert(toSave, { onConflict:'id' })

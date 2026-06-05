@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { useDragColumns } from '../hooks/useDragColumns'
 import { cachedQuery } from '../hooks/useCache'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
+import { loadUnitTypes } from './UnitSettings'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import { useLocation } from 'react-router-dom'
@@ -676,6 +678,25 @@ function SubCatView({ cat, allCats, fields, onDrillIn, onBack, onCatUpdated }) {
 // ── MATERIAL LIST VIEW ────────────────────────────────────────────
 // Shows materials within a subcategory with field-based filters
 // ── Spreadsheet cell ─────────────────────────────────────────────
+function UnitSelectCell({ val, w, onChange }) {
+  const [unitOpts, setUnitOpts] = React.useState(['sheets','pcs','m','m²','m³','lm','kg','boxes','rolls','litres','sets','L','pairs'])
+  React.useEffect(() => { loadUnitTypes().then(setUnitOpts) }, [])
+  React.useEffect(() => {
+    const handler = e => setUnitOpts(e.detail)
+    window.addEventListener('unit-types-updated', handler)
+    return () => window.removeEventListener('unit-types-updated', handler)
+  }, [])
+  return (
+    <div style={{ width:w, minWidth:w, maxWidth:w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', padding:'0 6px' }}>
+      <select value={val||''} onChange={e=>onChange(e.target.value)}
+        style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12, cursor:'pointer', color: val ? '#374151' : '#9CA3AF' }}>
+        <option value="">— unit —</option>
+        {unitOpts.map(u => <option key={u} value={u}>{u}</option>)}
+      </select>
+    </div>
+  )
+}
+
 function MCell({ value='', onChange, type='text', options=[], placeholder='', w=120, readOnly=false }) {
   const [editing, setEditing] = React.useState(false)
   const [val, setVal] = React.useState(value)
@@ -782,6 +803,111 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
 }
 
 // ── Image upload cell ─────────────────────────────────────────────
+// ── Price Breaks Button ───────────────────────────────────────────
+function PriceBreaksBtn({ material, onUpdate }) {
+  const [open, setOpen] = React.useState(false)
+  const [breaks, setBreaks] = React.useState([])
+  const btnRef = React.useRef()
+  const popRef = React.useRef()
+  const [pos, setPos] = React.useState({ top:0, left:0 })
+
+  React.useEffect(() => {
+    try {
+      const cf = material.custom_fields
+        ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields))
+        : {}
+      const b = cf.price_breaks
+      setBreaks(Array.isArray(b) ? b : [])
+    } catch { setBreaks([]) }
+  }, [material.id, material.custom_fields])
+
+  React.useEffect(() => {
+    if (!open) return
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (rect) setPos({ top: rect.bottom + 4, left: Math.max(10, rect.left - 220) })
+    function handleClick(e) {
+      if (popRef.current && !popRef.current.contains(e.target) && !btnRef.current?.contains(e.target)) setOpen(false)
+    }
+    setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  function save() {
+    const valid = breaks.filter(b => b.qty !== '' && b.price !== '' && !isNaN(parseFloat(b.qty)) && !isNaN(parseFloat(b.price)))
+    try {
+      const cf = material.custom_fields
+        ? (typeof material.custom_fields === 'object' ? { ...material.custom_fields } : JSON.parse(material.custom_fields))
+        : {}
+      cf.price_breaks = valid
+      onUpdate({ custom_fields: JSON.stringify(cf) })
+    } catch {}
+    setBreaks(valid)
+    setOpen(false)
+  }
+
+  const hasBreaks = breaks.length > 0
+
+  return (
+    <>
+      <button ref={btnRef} onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        title={hasBreaks ? `${breaks.length} qty price break${breaks.length>1?'s':''} — click to edit` : 'Add qty price breaks'}
+        style={{
+          width:20, height:20, flexShrink:0,
+          background: hasBreaks ? '#EEF2FF' : '#F3F4F6',
+          border: hasBreaks ? '1px solid #C7D2FE' : '1px solid #E8ECF0',
+          borderRadius:5, cursor:'pointer', padding:0,
+          fontSize:9, fontWeight:700,
+          color: hasBreaks ? '#5B8AF0' : '#9CA3AF',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          transition:'all .12s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background='#EEF2FF'; e.currentTarget.style.color='#5B8AF0'; e.currentTarget.style.borderColor='#C7D2FE' }}
+        onMouseLeave={e => { if(!hasBreaks){ e.currentTarget.style.background='#F3F4F6'; e.currentTarget.style.color='#9CA3AF'; e.currentTarget.style.borderColor='#E8ECF0' } }}>
+        ✦
+      </button>
+      {open && ReactDOM.createPortal(
+        <div ref={popRef} style={{ position:'fixed', zIndex:9999, top:pos.top, left:pos.left, background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0', padding:16, minWidth:280 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            Qty price breaks
+            <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16 }}>×</button>
+          </div>
+          <div style={{ fontSize:11, color:'#9CA3AF', marginBottom:10 }}>Lower prices at higher quantities. Best match applies automatically on orders.</div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, padding:'6px 8px', background:'#F9FAFB', borderRadius:7 }}>
+            <span style={{ fontSize:11, color:'#6B7280', flex:1 }}>Base price</span>
+            <span style={{ fontSize:12, fontWeight:600, color:'#2A3042' }}>{material.price ? `$${parseFloat(material.price).toFixed(2)}` : '—'}</span>
+            <span style={{ fontSize:10, color:'#9CA3AF' }}>any qty</span>
+          </div>
+          {breaks.map((b, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+              <span style={{ fontSize:11, color:'#9CA3AF', width:16, flexShrink:0 }}>≥</span>
+              <input type="number" min="1" value={b.qty} placeholder="Qty"
+                onChange={e => setBreaks(p => p.map((x,j) => j===i ? {...x,qty:e.target.value} : x))}
+                style={{ width:58, padding:'5px 7px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
+              <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>→ $</span>
+              <input type="number" min="0" step="0.01" value={b.price} placeholder="0.00"
+                onChange={e => setBreaks(p => p.map((x,j) => j===i ? {...x,price:e.target.value} : x))}
+                style={{ flex:1, padding:'5px 7px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
+              <button onClick={() => setBreaks(p => p.filter((_,j) => j!==i))}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, padding:0 }}
+                onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+            </div>
+          ))}
+          <button onClick={() => setBreaks(p => [...p, { qty:'', price:'' }])}
+            style={{ width:'100%', marginTop:4, padding:'5px', borderRadius:7, border:'1px dashed #C7D2FE', background:'none', color:'#5B8AF0', fontSize:11, cursor:'pointer' }}>
+            + Add break
+          </button>
+          <div style={{ display:'flex', gap:8, marginTop:12 }}>
+            <button onClick={save} style={{ flex:1, padding:'7px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>Save</button>
+            <button onClick={() => setOpen(false)} style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, cursor:'pointer' }}>Cancel</button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 // ── Category Tree Picker ──────────────────────────────────────────
 function CategoryTreePicker({ allCats, currentCatId, title, onSelect, onClose }) {
   const [expanded, setExpanded] = React.useState(new Set())
@@ -1105,7 +1231,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     { key:'dimensions',   label:'Dimensions',      w:130, type:'text',   settingKey:'dimensions', placeholder:'e.g. 2400×1220' },
     { key:'weight',       label:'Weight (kg)',      w:90,  type:'text',   settingKey:'weight' },
     { key:'price',        label:'Price',           w:90,  type:'price',  settingKey:'price', placeholder:'0.00' },
-    { key:'unit',         label:'Unit',            w:90,  type:'text',   settingKey:'unit' },
+    { key:'unit', label:'Unit', w:90, type:'unit_select', settingKey:'unit' },
     { key:'qty',          label:'Default qty',     w:80,  type:'text',   settingKey:'qty' },
     { key:'lead_time',    label:'Lead time',       w:90,  type:'text',   settingKey:'lead_time' },
     { key:'min_order',    label:'Min order',       w:90,  type:'text',   settingKey:'min_order' },
@@ -1245,7 +1371,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   }, [catFields])
 
   const [cols, setCols]           = React.useState([...coreCols, ...customCols])
-  const [hoveredMatId, setHoveredMatId] = React.useState(null)
+  const [selectedIds, setSelectedIds] = React.useState(new Set())
   React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
   const { getHeaderProps } = useDragColumns(cols, setCols)
 
@@ -1281,7 +1407,6 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   const [sortCol, setSortCol] = React.useState(null)  // col.key or null
   const [sortDir, setSortDir] = React.useState('asc')  // 'asc' | 'desc'
-  const [selectedIds, setSelectedIds] = React.useState(new Set())
   const [showMovePicker, setShowMovePicker] = React.useState(false)
 
   function getMatVal(m, col) {
@@ -1660,51 +1785,10 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
             ) : filtered.map((m, idx) => {
               const cf = safeJSON(m.custom_fields)
               const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
-              const getVal = (key) => NON_NATIVE.includes(key) ? (cf[key]||'') : (m[key]||'')
-              const autoName = nameFields.size > 0 ? buildName(m, nameFields, cols) : null
-              const displayName = autoName || m.name || ''
-
-              // Build secondary details — all visible fields except name/image/category
-              const secondaryFields = cols
-                .filter(c => c.type !== 'image' && c.key !== 'category_name' && c.key !== 'name')
-                .map(c => {
-                  const v = c.fieldId ? (cf[c.fieldId]||'') : getVal(c.key)
-                  return v ? { label: c.label, value: v, starred: nameFields.has(c.key) } : null
-                }).filter(Boolean).slice(0, 8)
               return (
                 <div key={m.id}
-                  style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6', position:'relative' }}
-                  onMouseEnter={() => { setHoveredMatId(m.id) }}
-                  onMouseLeave={() => { setHoveredMatId(null) }}>
+                  style={{ display:'flex', alignItems:'center', background: idx%2===0?'#fff':'#FAFAFA', borderBottom:'1px solid #F3F4F6', position:'relative' }}>
 
-                  {/* Hover info panel */}
-                  {hoveredMatId === m.id && (displayName || secondaryFields.length > 0) && (
-                    <div style={{
-                      position:'fixed', zIndex:999, background:'#1E2535', borderRadius:12,
-                      padding:'12px 16px', minWidth:200, maxWidth:300, pointerEvents:'none',
-                      boxShadow:'0 8px 24px rgba(0,0,0,0.3)',
-                      right:16, top:'auto',
-                    }}>
-                      {/* Name preview section */}
-                      {displayName && (
-                        <div style={{ marginBottom: secondaryFields.length ? 10 : 0, paddingBottom: secondaryFields.length ? 10 : 0, borderBottom: secondaryFields.length ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
-                          <span style={{ fontSize:9, fontWeight:700, color: nameFields.size > 0 ? '#F59E0B' : '#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', display:'flex', alignItems:'center', gap:4, marginBottom:4 }}>
-                            {nameFields.size > 0 ? '★' : ''} {nameFields.size > 0 ? 'Auto name' : 'Name'}
-                          </span>
-                          <span style={{ fontSize:14, fontWeight:800, color:'#fff', lineHeight:1.3, display:'block' }}>{displayName}</span>
-                        </div>
-                      )}
-                      {/* Field breakdown */}
-                      {secondaryFields.map(f => (
-                        <div key={f.label} style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:3, alignItems:'center' }}>
-                          <span style={{ fontSize:10, color: f.starred ? '#F59E0B' : '#9CA3AF', flexShrink:0, display:'flex', alignItems:'center', gap:3 }}>
-                            {f.starred && <span style={{ fontSize:9 }}>★</span>}{f.label}
-                          </span>
-                          <span style={{ fontSize:11, color:'#E2E8F0', fontWeight:600, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:150 }}>{f.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                   <div style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'1px solid #E8ECF0', gap:4 }}>
                     <input type="checkbox"
                       checked={selectedIds.has(m.id)}
@@ -1774,6 +1858,29 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                             {builtName || <span style={{ color:'#C4C9D4', fontStyle:'italic' }}>Select ★ fields…</span>}
                           </span>
                           <span style={{ fontSize:9, fontWeight:700, color:'#D97706', background:'#FEF3C7', borderRadius:4, padding:'1px 4px', flexShrink:0 }}>AUTO</span>
+                        </div>
+                      )
+                    }
+                    // Unit col — use UnitSelectCell dropdown
+                    if (col.type === 'unit_select') {
+                      return (
+                        <UnitSelectCell key="unit" val={val} w={col.w}
+                          onChange={v => isNonNative
+                            ? updateMat(m.id, { custom_fields: JSON.stringify({ ...cf, [col.key]: v }) })
+                            : updateMat(m.id, { [col.key]: v })
+                          } />
+                      )
+                    }
+                    // Price col — wrap with PriceBreaksBtn
+                    if (col.key === 'price') {
+                      return (
+                        <div key="price" style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box' }}>
+                          <div style={{ flex:1, overflow:'hidden' }}>
+                            <MCell value={val} w={col.w - 26} type="price" placeholder="0.00"
+                              onChange={v => updateMat(m.id, { price: v })} />
+                          </div>
+                          <PriceBreaksBtn material={m}
+                            onUpdate={patch => updateMat(m.id, patch)} />
                         </div>
                       )
                     }

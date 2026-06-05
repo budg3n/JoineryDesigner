@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { enrichMaterialNames } from '../lib/materialName'
+import { loadUnitTypes } from './UnitSettings'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../components/Toast'
 import NotionNotes from '../components/NotionNotes'
@@ -102,6 +103,31 @@ const EMPTY_FORM = {
   price:'', notes:'', material_id:null,
 }
 
+// Compute effective price based on qty and price_breaks
+function getEffectivePrice(basePrice, priceBreaks, qty) {
+  const price = parseFloat(basePrice) || 0
+  const q = parseFloat(qty) || 0
+  if (!priceBreaks?.length || !q) return price
+  const sorted = [...priceBreaks].sort((a,b) => parseFloat(b.qty) - parseFloat(a.qty))
+  for (const b of sorted) {
+    if (q >= parseFloat(b.qty)) return parseFloat(b.price) || price
+  }
+  return price
+}
+
+function getPriceBreaks(material) {
+  // enrichMaterialNames hoists price_breaks to top level — check there first
+  if (Array.isArray(material.price_breaks) && material.price_breaks.length) {
+    return material.price_breaks
+  }
+  try {
+    const cf = material.custom_fields
+      ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields))
+      : {}
+    return Array.isArray(cf.price_breaks) ? cf.price_breaks : []
+  } catch { return [] }
+}
+
 function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
@@ -134,7 +160,13 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const searchRef = useRef()
   const searchWrapRef = useRef()
 
-  const UNIT_OPTIONS = ['pcs','sheets','m','m²','m³','lm','kg','boxes','rolls','litres']
+  const [unitOptions, setUnitOptions] = useState(['sheets','pcs','m','m²','m³','lm','kg','boxes','rolls','litres','sets','L','pairs'])
+  useEffect(() => {
+    loadUnitTypes().then(setUnitOptions)
+    const handler = e => setUnitOptions(e.detail)
+    window.addEventListener('unit-types-updated', handler)
+    return () => window.removeEventListener('unit-types-updated', handler)
+  }, [])
 
   const ALL_STANDARD_FIELDS = [
     { key:'supplier',     label:'Supplier' },
@@ -153,7 +185,14 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
 
   useEffect(()=>{
     supabase.from('order_items').select('*').eq('job_id',jobId).eq('room_id',room.id).order('created_at')
-      .then(({data})=>{ setOrders(data||[]); setLoading(false) })
+      .then(({data})=>{
+        const parsed = (data||[]).map(o => {
+          let pb = []
+          try { pb = o.price_breaks ? (typeof o.price_breaks === 'string' ? JSON.parse(o.price_breaks) : o.price_breaks) : [] } catch {}
+          return { ...o, price_breaks: pb }
+        })
+        setOrders(parsed); setLoading(false)
+      })
   },[room.id,jobId])
 
   const matches = search.trim().length > 0
@@ -176,22 +215,29 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
     : []
 
   async function pickMaterial(m) {
-    setSelected(m)
-    setSearch(m.name||'')
+    // Re-fetch the full material to ensure custom_fields.price_breaks are current
+    const { data: fresh } = await supabase.from('materials').select('*').eq('id', m.id).single()
+    const mat = fresh || m
+    setSelected(mat)
+    setSearch(mat.name || m.name || '')
     setShowDrop(false)
     setQty('')
-    setUnit(m.unit || 'pcs')
+    // Unit from custom_fields first, then native unit, then smart default
+    const cf = mat.custom_fields
+      ? (typeof mat.custom_fields === 'object' ? mat.custom_fields : (() => { try { return JSON.parse(mat.custom_fields) } catch { return {} } })())
+      : {}
+    const matUnit = cf.unit || mat.unit || (mat.panel_type ? 'sheets' : 'pcs')
+    setUnit(matUnit)
     // Load category visibility settings
-    if (m.category_id) {
-      const [{ data: cfg }, { data: cf }] = await Promise.all([
-        supabase.from('app_settings').select('value').eq('key',`mat_cat_fields_${m.category_id}`).maybeSingle(),
-        supabase.from('category_fields').select('*').eq('category_id', m.category_id).order('sort_order'),
+    if (mat.category_id) {
+      const [{ data: cfg }, { data: catF }] = await Promise.all([
+        supabase.from('app_settings').select('value').eq('key',`mat_cat_fields_${mat.category_id}`).maybeSingle(),
+        supabase.from('category_fields').select('*').eq('category_id', mat.category_id).order('sort_order'),
       ])
       if (cfg?.value) setCatVisibility(new Set(JSON.parse(cfg.value)))
       else setCatVisibility(new Set(['supplier','panel_type','thickness','colour_code','finish','price','notes']))
-      setCatFields(cf||[])
+      setCatFields(catF||[])
     } else {
-      // No category — show basic fields that have values
       setCatVisibility(null)
       setCatFields([])
     }
@@ -220,6 +266,11 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   async function addItem() {
     if (!selected) { toast('Select or enter a material first','error'); return }
     const cf = getCF(selected)
+    const priceBreaks = getPriceBreaks(selected)
+    const basePrice = selected.price ? String(selected.price) : ''
+    const effPrice = priceBreaks.length && qty
+      ? getEffectivePrice(basePrice, priceBreaks, qty)
+      : (parseFloat(basePrice) || 0)
     const row = {
       id: Date.now().toString(36)+Math.random().toString(36).slice(2),
       job_id: jobId, room_id: room.id, status:'To order',
@@ -230,15 +281,18 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
       colour:     selected.colour_code||cf.colour||'',
       finish:     selected.finish||'',
       sku:        selected.sku||cf.sku||'',
-      price:      selected.price ? String(selected.price) : '',
+      price:      effPrice ? String(effPrice) : basePrice,
       category:   selected.panel_type ? 'Board' : 'Hardware',
       material_id: selected.id || null,
       qty: qty||'', unit, notes,
       updated_at: new Date().toISOString(),
+      // Store breaks so price updates if qty changes later
+      ...(priceBreaks.length ? { price_breaks: JSON.stringify(priceBreaks) } : {}),
     }
     const {data,error} = await supabase.from('order_items').insert(row).select().single()
     if (error) { toast(error.message,'error'); return }
-    setOrders(p=>[...p,data])
+    // Parse price_breaks back for local state
+    setOrders(p=>[...p, { ...data, price_breaks: priceBreaks }])
     clearSelection()
     toast('Added to order sheet ✓')
   }
@@ -393,8 +447,8 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
               </div>
             </div>
 
-            {/* Qty + unit + notes */}
-            <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:8,marginBottom:8}}>
+            {/* Qty + unit — unit comes from material, read-only */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:'#6B7280',display:'block',marginBottom:4}}>Qty</label>
                 <input type="number" min="0" value={qty} onChange={e=>setQty(e.target.value)}
@@ -403,10 +457,10 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
               </div>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:'#6B7280',display:'block',marginBottom:4}}>Unit</label>
-                <select value={unit} onChange={e=>setUnit(e.target.value)}
-                  style={{width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:13,outline:'none',background:'#fff',boxSizing:'border-box'}}>
-                  {UNIT_OPTIONS.map(u=><option key={u}>{u}</option>)}
-                </select>
+                <div style={{padding:'8px 10px',border:'1px solid #F3F4F6',borderRadius:8,fontSize:13,background:'#F9FAFB',color: unit ? '#374151' : '#9CA3AF',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <span>{unit || <span style={{fontStyle:'italic',color:'#C4C9D4'}}>not set</span>}</span>
+                  <span style={{fontSize:10,color:'#C4C9D4',fontStyle:'italic'}}>from library</span>
+                </div>
               </div>
             </div>
             <div style={{marginBottom:10}}>
@@ -414,6 +468,33 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
               <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Any specific notes for this order…"
                 style={{width:'100%',padding:'8px 10px',border:'1px solid #DDE3EC',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
+
+            {/* Price preview — shows effective price if breaks apply */}
+            {selected.price && (() => {
+              const pb = getPriceBreaks(selected)
+              const basePrice = parseFloat(selected.price) || 0
+              const eff = getEffectivePrice(selected.price, pb, qty)
+              const isBreak = pb.length > 0 && eff !== basePrice
+              const qtyNum = parseFloat(qty) || 0
+              return (
+                <div style={{marginBottom:10, padding:'8px 12px', borderRadius:8,
+                  background: isBreak ? '#EEF2FF' : '#F9FAFB',
+                  border: isBreak ? '1px solid #C7D2FE' : '1px solid #F3F4F6',
+                  display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                  <div>
+                    <span style={{fontSize:11,fontWeight:600,color: isBreak ? '#3730A3' : '#6B7280'}}>
+                      {isBreak ? `✦ Break price (≥${pb.filter(brk=>qtyNum>=parseFloat(brk.qty)).sort((x,y)=>parseFloat(y.qty)-parseFloat(x.qty))[0]?.qty} units)` : 'Unit price'}
+                    </span>
+                    {isBreak && <span style={{fontSize:10,color:'#9CA3AF',marginLeft:6}}>base ${basePrice.toFixed(2)}</span>}
+                  </div>
+                  <span style={{fontSize:14,fontWeight:800,color: isBreak ? '#5B8AF0' : '#374151'}}>
+                    ${eff.toFixed(2)}
+                    {qtyNum > 0 && <span style={{fontSize:11,fontWeight:500,color:'#9CA3AF',marginLeft:6}}>× {qtyNum} = ${(eff*qtyNum).toFixed(2)}</span>}
+                  </span>
+                </div>
+              )
+            })()}
+
             <button onClick={addItem}
               style={{width:'100%',padding:'10px',borderRadius:9,border:'none',background:'#2A3042',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>
               + Add to order sheet
@@ -429,8 +510,12 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
           {orders.map(o=>{
             const sc = STATUS_COLOR[o.status]||STATUS_COLOR['To order']
             const spec = [o.panel_type, o.thickness?o.thickness+'mm':null, o.colour, o.finish].filter(Boolean).join(' · ')
-            const qty = parseFloat(o.qty), price = parseFloat(o.price)
-            const total = !isNaN(qty)&&!isNaN(price)&&qty>0&&price>0 ? (qty*price).toFixed(2) : null
+            const qty = parseFloat(o.qty)
+            const priceBreaks = o.price_breaks || []
+            const effPrice = getEffectivePrice(o.price, priceBreaks, qty)
+            const price = effPrice
+            const total = !isNaN(qty)&&price>0&&qty>0 ? (qty*price).toFixed(2) : null
+            const hasBreakActive = priceBreaks.length > 0 && effPrice !== (parseFloat(o.price)||0)
             return (
               <div key={o.id} style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',overflow:'hidden'}}>
                 {/* top row */}
@@ -457,7 +542,11 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                   </div>}
                   {o.price&&<div style={{flex:1,padding:'6px 12px',borderRight:total?'1px solid #F3F4F6':'none'}}>
                     <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Unit price</div>
-                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>${parseFloat(o.price).toFixed(2)}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#374151',display:'flex',alignItems:'center',gap:4}}>
+                      ${price.toFixed(2)}
+                      {hasBreakActive && <span style={{fontSize:9,color:'#5B8AF0',background:'#EEF2FF',borderRadius:4,padding:'1px 5px',fontWeight:700}}>break</span>}
+                    </div>
+                    {hasBreakActive && <div style={{fontSize:9,color:'#9CA3AF',marginTop:1}}>base ${parseFloat(o.price).toFixed(2)}</div>}
                   </div>}
                   {total&&<div style={{flex:1,padding:'6px 12px'}}>
                     <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Total</div>

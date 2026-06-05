@@ -2754,6 +2754,7 @@ export default function JobDetail() {
 
   const [jobAppliances, setJobAppliances] = useState([])
   const [allAppliances, setAllAppliances] = useState([])
+  const [allMaterials,  setAllMaterials]  = useState([])
   const [showAppPicker, setShowAppPicker] = useState(false)
 
   // Track if all-materials has been fetched yet (lazy)

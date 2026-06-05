@@ -126,6 +126,11 @@ export default function Settings() {
             label="Copy format"
             sub="Configure order description copy template"
             to="/settings/copy-format" />
+          <NavRow icon={<><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></>}
+            iconBg="#EEF2FF" iconColor="#5B8AF0"
+            label="Unit types"
+            sub="Units available for materials and orders (sheets, pcs, m²…)"
+            to="/settings/unit-types" />
         </>}
 
       </div>
