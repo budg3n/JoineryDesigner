@@ -298,14 +298,63 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   }
 
   async function removeItem(id) {
+    const item = orders.find(o => o.id === id)
+    const name = item?.item || 'this item'
+    if (!confirm(`Remove "${name}" from the order sheet?`)) return
     await supabase.from('order_items').delete().eq('id',id)
-    setOrders(p=>p.filter(o=>o.id!==id))
+    const updatedOrders = orders.filter(o=>o.id!==id)
+    setOrders(updatedOrders)
+    // Sync task in case removing was the last "To order" item
+    const stillToOrder = updatedOrders.filter(o => o.status === 'To order')
+    if (stillToOrder.length === 0 && item) {
+      const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
+      if (jobData) {
+        const tasks = typeof jobData.tasks === 'string' ? JSON.parse(jobData.tasks||'[]') : (jobData.tasks||[])
+        const ORDER_TASK_PREFIX = '🛒 Order materials'
+        const existingIdx = tasks.findIndex(t => t.title?.startsWith(ORDER_TASK_PREFIX))
+        if (existingIdx >= 0 && !tasks[existingIdx].done) {
+          const { data: allItems } = await supabase.from('order_items').select('status').eq('job_id', jobId)
+          const anyToOrder = (allItems||[]).some(i => i.status === 'To order')
+          if (!anyToOrder) {
+            tasks[existingIdx] = { ...tasks[existingIdx], done: true, completedAt: new Date().toISOString() }
+            await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', jobId)
+            window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId } }))
+          }
+        }
+      }
+    }
   }
 
   async function toggleStatus(o) {
     const next = o.status==='To order'?'Ordered':o.status==='Ordered'?'Received':'To order'
     await supabase.from('order_items').update({status:next}).eq('id',o.id)
-    setOrders(p=>p.map(x=>x.id===o.id?{...x,status:next}:x))
+    const updatedOrders = orders.map(x=>x.id===o.id?{...x,status:next}:x)
+    setOrders(updatedOrders)
+    // Sync the order task in the job — mark done if nothing left to order
+    const stillToOrder = updatedOrders.filter(x => x.status === 'To order')
+    const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
+    if (!jobData) return
+    const tasks = typeof jobData.tasks === 'string' ? JSON.parse(jobData.tasks||'[]') : (jobData.tasks||[])
+    const ORDER_TASK_PREFIX = '🛒 Order materials'
+    const existingIdx = tasks.findIndex(t => t.title?.startsWith(ORDER_TASK_PREFIX))
+    if (existingIdx >= 0) {
+      if (stillToOrder.length === 0) {
+        // All done — also check other rooms for this job
+        const { data: allItems } = await supabase.from('order_items')
+          .select('status').eq('job_id', jobId)
+        const anyToOrder = (allItems||[]).some(i => i.status === 'To order')
+        if (!anyToOrder && !tasks[existingIdx].done) {
+          tasks[existingIdx] = { ...tasks[existingIdx], done: true, completedAt: new Date().toISOString() }
+          await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', jobId)
+          window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId } }))
+        }
+      } else if (tasks[existingIdx].done) {
+        // Something moved back to 'To order' — reopen the task
+        tasks[existingIdx] = { ...tasks[existingIdx], done: false, completedAt: null }
+        await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', jobId)
+        window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId } }))
+      }
+    }
   }
 
   // Which standard fields to show for selected material

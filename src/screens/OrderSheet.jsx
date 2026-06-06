@@ -833,6 +833,9 @@ export default function OrderSheet() {
         }
       })
       setRows(enrichedOrders)
+      // Reconcile the order task immediately on load
+      // (catches cases where status was changed elsewhere and task wasn't synced)
+      setTimeout(() => syncOrderTask(enrichedOrders), 500)
       // Load copy format config
       supabase.from('app_settings').select('value').eq('key','copy_format').maybeSingle()
         .then(({data})=>{ if(data?.value){ const cfg=typeof data.value==='string'?JSON.parse(data.value):data.value; setCopyFormat(cfg) }})
@@ -842,50 +845,55 @@ export default function OrderSheet() {
   const taskTimer = useRef()
   const ORDER_TASK_PREFIX = '🛒 Order materials'
 
+  // Reconcile order task whenever the page loads with existing data
+  const reconciledRef = useRef(false)
+  useEffect(() => {
+    if (!job?.id || rows.length === 0 || reconciledRef.current) return
+    reconciledRef.current = true
+    syncOrderTask(rows)
+  }, [job?.id, rows.length])
+
   function triggerSave(r) {
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(()=>doSave(r), 1500)
-    clearTimeout(taskTimer.current)
-    taskTimer.current = setTimeout(()=>syncOrderTask(r), 2000)
+    // Task sync is handled immediately in updateRow when status changes — no debounce needed
   }
 
   async function syncOrderTask(currentRows) {
     if (!job?.id) return
-    const toOrderItems = currentRows.filter(r => r.item?.trim() && r.status === 'To order')
+    // Run both queries in parallel
+    const [{ data: allItems }, { data: jobData }] = await Promise.all([
+      supabase.from('order_items').select('id,item,status').eq('job_id', job.id),
+      supabase.from('jobs').select('tasks').eq('id', job.id).single(),
+    ])
+    if (!jobData) return
+
+    const toOrderItems = (allItems||[]).filter(r => r.item?.trim() && r.status === 'To order')
     const allDone = toOrderItems.length === 0
 
-    // Load current job tasks
-    const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', job.id).single()
-    if (!jobData) return
     const tasks = typeof jobData.tasks === 'string'
       ? JSON.parse(jobData.tasks || '[]')
       : (jobData.tasks || [])
 
-    // Find existing order task
     const existingIdx = tasks.findIndex(t => t.title?.startsWith(ORDER_TASK_PREFIX))
 
     if (allDone) {
-      // All ordered — mark task done if it exists
       if (existingIdx >= 0 && !tasks[existingIdx].done) {
         tasks[existingIdx] = { ...tasks[existingIdx], done: true, completedAt: new Date().toISOString() }
         await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', job.id)
         window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId: job.id } }))
       }
     } else {
-      // Items to order — create or update the task
       const itemNames = toOrderItems.slice(0, 3).map(r => r.item).join(', ')
       const extra = toOrderItems.length > 3 ? ` +${toOrderItems.length - 3} more` : ''
       const title = `${ORDER_TASK_PREFIX}: ${itemNames}${extra}`
-
       if (existingIdx >= 0) {
-        // Update existing task — refresh title and mark undone
+        if (tasks[existingIdx].title === title && !tasks[existingIdx].done) return // no change needed
         tasks[existingIdx] = { ...tasks[existingIdx], title, done: false, completedAt: null }
       } else {
-        // Create new task assigned to current user
         tasks.push({
           id: Date.now().toString(36) + Math.random().toString(36).slice(2),
-          title,
-          done: false,
+          title, done: false,
           assignedTo: profile?.id || null,
           assignedName: profile?.full_name || profile?.email || null,
           createdAt: new Date().toISOString(),
@@ -938,7 +946,7 @@ export default function OrderSheet() {
         return base
       })
       triggerSave(updated)
-      // Sync order task when status changes
+      // Sync task immediately when status changes — no debounce
       if ('status' in patch) syncOrderTask(updated)
       return updated
     })

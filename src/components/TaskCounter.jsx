@@ -49,7 +49,7 @@ export default function TaskCounter() {
     if (profile?.id) loadTasks()
   }, [profile?.id])
 
-  // Re-load whenever any screen marks a task done
+  // Re-load immediately whenever any screen marks a task done
   useEffect(() => {
     const handler = () => { if (profile?.id) loadTasks() }
     window.addEventListener('tasks-updated', handler)
@@ -73,7 +73,8 @@ export default function TaskCounter() {
 
     const allTasks = []
     for (const job of jobs) {
-      const jobTasks = job.tasks ? (typeof job.tasks === 'string' ? JSON.parse(job.tasks) : job.tasks) : []
+      let jobTasks = []
+      try { jobTasks = job.tasks ? (typeof job.tasks === 'string' ? JSON.parse(job.tasks) : job.tasks) : [] } catch {}
       jobTasks.filter(t => !t.done).forEach(t => {
         allTasks.push({
           ...t,
@@ -84,7 +85,6 @@ export default function TaskCounter() {
       })
     }
 
-    // Priority: overdue first, then soonest due, then undated
     allTasks.sort((a, b) => {
       const da = a.date ? daysUntil(a.date) : 999
       const db = b.date ? daysUntil(b.date) : 999

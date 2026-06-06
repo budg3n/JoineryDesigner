@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { fmtDate, fmtDateLong, fmtDateTime, fmtTime } from '../lib/dates'
 import { usePersistentState } from '../hooks/usePersistentState'
 const fmtNZTime = dt => { const s = String(dt).endsWith('Z')||String(dt).includes('+') ? dt : dt+'Z'; const d = new Date(s), o = d.getUTCMonth()>=4&&d.getUTCMonth()<=8?12:13, n = new Date(d.getTime()+o*3600000), H = n.getUTCHours(); return n.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][n.getUTCMonth()]+', '+(H%12||12)+':'+String(n.getUTCMinutes()).padStart(2,'0')+' '+(H<12?'am':'pm') }
@@ -22,6 +23,84 @@ import OnSite from './OnSite'
 import DropZone from '../components/DropZone'
 import StatusBadge from '../components/StatusBadge'
 import { enrichMaterialNames } from '../lib/materialName'
+
+// ── Room icon picker ──────────────────────────────────────────────
+const ROOM_ICONS = [
+  { label:'Kitchen',    icons:['🍳','🥘','🍽','🫕','☕','🧑‍🍳'] },
+  { label:'Bathroom',   icons:['🚿','🛁','🪥','🪞','🚽','🧼'] },
+  { label:'Bedroom',    icons:['🛏','🌙','🪟','🛋','🧸','💤'] },
+  { label:'Living',     icons:['🛋','📺','🎮','🎵','🕯','🪴'] },
+  { label:'Laundry',    icons:['🫧','👕','🧺','🪣','💧','🧹'] },
+  { label:'Office',     icons:['💼','🖥','📋','📚','✏️','🖊'] },
+  { label:'Outdoor',    icons:['🌿','🏡','🌳','⛺','🌻','🪵'] },
+  { label:'Other',      icons:['🏠','🚪','🔑','📦','🛠','⭐'] },
+]
+
+function RoomIconBtn({ emoji, onPick }) {
+  const [show, setShow] = React.useState(false)
+  const [hovered, setHovered] = React.useState(false)
+  const btnRef = React.useRef()
+  const popRef = React.useRef()
+  const [pos, setPos] = React.useState({ top:0, left:0 })
+
+  React.useEffect(() => {
+    if (!show) return
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (rect) {
+      const popHeight = 420 // approximate picker height
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      const top = spaceBelow >= popHeight || spaceBelow >= spaceAbove
+        ? rect.bottom + 6
+        : rect.top - popHeight - 6
+      const left = Math.min(rect.left, window.innerWidth - 270)
+      setPos({ top, left })
+    }
+    function handleClick(e) {
+      if (popRef.current && !popRef.current.contains(e.target) && !btnRef.current?.contains(e.target)) setShow(false)
+    }
+    setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [show])
+
+  return (
+    <>
+      <div ref={btnRef}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={e => { e.stopPropagation(); setShow(s => !s) }}
+        title="Change room icon"
+        style={{ width:32, height:32, borderRadius:8, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0, cursor:'pointer', position:'relative', transition:'background .12s', ...(hovered || show ? { background:'#E0E7FF' } : {}) }}>
+        {emoji}
+        {(hovered || show) && (
+          <div style={{ position:'absolute', bottom:-2, right:-2, width:14, height:14, borderRadius:'50%', background:'#5B8AF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, color:'#fff', fontWeight:700, border:'2px solid #fff', pointerEvents:'none' }}>✏</div>
+        )}
+      </div>
+      {show && ReactDOM.createPortal(
+        <div ref={popRef} onClick={e => e.stopPropagation()}
+          style={{ position:'fixed', zIndex:9999, top:pos.top, left:pos.left, background:'#fff', borderRadius:14, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0', padding:14, width:260, maxHeight:'70vh', overflowY:'auto' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>Choose icon</div>
+          {ROOM_ICONS.map(group => (
+            <div key={group.label} style={{ marginBottom:10 }}>
+              <div style={{ fontSize:10, fontWeight:600, color:'#C4C9D4', marginBottom:5, textTransform:'uppercase', letterSpacing:'.05em' }}>{group.label}</div>
+              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                {group.icons.map(ic => (
+                  <button key={ic} onClick={() => { onPick(ic); setShow(false) }}
+                    style={{ width:34, height:34, borderRadius:8, border: ic===emoji ? '2px solid #5B8AF0' : '1px solid #E8ECF0', background: ic===emoji ? '#EEF2FF' : '#F9FAFB', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .1s' }}
+                    onMouseEnter={e=>{ e.currentTarget.style.background='#EEF2FF'; e.currentTarget.style.borderColor='#5B8AF0' }}
+                    onMouseLeave={e=>{ if(ic!==emoji){ e.currentTarget.style.background='#F9FAFB'; e.currentTarget.style.borderColor='#E8ECF0' } }}>
+                    {ic}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
 // Job statuses loaded dynamically from settings — see useJobStatuses hook
@@ -1520,7 +1599,8 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const isOpen = expandedId === room.id
           const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
           const open = tasks.filter(t=>!t.done).length
-          const emoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
+          const defaultEmoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
+          const emoji = room.icon || defaultEmoji
           return (
             <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
               {/* room header row — collapsed shows summary, expanded shows just controls */}
@@ -1530,9 +1610,14 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   borderBottom: isOpen ? '1px solid #E8ECF0' : 'none' }}
                 onMouseEnter={e=>{ if(!isOpen) e.currentTarget.style.background='#F9FAFB' }}
                 onMouseLeave={e=>{ if(!isOpen) e.currentTarget.style.background=isOpen?'#F8F9FF':'#fff' }}>
-                <div style={{ width:32, height:32, borderRadius:8, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
-                  {emoji}
-                </div>
+                <RoomIconBtn emoji={emoji} onPick={async icon => {
+                  const { error } = await supabase.from('rooms').update({ icon }).eq('id', room.id)
+                  if (error) {
+                    toast(error.message.includes('column') ? 'Run SQL: alter table rooms add column if not exists icon text;' : error.message, 'error')
+                    return
+                  }
+                  onRoomsChange(p => p.map(r => r.id===room.id ? {...r, icon} : r))
+                }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
@@ -1666,7 +1751,7 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
                 <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
                   {/* room icon */}
                   <div style={{ width:36, height:36, borderRadius:9, background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
-                    {room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'}
+                    {room.icon || (room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠')}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
