@@ -6,6 +6,8 @@ import { fmtDate, fmtDateTime } from '../lib/dates'
 const inp = { width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
 const lbl = { fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }
 
+const APP_URL = window.location.origin
+
 // ─────────────────────────────────────────────
 // CONTACTS
 // ─────────────────────────────────────────────
@@ -171,15 +173,91 @@ const PRI_STYLE = {
 
 export function JobRFITab({ jobId, profile, profiles }) {
   const toast = useToast()
-  const [rfis, setRfis]       = useState([])
-  const [loading, setLoading] = useState(true)
-  const [form, setForm]       = useState(null)
-  const [detail, setDetail]   = useState(null)
-  const [saving, setSaving]   = useState(false)
+  const [rfis, setRfis]         = useState([])
+  const [contacts, setContacts] = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [form, setForm]         = useState(null)
+  const [detail, setDetail]     = useState(null)
+  const [saving, setSaving]     = useState(false)
+  const [sending, setSending]   = useState(null) // rfi id being sent
 
   useEffect(() => {
     if (!jobId) { setLoading(false); return }
-    supabase.from('job_rfis').select('*').eq('job_id', jobId).order('number', { ascending:true })
+    Promise.all([
+      supabase.from('job_rfis').select('*').eq('job_id', jobId).order('created_at', { ascending:true }),
+      supabase.from('job_contacts').select('*').eq('job_id', jobId).order('created_at'),
+    ]).then(([{ data: rfiData }, { data: contactData }]) => {
+      setRfis(rfiData || [])
+      setContacts(contactData || [])
+      setLoading(false)
+    })
+  }, [jobId])
+
+  // Generate a unique reply token and return the reply URL
+  function makeUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return makeUUID()
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+    })
+  }
+
+  async function generateReplyLink(rfi) {
+    let token = rfi.reply_token
+    if (!token) {
+      token = makeUUID()
+      await supabase.from('job_rfis').update({ reply_token: token }).eq('id', rfi.id)
+      setRfis(p => p.map(r => r.id === rfi.id ? { ...r, reply_token: token } : r))
+      if (detail?.id === rfi.id) setDetail(d => ({ ...d, reply_token: token }))
+    }
+    return `${APP_URL}/rfi/${token}`
+  }
+
+  async function sendLink(rfi, contactEmail, contactName) {
+    setSending(rfi.id)
+    const link = await generateReplyLink(rfi)
+    const jobName = rfi.job_name || ''
+    const rfiNum = `RFI-${String(rfi.number||0).padStart(3,'0')}`
+    const subject = encodeURIComponent(`${rfiNum}: ${rfi.title}${jobName ? ` — ${jobName}` : ''}`)
+    const body = encodeURIComponent(
+`Hi ${contactName || 'there'},
+
+You have received a Request for Information (${rfiNum}) that requires your response.
+
+RFI: ${rfi.title}
+${rfi.description ? `\nDetails:\n${rfi.description}\n` : ''}
+${rfi.due_date ? `Due: ${new Date(rfi.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })}\n` : ''}
+Please click the link below to view the details and submit your response:
+
+${link}
+
+Thank you.`)
+
+    // Open the user's email client with pre-filled content
+    window.open(`mailto:${contactEmail}?subject=${subject}&body=${body}`)
+
+    // Mark as sent
+    const now = new Date().toISOString()
+    await supabase.from('job_rfis').update({
+      reply_sent_at: now,
+      reply_sent_to: contactEmail,
+    }).eq('id', rfi.id)
+    setRfis(p => p.map(r => r.id === rfi.id ? { ...r, reply_sent_at: now, reply_sent_to: contactEmail } : r))
+    if (detail?.id === rfi.id) setDetail(d => ({ ...d, reply_sent_at: now, reply_sent_to: contactEmail }))
+
+    toast(`Email opened for ${contactEmail} ✓`)
+    setSending(null)
+  }
+
+  async function copyLink(rfi) {
+    const link = await generateReplyLink(rfi)
+    navigator.clipboard.writeText(link)
+    toast('Reply link copied to clipboard ✓')
+  }
+
+  useEffect(() => {
+    if (!jobId) { setLoading(false); return }
+    supabase.from('job_rfis').select('*').eq('job_id', jobId).order('created_at', { ascending:true })
       .then(({ data, error }) => {
         if (error) console.warn('RFI error:', error.message)
         setRfis(data || [])
@@ -188,11 +266,20 @@ export function JobRFITab({ jobId, profile, profiles }) {
   }, [jobId])
 
   function profileName(id) {
+    if (!id) return ''
+    if (String(id).startsWith('contact_')) {
+      const c = contacts.find(x => x.id === id.replace('contact_', ''))
+      return c ? `${c.name}${c.role ? ` (${c.role})` : ''}` : id
+    }
     const p = (profiles||[]).find(x => x.id === id)
     return p ? (p.full_name || p.email) : ''
   }
 
-  function openNew() {
+  // Get contact object if assigned_to is a job contact
+  function getAssignedContact(assignedTo) {
+    if (!assignedTo || !String(assignedTo).startsWith('contact_')) return null
+    return contacts.find(c => c.id === assignedTo.replace('contact_', '')) || null
+  }
     const next = rfis.length ? Math.max(...rfis.map(r => r.number || 0)) + 1 : 1
     setForm({ title:'', description:'', type:'internal', status:'Open', priority:'Normal', assigned_to:'', due_date:'', number:next })
   }
@@ -201,21 +288,23 @@ export function JobRFITab({ jobId, profile, profiles }) {
     if (!form?.title?.trim()) { toast('Title is required', 'error'); return }
     setSaving(true)
     const payload = {
-      title:form.title, description:form.description||'', type:form.type,
-      status:form.status, priority:form.priority,
-      assigned_to:form.assigned_to||null, due_date:form.due_date||null,
-      number:form.number, updated_at:new Date().toISOString(),
+      title: form.title, description: form.description||'', type: form.type,
+      status: form.status, priority: form.priority,
+      assigned_to: form.assigned_to ? String(form.assigned_to).replace('contact_', '') : null,
+      due_date: form.due_date || null,
+      updated_at: new Date().toISOString(),
     }
+    if (form.number) payload.number = form.number
     if (form.id) {
       const { error } = await supabase.from('job_rfis').update(payload).eq('id', form.id)
-      if (error) { toast(error.message, 'error'); setSaving(false); return }
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => p.map(r => r.id === form.id ? {...r, ...payload} : r))
       if (detail?.id === form.id) setDetail(d => ({...d, ...payload}))
     } else {
-      const { data, error } = await supabase.from('job_rfis')
-        .insert({ ...payload, job_id:jobId, created_by:profile?.id||null })
-        .select().single()
-      if (error) { toast(error.message, 'error'); setSaving(false); return }
+      const insertData = { ...payload, job_id: jobId }
+      if (profile?.id) insertData.created_by = profile.id
+      const { data, error } = await supabase.from('job_rfis').insert(insertData).select().single()
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => [...p, data])
     }
     toast('RFI saved ✓')
@@ -321,8 +410,9 @@ export function JobRFITab({ jobId, profile, profiles }) {
       )}
 
       {/* Detail panel */}
-      {detail && <RFIDetailPanel rfi={detail} profiles={profiles} onClose={() => setDetail(null)}
-        onRespond={respond} onStatusChange={changeStatus} />}
+      {detail && <RFIDetailPanel rfi={detail} profiles={profiles} contacts={contacts} sending={sending}
+        onClose={() => setDetail(null)} onRespond={respond} onStatusChange={changeStatus}
+        onSendLink={sendLink} onCopyLink={copyLink} />}
 
       {/* Form modal */}
       {form && (
@@ -368,10 +458,32 @@ export function JobRFITab({ jobId, profile, profiles }) {
                   </select>
                 </div>
                 <div>
-                  <label style={lbl}>Assign to</label>
+                  <label style={lbl}>Assign to / Send to</label>
                   <select value={form.assigned_to||''} onChange={e => setForm(f => ({...f, assigned_to:e.target.value||null}))} style={{...inp, cursor:'pointer'}}>
                     <option value="">Unassigned</option>
-                    {(profiles||[]).map(p => <option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}
+                    {(profiles||[]).length > 0 && (
+                      <optgroup label="── Team">
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}
+                      </optgroup>
+                    )}
+                    {contacts.filter(c => c.email).length > 0 && (
+                      <optgroup label="── Job contacts">
+                        {contacts.filter(c => c.email).map(c => (
+                          <option key={`contact_${c.id}`} value={`contact_${c.id}`}>
+                            {c.name}{c.role ? ` (${c.role})` : ''} — {c.email}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {contacts.filter(c => !c.email).length > 0 && (
+                      <optgroup label="── Contacts (no email)">
+                        {contacts.filter(c => !c.email).map(c => (
+                          <option key={`contact_${c.id}`} value={`contact_${c.id}`}>
+                            {c.name}{c.role ? ` (${c.role})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -394,9 +506,10 @@ export function JobRFITab({ jobId, profile, profiles }) {
   )
 }
 
-function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
+function RFIDetailPanel({ rfi, profiles, contacts, onClose, onRespond, onStatusChange, onSendLink, onCopyLink, sending }) {
   const [response, setResponse] = useState(rfi.response || '')
   const [saving, setSaving]     = useState(false)
+  const [showSendMenu, setShowSendMenu] = useState(false)
 
   useEffect(() => { setResponse(rfi.response || '') }, [rfi.id])
 
@@ -413,11 +526,13 @@ function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
   }
 
   const ss = STATUS_STYLE[rfi.status] || STATUS_STYLE.Open
+  const replyLink = rfi.reply_token ? `${APP_URL}/rfi/${rfi.reply_token}` : null
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
       onClick={e => e.target===e.currentTarget && onClose()}>
-      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:500, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:520, maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        {/* Header */}
         <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
           <div>
             <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', fontFamily:'monospace', marginBottom:3 }}>
@@ -427,6 +542,7 @@ function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1, flexShrink:0 }}>×</button>
         </div>
+
         <div style={{ flex:1, overflowY:'auto', padding:18 }}>
           {/* Status buttons */}
           <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
@@ -461,10 +577,101 @@ function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
             <div><span style={{ color:'#9CA3AF' }}>Created: </span><strong>{fmtDateTime(rfi.created_at)}</strong></div>
           </div>
 
+          {/* ── Send link section ── */}
+          {(() => {
+            const assignedContact = rfi.assigned_to && String(rfi.assigned_to).startsWith('contact_')
+              ? contacts.find(c => c.id === rfi.assigned_to.replace('contact_', ''))
+              : null
+            return (
+          <div style={{ background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, padding:14, marginBottom:14 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#3730A3', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+              <span>📨</span> Send reply link to contact
+            </div>
+
+            {/* Assigned contact quick-send */}
+            {assignedContact?.email && (
+              <div style={{ background:'#EEF2FF', borderRadius:8, padding:'8px 12px', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#3730A3' }}>Assigned: {assignedContact.name}</div>
+                  <div style={{ fontSize:11, color:'#6B7280' }}>{assignedContact.email}</div>
+                </div>
+                <button onClick={() => onSendLink(rfi, assignedContact.email, assignedContact.name)}
+                  disabled={sending === rfi.id}
+                  style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                  ✉ Send now
+                </button>
+              </div>
+            )}
+
+            {/* Sent status */}
+            {rfi.reply_sent_at && (
+              <div style={{ fontSize:11, color:'#6B7280', marginBottom:10, display:'flex', alignItems:'center', gap:5 }}>
+                <span style={{ color:'#1D9E75' }}>✓</span>
+                Sent to <strong>{rfi.reply_sent_to}</strong> · {fmtDateTime(rfi.reply_sent_at)}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {contacts.length > 0 ? (
+                <div style={{ position:'relative' }}>
+                  <button onClick={() => setShowSendMenu(s => !s)}
+                    disabled={sending === rfi.id}
+                    style={{ padding:'7px 14px', borderRadius:8, border:'none', background: assignedContact?.email ? '#F3F4F6' : '#5B8AF0', color: assignedContact?.email ? '#6B7280' : '#fff', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                    {sending === rfi.id ? 'Opening…' : assignedContact?.email ? '✉ Send to another…' : '✉ Send via email'}
+                    <span style={{ fontSize:10 }}>▾</span>
+                  </button>
+                  {showSendMenu && (
+                    <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, background:'#fff', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', border:'1px solid #E8ECF0', zIndex:10, minWidth:220, overflow:'hidden' }}>
+                      {contacts.map(c => (
+                        <button key={c.id} onClick={() => { onSendLink(rfi, c.email, c.name); setShowSendMenu(false) }}
+                          style={{ width:'100%', padding:'10px 14px', border:'none', background:'none', cursor:'pointer', textAlign:'left', display:'flex', flexDirection:'column', gap:1, borderBottom:'1px solid #F3F4F6' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
+                          onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                          <span style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{c.name}</span>
+                          <span style={{ fontSize:11, color:'#9CA3AF' }}>{c.email || 'No email'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize:12, color:'#9CA3AF', fontStyle:'italic' }}>Add contacts with email addresses to send the link.</div>
+              )}
+
+              <button onClick={() => onCopyLink(rfi)}
+                style={{ padding:'7px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                🔗 Copy link
+              </button>
+            </div>
+            </div>
+
+            {/* Show the link if already generated */}
+            {replyLink && (
+              <div style={{ marginTop:10, padding:'6px 10px', background:'#fff', borderRadius:7, border:'1px solid #E8ECF0', fontSize:11, color:'#9CA3AF', wordBreak:'break-all' }}>
+                {replyLink}
+              </div>
+            )}
+          </div>
+            )
+          })()}
+
+          {/* ── External reply ── */}
+          {rfi.external_reply && (
+            <div style={{ background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:12, padding:14, marginBottom:14 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#065F46', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
+                <span>✓</span> External reply received
+                {rfi.external_reply_name && <span style={{ fontWeight:500, textTransform:'none', letterSpacing:0 }}>from {rfi.external_reply_name}</span>}
+                {rfi.external_reply_at && <span style={{ fontWeight:400, opacity:0.7, marginLeft:'auto' }}>{fmtDateTime(rfi.external_reply_at)}</span>}
+              </div>
+              <div style={{ fontSize:13, color:'#166534', lineHeight:1.6 }}>{rfi.external_reply}</div>
+            </div>
+          )}
+
+          {/* Internal response */}
           <div>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>Response</div>
+            <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>Internal response</div>
             <textarea value={response} onChange={e => setResponse(e.target.value)} rows={4}
-              placeholder="Add a response…"
+              placeholder="Add an internal response or notes…"
               style={{ width:'100%', padding:'10px 12px', border:'1px solid #DDE3EC', borderRadius:10, fontSize:13, outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' }}/>
             <button onClick={submit} disabled={saving || !response.trim()}
               style={{ marginTop:8, padding:'9px 20px', borderRadius:9, border:'none', fontSize:13, fontWeight:700, cursor:response.trim()?'pointer':'default',

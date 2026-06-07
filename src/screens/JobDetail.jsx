@@ -2431,46 +2431,143 @@ const _PRI = { 'Low':'#9CA3AF', 'Normal':'#6B7280', 'High':'#D97706', 'Urgent':'
 
 function JobRFITab({ jobId, profile, profiles }) {
   const toast = useToast()
-  const [rfis, setRfis]       = useState([])
-  const [loading, setLoading] = useState(true)
-  const [form, setForm]       = useState(null)
-  const [detail, setDetail]   = useState(null)
-  const [saving, setSaving]   = useState(false)
+  const [rfis, setRfis]         = useState([])
+  const [contacts, setContacts] = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [form, setForm]         = useState(null)
+  const [detail, setDetail]     = useState(null)
+  const [saving, setSaving]     = useState(false)
+  const [sending, setSending]   = useState(null)
 
   useEffect(() => {
     if (!jobId) { setLoading(false); return }
-    supabase.from('job_rfis').select('*').eq('job_id', jobId).order('number', { ascending:true })
-      .then(({ data, error }) => {
-        if (error) console.warn('RFI:', error.message)
-        setRfis(data||[]); setLoading(false)
-      }).catch(() => setLoading(false))
+    Promise.all([
+      supabase.from('job_rfis').select('*').eq('job_id', jobId).order('created_at', { ascending:true }),
+      supabase.from('job_contacts').select('*').eq('job_id', jobId).order('created_at'),
+    ]).then(([{ data: rfiData, error: rfiErr }, { data: contactData }]) => {
+      if (rfiErr) console.error('RFI load error:', rfiErr.message, rfiErr.hint || '', rfiErr.details || '')
+      setRfis(rfiData || [])
+      setContacts(contactData || [])
+      setLoading(false)
+    }).catch(e => { console.error('RFI catch:', e); setLoading(false) })
   }, [jobId])
 
-  const pName = id => { const p = (profiles||[]).find(x => x.id===id); return p ? (p.full_name||p.email) : '' }
+  const pName = id => {
+    if (!id) return ''
+    if (String(id).startsWith('contact_')) {
+      const c = contacts.find(x => x.id === id.replace('contact_', ''))
+      return c ? `${c.name}${c.role ? ` (${c.role})` : ''}` : ''
+    }
+    const p = (profiles||[]).find(x => x.id===id)
+    return p ? (p.full_name||p.email) : ''
+  }
 
   function openNew() {
     const next = rfis.length ? Math.max(...rfis.map(r => r.number||0))+1 : 1
     setForm({ title:'', description:'', type:'internal', status:'Open', priority:'Normal', assigned_to:'', due_date:'', number:next })
   }
 
+  const APP_URL = window.location.origin
+
+  function makeUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return makeUUID()
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+    })
+  }
+
+  async function generateToken(rfiId) {
+    const token = makeUUID()
+    await supabase.from('job_rfis').update({ reply_token: token }).eq('id', rfiId)
+    return token
+  }
+
+  function sendEmail(rfi, token, contact) {
+    const link = `${APP_URL}/rfi/${token}`
+    const rfiNum = `RFI-${String(rfi.number||0).padStart(3,'0')}`
+    const subject = encodeURIComponent(`${rfiNum}: ${rfi.title}`)
+    const body = encodeURIComponent(
+`Hi ${contact.name || 'there'},
+
+You have received a Request for Information (${rfiNum}) that requires your response.
+
+RFI: ${rfi.title}
+${rfi.description ? `\nDetails:\n${rfi.description}\n` : ''}${rfi.due_date ? `Due: ${new Date(rfi.due_date).toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })}\n` : ''}
+Please click the link below to view the details and submit your response:
+
+${link}
+
+Thank you.`)
+    window.open(`mailto:${contact.email}?subject=${subject}&body=${body}`)
+    const now = new Date().toISOString()
+    supabase.from('job_rfis').update({ reply_sent_at: now, reply_sent_to: contact.email }).eq('id', rfi.id)
+    toast(`Email opened for ${contact.email} ✓`)
+  }
+
   async function saveRFI() {
     if (!form?.title?.trim()) { toast('Title is required','error'); return }
     setSaving(true)
-    const payload = { title:form.title, description:form.description||'', type:form.type, status:form.status,
-      priority:form.priority, assigned_to:form.assigned_to||null, due_date:form.due_date||null,
-      number:form.number, updated_at:new Date().toISOString() }
+    // Only send columns we know exist
+    const payload = {
+      title: form.title,
+      description: form.description || '',
+      type: form.type || 'internal',
+      status: form.status || 'Open',
+      priority: form.priority || 'Normal',
+      assigned_to: form.assigned_to
+        ? String(form.assigned_to).replace('contact_', '')
+        : null,
+      due_date: form.due_date || null,
+      updated_at: new Date().toISOString(),
+    }
+    // Only include number if it has a value
+    if (form.number) payload.number = form.number
+
+    let savedRfi = null
     if (form.id) {
       const { error } = await supabase.from('job_rfis').update(payload).eq('id', form.id)
-      if (error) { toast(error.message,'error'); setSaving(false); return }
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => p.map(r => r.id===form.id ? {...r,...payload} : r))
       if (detail?.id===form.id) setDetail(d => ({...d,...payload}))
+      savedRfi = { ...form, ...payload }
     } else {
-      const { data, error } = await supabase.from('job_rfis')
-        .insert({...payload, job_id:jobId, created_by:profile?.id||null}).select().single()
-      if (error) { toast(error.message,'error'); setSaving(false); return }
+      const insertData = { ...payload, job_id: jobId }
+      // Only add created_by if we have a valid UUID
+      if (profile?.id) insertData.created_by = profile.id
+      const { data, error } = await supabase.from('job_rfis').insert(insertData).select().single()
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => [...p, data])
+      savedRfi = data
     }
-    toast('RFI saved ✓'); setForm(null); setSaving(false)
+
+    // If assigned to an external contact, generate token and offer to send
+    const assignedTo = form.assigned_to
+    if (assignedTo && String(assignedTo).startsWith('contact_')) {
+      const contact = contacts.find(c => c.id === assignedTo.replace('contact_', ''))
+      if (contact?.email && savedRfi) {
+        try {
+          const token = savedRfi.reply_token || await generateToken(savedRfi.id)
+          setRfis(p => p.map(r => r.id===savedRfi.id ? {...r, reply_token:token} : r))
+          const rfiNum = `RFI-${String(savedRfi.number||0).padStart(3,'0')}`
+          const link = `${APP_URL}/rfi/${token}`
+          const subject = encodeURIComponent(`${rfiNum}: ${savedRfi.title}`)
+          const body = encodeURIComponent(`Hi ${contact.name || 'there'},\n\nYou have received a Request for Information (${rfiNum}) that requires your response.\n\nRFI: ${savedRfi.title}\n${savedRfi.description ? `\nDetails:\n${savedRfi.description}\n` : ''}\nPlease click the link below to view and respond:\n\n${link}\n\nThank you.`)
+          const mailtoUrl = `mailto:${contact.email}?subject=${subject}&body=${body}`
+          // Copy link to clipboard as fallback, open mailto
+          try { navigator.clipboard.writeText(link) } catch {}
+          window.location.href = mailtoUrl
+          const now = new Date().toISOString()
+          supabase.from('job_rfis').update({ reply_sent_at: now, reply_sent_to: contact.email }).eq('id', savedRfi.id)
+        } catch (e) {
+          console.warn('Email error:', e)
+        }
+      }
+    }
+
+    toast('RFI saved ✓')
+    setForm(null)
+    setSaving(false)
   }
 
   async function respond(response) {
@@ -2643,10 +2740,32 @@ function JobRFITab({ jobId, profile, profiles }) {
                   </select>
                 </div>
                 <div>
-                  <label style={_lbl}>Assign to</label>
+                  <label style={_lbl}>Assign to / Send to</label>
                   <select value={form.assigned_to||''} onChange={e => setForm(f => ({...f,assigned_to:e.target.value||null}))} style={{..._inp,cursor:'pointer'}}>
                     <option value="">Unassigned</option>
-                    {(profiles||[]).map(p => <option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}
+                    {(profiles||[]).length > 0 && (
+                      <optgroup label="── Team">
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name||p.email}</option>)}
+                      </optgroup>
+                    )}
+                    {contacts.filter(c => c.email).length > 0 && (
+                      <optgroup label="── Job contacts">
+                        {contacts.filter(c => c.email).map(c => (
+                          <option key={`contact_${c.id}`} value={`contact_${c.id}`}>
+                            {c.name}{c.role ? ` (${c.role})` : ''} — {c.email}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {contacts.filter(c => !c.email).length > 0 && (
+                      <optgroup label="── Contacts (no email)">
+                        {contacts.filter(c => !c.email).map(c => (
+                          <option key={`contact_${c.id}`} value={`contact_${c.id}`}>
+                            {c.name}{c.role ? ` (${c.role})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -2655,10 +2774,21 @@ function JobRFITab({ jobId, profile, profiles }) {
                 </div>
               </div>
             </div>
-            <div style={{ padding:'10px 18px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, justifyContent:'flex-end', flexShrink:0 }}>
+            <div style={{ padding:'10px 18px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, justifyContent:'flex-end', alignItems:'center', flexShrink:0 }}>
+              {form?.assigned_to && String(form.assigned_to).startsWith('contact_') && (() => {
+                const c = contacts.find(x => x.id === form.assigned_to.replace('contact_', ''))
+                return c?.email ? (
+                  <span style={{ fontSize:11, color:'#6B7280', marginRight:'auto', display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ color:'#1D9E75' }}>✉</span> Will send link to {c.email}
+                  </span>
+                ) : null
+              })()}
               <button onClick={() => setForm(null)} style={{ padding:'8px 14px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, cursor:'pointer' }}>Cancel</button>
-              <button onClick={saveRFI} disabled={saving} style={{ padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-                {saving ? 'Saving…' : 'Save RFI'}
+              <button onClick={saveRFI} disabled={saving}
+                style={{ padding:'8px 18px', borderRadius:9, border:'none', fontSize:13, fontWeight:700, cursor:'pointer',
+                  background: form?.assigned_to && String(form.assigned_to).startsWith('contact_') && contacts.find(x => x.id === form.assigned_to.replace('contact_',''))?.email ? '#1D9E75' : '#5B8AF0',
+                  color:'#fff' }}>
+                {saving ? 'Saving…' : (form?.assigned_to && String(form.assigned_to).startsWith('contact_') && contacts.find(x => x.id === form.assigned_to.replace('contact_',''))?.email) ? '✉ Save & Send' : 'Save RFI'}
               </button>
             </div>
           </div>

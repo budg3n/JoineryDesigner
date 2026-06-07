@@ -27,6 +27,7 @@ import JobStatuses from './screens/JobStatuses'
 import RoomTypeSettings from './screens/RoomTypeSettings'
 import ApplianceSettings from './screens/ApplianceSettings'
 import UnitSettings from './screens/UnitSettings'
+import RFIReply from './screens/RFIReply'
 
 function RoleRedirect() {
   const { profile, previewRole } = useApp()
@@ -57,6 +58,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/rfi/:token" element={<RFIReply />} />
       <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<RoleRedirect />} />
         <Route path="job/:id" element={<JobDetail />} />
