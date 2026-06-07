@@ -128,6 +128,135 @@ function getPriceBreaks(material) {
   } catch { return [] }
 }
 
+// ── Room Files Tab ────────────────────────────────────────────────
+function RoomFilesTab({ room, jobId }) {
+  const toast = useToast()
+  const [files, setFiles]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const inputRef = useRef()
+
+  useEffect(() => {
+    supabase.from('room_files').select('*').eq('room_id', room.id).order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) console.error('Room files load error:', error.message)
+        setFiles(data || [])
+        setLoading(false)
+      })
+  }, [room.id])
+
+  async function handleUpload(e) {
+    const selected = Array.from(e.target.files || [])
+    if (!selected.length) return
+    setUploading(true)
+    for (const file of selected) {
+      const path = `rooms/${room.id}/${Date.now()}_${file.name.replace(/\s+/g,'_')}`
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type })
+      if (upErr) { toast(upErr.message, 'error'); continue }
+      const { data } = await supabase.from('room_files')
+        .insert({ room_id: room.id, job_id: jobId, name: file.name, type: file.type, size: file.size, storage_path: path })
+        .select().single()
+      if (data) setFiles(p => [data, ...p])
+    }
+    setUploading(false)
+    e.target.value = ''
+    toast('Uploaded ✓')
+  }
+
+  async function deleteFile(f) {
+    if (!confirm(`Delete "${f.name}"?`)) return
+    if (f.storage_path) await supabase.storage.from(BUCKET).remove([f.storage_path])
+    await supabase.from('room_files').delete().eq('id', f.id)
+    setFiles(p => p.filter(x => x.id !== f.id))
+    toast('Deleted')
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return ''
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB'
+    return (bytes/1048576).toFixed(1) + ' MB'
+  }
+
+  function fileIcon(type) {
+    if (type?.startsWith('image/')) return '🖼'
+    if (type?.includes('pdf')) return '📄'
+    if (type?.includes('word') || type?.includes('document')) return '📝'
+    if (type?.includes('sheet') || type?.includes('excel') || type?.includes('csv')) return '📊'
+    if (type?.includes('zip') || type?.includes('compressed')) return '🗜'
+    return '📎'
+  }
+
+  return (
+    <div>
+      {/* Upload button */}
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
+        <input ref={inputRef} type="file" multiple onChange={handleUpload} style={{ display:'none' }} />
+        <button onClick={() => inputRef.current?.click()} disabled={uploading}
+          style={{ padding:'8px 16px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+          {uploading ? '⏳ Uploading…' : '+ Upload file'}
+        </button>
+      </div>
+
+      {/* Drop zone hint */}
+      <div
+        onDragOver={e => { e.preventDefault(); e.currentTarget.style.background='#EEF2FF'; e.currentTarget.style.borderColor='#5B8AF0' }}
+        onDragLeave={e => { e.currentTarget.style.background='#F9FAFB'; e.currentTarget.style.borderColor='#E8ECF0' }}
+        onDrop={async e => {
+          e.preventDefault()
+          e.currentTarget.style.background='#F9FAFB'; e.currentTarget.style.borderColor='#E8ECF0'
+          const droppedFiles = Array.from(e.dataTransfer.files)
+          if (!droppedFiles.length) return
+          setUploading(true)
+          for (const file of droppedFiles) {
+            const path = `rooms/${room.id}/${Date.now()}_${file.name.replace(/\s+/g,'_')}`
+            const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type })
+            if (upErr) { toast(upErr.message, 'error'); continue }
+            const { data } = await supabase.from('room_files')
+              .insert({ room_id: room.id, job_id: jobId, name: file.name, type: file.type, size: file.size, storage_path: path })
+              .select().single()
+            if (data) setFiles(p => [data, ...p])
+          }
+          setUploading(false)
+          toast('Uploaded ✓')
+        }}
+        style={{ border:'2px dashed #E8ECF0', borderRadius:12, padding:'16px', background:'#F9FAFB', marginBottom:12, textAlign:'center', fontSize:12, color:'#9CA3AF', transition:'all .15s' }}>
+        Drop files here or use the Upload button above
+      </div>
+
+      {/* File list */}
+      {loading ? (
+        <div style={{ color:'#9CA3AF', fontSize:13, textAlign:'center', padding:'20px 0' }}>Loading…</div>
+      ) : files.length === 0 ? (
+        <div style={{ color:'#9CA3AF', fontSize:13, textAlign:'center', padding:'20px 0' }}>No files uploaded yet</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {files.map(f => (
+            <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
+              <span style={{ fontSize:20, flexShrink:0 }}>{fileIcon(f.type)}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <a href={pubUrl(f.storage_path)} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize:13, fontWeight:600, color:'#2A3042', textDecoration:'none', display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                  onMouseEnter={e=>e.target.style.color='#5B8AF0'}
+                  onMouseLeave={e=>e.target.style.color='#2A3042'}>
+                  {f.name}
+                </a>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                  {formatSize(f.size)}{f.created_at ? ` · ${new Date(f.created_at).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' })}` : ''}
+                </div>
+              </div>
+              <button onClick={() => deleteFile(f)}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'2px 4px', flexShrink:0, borderRadius:4 }}
+                onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
@@ -745,6 +874,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     { key:'tasks',     label:`Tasks${tasks.filter(t=>!t.done).length>0?` (${tasks.filter(t=>!t.done).length})`:''}` },
     { key:'materials', label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
     { key:'appliances',label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
+    { key:'files',     label:'📁 Files' },
     { key:'orders',    label:'📋 Orders' },
     { key:'onsite',    label:'📸 On-Site' },
   ]
@@ -1090,6 +1220,11 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
+          )}
+
+        {/* ── FILES ── */}
+          {tab==='files' && (
+            <RoomFilesTab room={room} jobId={jobId} />
           )}
 
           {tab==='onsite' && (

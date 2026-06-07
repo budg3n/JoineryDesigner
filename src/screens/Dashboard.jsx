@@ -99,25 +99,30 @@ function MatHoverPanel({ colors, visible }) {
       transform: visible ? 'translateX(0) scale(1)' : 'translateX(-8px) scale(0.97)',
       transition:'all 0.16s ease',
       pointerEvents:'none',
+      minWidth:220, maxWidth:280,
     }}>
       <div style={{ background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', border:'1px solid #E8ECF0', padding:10 }}>
         <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:8 }}>Materials</div>
-        <div style={{ display:'flex', flexWrap:'wrap', gap:6, maxWidth: Math.min(colors.length, 4) * 42 + 10 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
           {colors.map((c, i) => (
-            <div key={i}
-              style={{
-                width:36, height:36, borderRadius:8, overflow:'hidden',
-                border:'1px solid #E8ECF0', flexShrink:0,
-                opacity: visible ? 1 : 0,
-                transform: visible ? 'scale(1)' : 'scale(0.85)',
-                transition: `opacity 0.12s ease ${i*0.03}s, transform 0.12s ease ${i*0.03}s`,
-                position:'relative',
-              }}
-              title={c.name || c.colour_code || ''}>
-              {c.storage_path
-                ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy" onError={e=>{ e.target.style.display='none'; e.target.parentNode.style.background=c.color||'#D1D5DB' }} />
-                : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
-              }
+            <div key={i} style={{
+              display:'flex', alignItems:'center', gap:8,
+              opacity: visible ? 1 : 0,
+              transform: visible ? 'translateX(0)' : 'translateX(-4px)',
+              transition: `opacity 0.12s ease ${i*0.04}s, transform 0.12s ease ${i*0.04}s`,
+            }}>
+              {/* Swatch / image */}
+              <div style={{ width:28, height:28, borderRadius:6, overflow:'hidden', border:'1px solid #E8ECF0', flexShrink:0 }}>
+                {c.storage_path
+                  ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy"
+                      onError={e=>{ e.target.style.display='none'; e.target.parentNode.style.background=c.color||'#D1D5DB' }} />
+                  : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
+                }
+              </div>
+              {/* Name */}
+              <span style={{ fontSize:12, color:'#374151', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
+                {c.name || c.colour_code || 'Material'}
+              </span>
             </div>
           ))}
         </div>

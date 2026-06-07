@@ -234,7 +234,12 @@ ${link}
 Thank you.`)
 
     // Open the user's email client with pre-filled content
-    window.open(`mailto:${contactEmail}?subject=${subject}&body=${body}`)
+    const a = document.createElement('a')
+    a.href = `mailto:${contactEmail}?subject=${subject}&body=${body}`
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => document.body.removeChild(a), 100)
 
     // Mark as sent
     const now = new Date().toISOString()

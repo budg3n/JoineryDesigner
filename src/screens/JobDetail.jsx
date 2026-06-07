@@ -2499,7 +2499,13 @@ Please click the link below to view the details and submit your response:
 ${link}
 
 Thank you.`)
-    window.open(`mailto:${contact.email}?subject=${subject}&body=${body}`)
+    // Use an anchor click — works reliably on all mobile browsers
+    const a = document.createElement('a')
+    a.href = `mailto:${contact.email}?subject=${subject}&body=${body}`
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => document.body.removeChild(a), 100)
     const now = new Date().toISOString()
     supabase.from('job_rfis').update({ reply_sent_at: now, reply_sent_to: contact.email }).eq('id', rfi.id)
     toast(`Email opened for ${contact.email} ✓`)
@@ -2508,6 +2514,8 @@ Thank you.`)
   async function saveRFI() {
     if (!form?.title?.trim()) { toast('Title is required','error'); return }
     setSaving(true)
+    // Safety timeout — never hang longer than 10s
+    const timeout = setTimeout(() => { setSaving(false); toast('Save timed out — please try again', 'error') }, 10000)
     // Only send columns we know exist
     const payload = {
       title: form.title,
@@ -2527,7 +2535,7 @@ Thank you.`)
     let savedRfi = null
     if (form.id) {
       const { error } = await supabase.from('job_rfis').update(payload).eq('id', form.id)
-      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
+      if (error) { clearTimeout(timeout); toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => p.map(r => r.id===form.id ? {...r,...payload} : r))
       if (detail?.id===form.id) setDetail(d => ({...d,...payload}))
       savedRfi = { ...form, ...payload }
@@ -2536,35 +2544,12 @@ Thank you.`)
       // Only add created_by if we have a valid UUID
       if (profile?.id) insertData.created_by = profile.id
       const { data, error } = await supabase.from('job_rfis').insert(insertData).select().single()
-      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
+      if (error) { clearTimeout(timeout); toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
       setRfis(p => [...p, data])
       savedRfi = data
     }
 
-    // If assigned to an external contact, generate token and offer to send
-    const assignedTo = form.assigned_to
-    if (assignedTo && String(assignedTo).startsWith('contact_')) {
-      const contact = contacts.find(c => c.id === assignedTo.replace('contact_', ''))
-      if (contact?.email && savedRfi) {
-        try {
-          const token = savedRfi.reply_token || await generateToken(savedRfi.id)
-          setRfis(p => p.map(r => r.id===savedRfi.id ? {...r, reply_token:token} : r))
-          const rfiNum = `RFI-${String(savedRfi.number||0).padStart(3,'0')}`
-          const link = `${APP_URL}/rfi/${token}`
-          const subject = encodeURIComponent(`${rfiNum}: ${savedRfi.title}`)
-          const body = encodeURIComponent(`Hi ${contact.name || 'there'},\n\nYou have received a Request for Information (${rfiNum}) that requires your response.\n\nRFI: ${savedRfi.title}\n${savedRfi.description ? `\nDetails:\n${savedRfi.description}\n` : ''}\nPlease click the link below to view and respond:\n\n${link}\n\nThank you.`)
-          const mailtoUrl = `mailto:${contact.email}?subject=${subject}&body=${body}`
-          // Copy link to clipboard as fallback, open mailto
-          try { navigator.clipboard.writeText(link) } catch {}
-          window.location.href = mailtoUrl
-          const now = new Date().toISOString()
-          supabase.from('job_rfis').update({ reply_sent_at: now, reply_sent_to: contact.email }).eq('id', savedRfi.id)
-        } catch (e) {
-          console.warn('Email error:', e)
-        }
-      }
-    }
-
+    clearTimeout(timeout)
     toast('RFI saved ✓')
     setForm(null)
     setSaving(false)
