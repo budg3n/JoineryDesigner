@@ -873,13 +873,19 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     saveTimer.current = setTimeout(() => saveRoom({ ...room, [key]: val }), 1000)
   }
 
+  // Notes gets its own local state to prevent cursor jumping on auto-save
+  const [localNotes, setLocalNotes] = useState(room.notes || '')
+  const notesTimer = useRef()
+  // Sync if room.notes changes externally (e.g. initial load)
+  useEffect(() => { setLocalNotes(room.notes || '') }, [room.id])
+
   async function saveRoom(data = room) {
     setSaving(true)
-    const { data: saved, error } = await supabase.from('rooms')
+    const { error } = await supabase.from('rooms')
       .update({ name: data.name, type: data.type, notes: data.notes, kitchen_specs: data.kitchen_specs, tasks: data.tasks, sort_order: data.sort_order })
-      .eq('id', data.id).select().single()
+      .eq('id', data.id)
     if (error) toast(error.message, 'error')
-    else { setRoom(saved); setDirty(false); onSave(saved) }
+    else { setDirty(false); onSave(data) }
     setSaving(false)
   }
 
@@ -1040,7 +1046,25 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
             <div>
               <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:16, marginBottom:12 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Notes</div>
-                <textarea value={room.notes||''} onChange={e=>setField('notes',e.target.value)}
+                <textarea value={localNotes}
+                  onChange={e => {
+                    const val = e.target.value
+                    setLocalNotes(val)
+                    // Update room state and debounce save — but don't let save overwrite local state
+                    setRoom(r => ({ ...r, notes: val }))
+                    markDirty()
+                    clearTimeout(notesTimer.current)
+                    notesTimer.current = setTimeout(() => {
+                      saveRoom({ ...room, notes: val })
+                    }, 1500)
+                  }}
+                  onBlur={e => {
+                    // Save immediately on blur
+                    clearTimeout(notesTimer.current)
+                    const val = e.target.value
+                    setRoom(r => ({ ...r, notes: val }))
+                    saveRoom({ ...room, notes: val })
+                  }}
                   placeholder="Room notes, observations, specs…"
                   style={{ width:'100%', border:'none', outline:'none', fontSize:13, color:'#374151', resize:'vertical', minHeight:80, fontFamily:'inherit', background:'transparent', lineHeight:1.6, boxSizing:'border-box' }} />
               </div>
