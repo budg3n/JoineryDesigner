@@ -118,6 +118,66 @@ function UnorderedNotification({ mats, onAdd, onAddAll }) {
   )
 }
 
+// ── PO Number Modal ───────────────────────────────────────────────
+function POModal({ jobNumber, existingPO, onConfirm, onCancel }) {
+  const prefix = 'MWF'
+  const suffix = jobNumber ? `/${jobNumber}` : ''
+  const suggested = existingPO || `${prefix}${suffix}`
+  const [po, setPo] = useState(suggested)
+  const inputRef = useRef()
+
+  useEffect(() => {
+    // Select the middle part for easy editing
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus()
+        // Position cursor after prefix
+        const pos = prefix.length
+        inputRef.current.setSelectionRange(pos, po.length - suffix.length)
+      }
+    }, 50)
+  }, [])
+
+  const isValid = po.trim().startsWith(prefix) && po.trim().length > prefix.length
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target===e.currentTarget && onCancel()}>
+      <div style={{ background:'#fff', borderRadius:16, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ fontSize:16, fontWeight:800, color:'#2A3042', marginBottom:6 }}>Purchase Order Number</div>
+        <div style={{ fontSize:13, color:'#6B7280', marginBottom:20 }}>
+          A PO number is required to mark items as ordered.
+        </div>
+
+        <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:6 }}>PO Number</label>
+        <input ref={inputRef} value={po} onChange={e => setPo(e.target.value)}
+          onKeyDown={e => { if (e.key==='Enter' && isValid) onConfirm(po.trim()) }}
+          placeholder={`${prefix}XXXXX${suffix}`}
+          style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${isValid?'#DDE3EC':'#FCA5A5'}`, borderRadius:10, fontSize:15, fontWeight:600, outline:'none', boxSizing:'border-box', fontFamily:'monospace', letterSpacing:'.04em' }} />
+
+        {!isValid && po.length > 0 && (
+          <div style={{ fontSize:11, color:'#E24B4A', marginTop:4 }}>Must start with "{prefix}"</div>
+        )}
+        <div style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>
+          Format: <span style={{ fontFamily:'monospace', color:'#5B8AF0' }}>{prefix}<span style={{ color:'#374151' }}>12345</span>{suffix}</span>
+        </div>
+
+        <div style={{ display:'flex', gap:8, marginTop:20 }}>
+          <button onClick={onCancel}
+            style={{ flex:1, padding:'10px', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            Cancel
+          </button>
+          <button onClick={() => onConfirm(po.trim())} disabled={!isValid}
+            style={{ flex:2, padding:'10px', borderRadius:10, border:'none', fontSize:13, fontWeight:700, cursor: isValid?'pointer':'default',
+              background: isValid ? '#1D9E75' : '#E8ECF0', color: isValid ? '#fff' : '#9CA3AF' }}>
+            Mark as Ordered
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function makeRow(overrides={}) {
   return {
     id:          Date.now().toString(36)+Math.random().toString(36).slice(2),
@@ -484,7 +544,7 @@ function CopyBtn({ row, format }) {
   )
 }
 
-function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFormat, rooms, onEnsureMaterials }) {
+function OrderRow({ row, materials, onUpdate, onUpdateStatus, onDelete, showAddLib, cols, copyFormat, rooms, onEnsureMaterials }) {
   const isInLib = !!row.material_id || materials.some(m=>m.name.toLowerCase()===row.item.toLowerCase())
   const [showBreaks, setShowBreaks] = useState(false)
   const priceRef = useRef()
@@ -562,6 +622,11 @@ function OrderRow({ row, materials, onUpdate, onDelete, showAddLib, cols, copyFo
               )
             })()}
           </div>
+        )
+        if (col.key === 'status') return (
+          <Cell key="status" col={col}
+            value={row.status||'To order'}
+            onChange={v => onUpdateStatus ? onUpdateStatus(row.id, v) : onUpdate(row.id, { status: v })} />
         )
         return (
           <Cell key={col.key} col={col}
@@ -658,7 +723,7 @@ function GroupSection({ title, rows, materials, onUpdate, onDelete, onAddRow, sh
         { key:'unit',       label:'Unit',        w:80,  type:'select', settingKey:'unit', options:UNIT_OPTIONS },
         { key:'sku',        label:'SKU',         w:90,  type:'text',   settingKey:'sku' },
         { key:'price',      label:'Unit price',  w:90,  type:'price',  settingKey:'price' },
-        { key:'po_number',  label:'PO Number',   w:100, type:'text',   settingKey:'po_number' },
+        { key:'po_number',  label:'PO Number',   w:120, type:'text' },
         { key:'status',     label:'Status',      w:110, type:'status' },
         { key:'needed',     label:'Date needed', w:110, type:'date' },
         { key:'notes',      label:'Notes',       w:140, type:'text',   settingKey:'notes' },
@@ -750,7 +815,8 @@ export default function OrderSheet() {
   const [job,       setJob]       = useState(null)
   const [rows,      setRows]      = useState([])
   const [materials, setMaterials] = useState([])
-  const [unorderedMats, setUnorderedMats] = useState([]) // materials on job not yet on order sheet
+  const [unorderedMats, setUnorderedMats] = useState([])
+  const [poModal, setPoModal]   = useState(null) // { ids, existingPO } // materials on job not yet on order sheet
   const materialsLoadedRef = useRef(false)
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(null)
@@ -772,7 +838,7 @@ export default function OrderSheet() {
 
   useEffect(()=>{
     Promise.all([
-      supabase.from('jobs').select('id,name,client').eq('id',id).single(),
+      supabase.from('jobs').select('id,name,client,job_number').eq('id',id).single(),
       Promise.resolve({ data: [] }), // materials loaded lazily on first item search
       supabase.from('order_items').select('*,materials(id,category_id)').eq('job_id',id).order('created_at'),
       supabase.from('rooms').select('id,name,type').eq('job_id',id).order('sort_order'),
@@ -952,6 +1018,16 @@ export default function OrderSheet() {
     })
   }
 
+  function updateRowStatus(rowId, newStatus) {
+    // Intercept "Ordered" to require PO number
+    if (newStatus === 'Ordered') {
+      const row = rows.find(r => r.id === rowId)
+      setPoModal({ ids: [rowId], existingPO: row?.po_number || null })
+    } else {
+      updateRow(rowId, { status: newStatus })
+    }
+  }
+
   function addRow(groupTitle) {
     const defaults = groupBy==='Category'
       ? { panel_type: groupTitle!=='Other'?groupTitle:'', category: 'Board' }
@@ -972,8 +1048,15 @@ export default function OrderSheet() {
   }
 
   function markOrdered(ids) {
-    setRows(prev=>{
-      const updated = prev.map(r=>ids.includes(r.id)&&r.status==='To order'?{...r,status:'Ordered'}:r)
+    const existingPO = rows.find(r => ids.includes(r.id) && r.po_number)?.po_number
+    setPoModal({ ids, existingPO: existingPO || null })
+  }
+
+  function confirmMarkOrdered(ids, poNumber) {
+    setPoModal(null)
+    setRows(prev => {
+      const updated = prev.map(r => ids.includes(r.id) && r.status==='To order'
+        ? {...r, status:'Ordered', po_number: poNumber} : r)
       doSave(updated)
       syncOrderTask(updated)
       return updated
@@ -1041,17 +1124,18 @@ export default function OrderSheet() {
     const date = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })
     const filteredRows = rows.filter(r => filter === 'All' || r.status === filter)
 
-    // Group rows same way as display
+    // Always group by Room for print — clearest for a physical order sheet
+    const roomOrder = rooms.map(r => r.name)
     const groupMap = {}
     filteredRows.forEach(r => {
-      const key = groupBy === 'Category' ? (r.category||'Other')
-                : groupBy === 'Room'     ? (r.room_name||'No room')
-                : (r.supplier||'No supplier')
-      if (!groupMap[key]) groupMap[key] = []
-      groupMap[key].push(r)
+      const roomName = r.room_id ? (rooms.find(rm=>rm.id===r.room_id)?.name || 'General') : 'General'
+      if (!groupMap[roomName]) groupMap[roomName] = []
+      groupMap[roomName].push({...r, room_name: roomName})
     })
-
-    const groupEntries = Object.entries(groupMap)
+    const groupEntries = Object.entries(groupMap).sort(([a],[b]) => {
+      if (a==='General') return 1; if (b==='General') return -1
+      return roomOrder.indexOf(a) - roomOrder.indexOf(b)
+    })
 
     const groupHTML = groupEntries.map(([groupTitle, groupRows]) => {
       const friendlyTitle = groupTitle === 'No room' ? 'General / No room assigned' : groupTitle
@@ -1074,6 +1158,7 @@ export default function OrderSheet() {
         const hasRoom      = groupBy !== 'Room' && rows.some(r => r.room_name)
         const hasQty       = rows.some(r => r.qty)
         const hasNotes     = rows.some(r => r.notes)
+        const hasPO        = rows.some(r => r.po_number && r.status === 'Ordered')
 
         // Custom fields present in this set of rows
         const customFieldKeys = new Set()
@@ -1100,6 +1185,7 @@ export default function OrderSheet() {
           hasPrice     && { key:'price',      label:'Unit price', price:true },
           hasPrice && hasQty && { key:'_total', label:'Total', price:true },
           { key:'status',    label:'Status' },
+          hasPO        && { key:'po_number', label:'PO Number', mono:true },
           hasNotes     && { key:'notes',      label:'Notes' },
         ].filter(Boolean)
 
@@ -1117,6 +1203,7 @@ export default function OrderSheet() {
             if (c.cfKey)          return `<td>${cf[c.cfKey]||''}</td>`
             if (c.key==='_total') return `<td style="text-align:right">${total?`$${total}`:''}</td>`
             if (c.key==='status') return `<td style="${statusStyle}">${r[c.key]||''}</td>`
+            if (c.mono)           return `<td style="font-family:monospace;font-size:9px">${r[c.key]||''}</td>`
             if (c.price)          return `<td style="text-align:right">${r[c.key]?`$${parseFloat(r[c.key]).toFixed(2)}`:''}</td>`
             if (c.num)            return `<td style="text-align:right">${r[c.key]||''}</td>`
             if (c.suffix)         return `<td>${r[c.key]?r[c.key]+c.suffix:''}</td>`
@@ -1134,6 +1221,7 @@ export default function OrderSheet() {
             : c.num               ? '5%'
             : c.key==='unit'      ? '5%'
             : c.key==='status'    ? '8%'
+            : c.key==='po_number' ? '12%'
             : '9%'
           return `<col style="width:${w}">`
         }).join('')}</colgroup>`
@@ -1380,7 +1468,7 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
       <div style={{ borderRadius:12, border:'1px solid #E8ECF0', boxShadow:'0 1px 3px rgba(0,0,0,0.04)', overflow:'hidden' }}>
           {groups.map(([groupTitle, groupRows])=>(
             <GroupSection key={groupTitle} title={groupTitle} rows={groupRows}
-              materials={materials} onUpdate={updateRow} onDelete={deleteRow}
+              materials={materials} onUpdate={updateRow} onUpdateStatus={updateRowStatus} onDelete={deleteRow}
               onAddRow={addRow} showAddLib={setAddLib} onMarkOrdered={markOrdered}
               cols={cols} copyFormat={copyFormat} rooms={rooms} onEnsureMaterials={ensureMaterialsLoaded} />
           ))}
@@ -1394,6 +1482,16 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
         <div style={{ display:'flex', justifyContent:'flex-end', padding:'10px 16px', fontSize:13, fontWeight:700, color:'#2A3042' }}>
           Grand total: <span style={{ marginLeft:8, color:'#5B8AF0' }}>${grandTotal.toFixed(2)}</span>
         </div>
+      )}
+
+      {/* PO Number modal */}
+      {poModal && (
+        <POModal
+          jobNumber={job?.job_number || ''}
+          existingPO={poModal.existingPO}
+          onConfirm={po => confirmMarkOrdered(poModal.ids, po)}
+          onCancel={() => setPoModal(null)}
+        />
       )}
     </div>
   )

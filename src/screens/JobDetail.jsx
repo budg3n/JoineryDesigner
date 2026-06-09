@@ -1527,6 +1527,43 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   const [newType, setNewType] = React.useState('Kitchen')
   const [expandedId, setExpandedId] = React.useState(null)
 
+  const DEFAULT_ROOM_STATUSES = [
+    { label:'Pending',                color:'#9CA3AF' },
+    { label:'In progress',            color:'#5B8AF0' },
+    { label:'Submitted for approval', color:'#F97316' },
+    { label:'Review',                 color:'#EF9F27' },
+    { label:'On hold',                color:'#E24B4A' },
+    { label:'Nested',                 color:'#8B5CF6' },
+    { label:'Complete',               color:'#1D9E75' },
+  ]
+  const [roomStatuses, setRoomStatuses] = React.useState(DEFAULT_ROOM_STATUSES)
+
+  React.useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key','room_statuses').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          try {
+            const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value
+            if (Array.isArray(v) && v.length) setRoomStatuses(v)
+          } catch {}
+        }
+      })
+    // Re-load when settings change
+    const handler = () => {
+      supabase.from('app_settings').select('value').eq('key','room_statuses').maybeSingle()
+        .then(({ data }) => {
+          if (data?.value) {
+            try {
+              const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value
+              if (Array.isArray(v) && v.length) setRoomStatuses(v)
+            } catch {}
+          }
+        })
+    }
+    window.addEventListener('room-statuses-updated', handler)
+    return () => window.removeEventListener('room-statuses-updated', handler)
+  }, [])
+
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
@@ -1601,9 +1638,11 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const open = tasks.filter(t=>!t.done).length
           const defaultEmoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
           const emoji = room.icon || defaultEmoji
+          const roomStatus = room.status || 'Pending'
+          const statusObj = roomStatuses.find(s => s.label === roomStatus) || roomStatuses[0]
           return (
             <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
-              {/* room header row — collapsed shows summary, expanded shows just controls */}
+              {/* room header row */}
               <div onClick={() => setExpandedId(isOpen ? null : room.id)}
                 style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', cursor:'pointer',
                   background: isOpen ? '#F8F9FF' : '#fff',
@@ -1622,6 +1661,25 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
                 </div>
+                {/* Room status dropdown */}
+                <select
+                  value={roomStatus}
+                  onClick={e => e.stopPropagation()}
+                  onChange={async e => {
+                    e.stopPropagation()
+                    const newStatus = e.target.value
+                    await supabase.from('rooms').update({ status: newStatus }).eq('id', room.id)
+                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus} : r))
+                  }}
+                  style={{
+                    padding:'3px 8px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}22`,
+                    background: `${statusObj?.color||'#9CA3AF'}18`,
+                    color: statusObj?.color||'#6B7280',
+                    fontSize:11, fontWeight:700, cursor:'pointer', outline:'none',
+                    flexShrink:0, maxWidth:140,
+                  }}>
+                  {roomStatuses.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
+                </select>
                 <button onClick={e=>deleteRoom(e,room.id)}
                   style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 4px', marginRight:4 }}
                   onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}

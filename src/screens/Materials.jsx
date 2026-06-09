@@ -1207,7 +1207,15 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const targetCat = subCat || topCat
   const [materials, setMaterials] = React.useState([])
   const [loading, setLoading]     = React.useState(true)
-  const [catFields, setCatFields] = React.useState(fields || [])
+  const [catFields, setCatFields] = React.useState([])
+
+  // Always load catFields fresh from DB when targetCat changes
+  React.useEffect(() => {
+    if (!targetCat?.id) return
+    supabase.from('category_fields').select('*')
+      .eq('category_id', targetCat.id).order('sort_order')
+      .then(({ data }) => setCatFields(data || []))
+  }, [targetCat?.id])
   const [search, setSearch]       = React.useState('')
   const [saving, setSaving]       = React.useState(false)
   const [lastSaved, setLastSaved] = React.useState(null)
@@ -1398,10 +1406,6 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
       setMaterials(data || [])
       setLoading(false)
     })
-
-    supabase.from('category_fields').select('*')
-      .eq('category_id', targetCat.id).order('sort_order')
-      .then(({ data }) => setCatFields(data || []))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetCat.id, (allCats||[]).length])
 

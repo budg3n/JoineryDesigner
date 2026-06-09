@@ -28,6 +28,7 @@ import RoomTypeSettings from './screens/RoomTypeSettings'
 import ApplianceSettings from './screens/ApplianceSettings'
 import UnitSettings from './screens/UnitSettings'
 import RFIReply from './screens/RFIReply'
+import RoomStatuses from './screens/RoomStatuses'
 
 function RoleRedirect() {
   const { profile, previewRole } = useApp()
@@ -86,6 +87,7 @@ export default function App() {
         <Route path="settings/job-statuses" element={<JobStatuses />} />
         <Route path="settings/room-types" element={<RoomTypeSettings />} />
         <Route path="settings/unit-types" element={<UnitSettings />} />
+        <Route path="settings/room-statuses" element={<RoomStatuses />} />
       </Route>
     </Routes>
   )

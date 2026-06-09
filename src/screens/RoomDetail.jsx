@@ -128,6 +128,38 @@ function getPriceBreaks(material) {
   } catch { return [] }
 }
 
+// ── PO Number Modal ───────────────────────────────────────────────
+function POModal({ jobNumber, existingPO, onConfirm, onCancel }) {
+  const prefix = 'MWF'
+  const suffix = jobNumber ? `/${jobNumber}` : ''
+  const [po, setPo] = useState(existingPO || `${prefix}${suffix}`)
+  const inputRef = useRef()
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50) }, [])
+  const isValid = po.trim().startsWith(prefix) && po.trim().length > prefix.length
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target===e.currentTarget && onCancel()}>
+      <div style={{ background:'#fff', borderRadius:16, padding:24, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ fontSize:15, fontWeight:800, color:'#2A3042', marginBottom:4 }}>Purchase Order Number</div>
+        <div style={{ fontSize:12, color:'#6B7280', marginBottom:16 }}>Required to mark as ordered.</div>
+        <input ref={inputRef} value={po} onChange={e => setPo(e.target.value)}
+          onKeyDown={e => { if (e.key==='Enter' && isValid) onConfirm(po.trim()) }}
+          placeholder={`${prefix}XXXXX${suffix}`}
+          style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${isValid?'#DDE3EC':'#FCA5A5'}`, borderRadius:10, fontSize:15, fontWeight:600, outline:'none', boxSizing:'border-box', fontFamily:'monospace' }} />
+        {!isValid && po.length > 0 && <div style={{ fontSize:11, color:'#E24B4A', marginTop:4 }}>Must start with "{prefix}"</div>}
+        <div style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Format: <span style={{ fontFamily:'monospace', color:'#5B8AF0' }}>{prefix}<span style={{ color:'#374151' }}>12345</span>{suffix}</span></div>
+        <div style={{ display:'flex', gap:8, marginTop:16 }}>
+          <button onClick={onCancel} style={{ flex:1, padding:'9px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>Cancel</button>
+          <button onClick={() => onConfirm(po.trim())} disabled={!isValid}
+            style={{ flex:2, padding:'9px', borderRadius:9, border:'none', fontSize:13, fontWeight:700, cursor:isValid?'pointer':'default', background:isValid?'#1D9E75':'#E8ECF0', color:isValid?'#fff':'#9CA3AF' }}>
+            Mark as Ordered
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Room Files Tab ────────────────────────────────────────────────
 function RoomFilesTab({ room, jobId }) {
   const toast = useToast()
@@ -262,6 +294,15 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
   const [allMats, setAllMats] = useState([])
+  const [poModal, setPoModal] = useState(null) // { orderId, existingPO }
+  const [jobNumber, setJobNumber] = useState('')
+
+  // Load job number for PO prefix
+  useEffect(() => {
+    if (!jobId) return
+    supabase.from('jobs').select('job_number').eq('id', jobId).single()
+      .then(({ data }) => { if (data?.job_number) setJobNumber(String(data.job_number)) })
+  }, [jobId])
 
   // Load materials on mount
   useEffect(() => {
@@ -454,12 +495,23 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
     }
   }
 
-  async function toggleStatus(o) {
+  function toggleStatus(o) {
     const next = o.status==='To order'?'Ordered':o.status==='Ordered'?'Received':'To order'
-    await supabase.from('order_items').update({status:next}).eq('id',o.id)
-    const updatedOrders = orders.map(x=>x.id===o.id?{...x,status:next}:x)
+    if (next === 'Ordered') {
+      // Require PO number before marking as ordered
+      setPoModal({ orderId: o.id, existingPO: o.po_number || null })
+    } else {
+      applyStatusChange(o.id, next, null)
+    }
+  }
+
+  async function applyStatusChange(orderId, next, poNumber) {
+    const patch = { status: next }
+    if (poNumber) patch.po_number = poNumber
+    await supabase.from('order_items').update(patch).eq('id', orderId)
+    const updatedOrders = orders.map(x => x.id===orderId ? {...x, ...patch} : x)
     setOrders(updatedOrders)
-    // Sync the order task in the job — mark done if nothing left to order
+    // Sync the order task in the job
     const stillToOrder = updatedOrders.filter(x => x.status === 'To order')
     const { data: jobData } = await supabase.from('jobs').select('tasks').eq('id', jobId).single()
     if (!jobData) return
@@ -468,9 +520,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
     const existingIdx = tasks.findIndex(t => t.title?.startsWith(ORDER_TASK_PREFIX))
     if (existingIdx >= 0) {
       if (stillToOrder.length === 0) {
-        // All done — also check other rooms for this job
-        const { data: allItems } = await supabase.from('order_items')
-          .select('status').eq('job_id', jobId)
+        const { data: allItems } = await supabase.from('order_items').select('status').eq('job_id', jobId)
         const anyToOrder = (allItems||[]).some(i => i.status === 'To order')
         if (!anyToOrder && !tasks[existingIdx].done) {
           tasks[existingIdx] = { ...tasks[existingIdx], done: true, completedAt: new Date().toISOString() }
@@ -478,7 +528,6 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
           window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId } }))
         }
       } else if (tasks[existingIdx].done) {
-        // Something moved back to 'To order' — reopen the task
         tasks[existingIdx] = { ...tasks[existingIdx], done: false, completedAt: null }
         await supabase.from('jobs').update({ tasks: JSON.stringify(tasks) }).eq('id', jobId)
         window.dispatchEvent(new CustomEvent('tasks-updated', { detail: { jobId } }))
@@ -707,6 +756,12 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                     style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:8,border:`1px solid ${sc.bg}`,background:sc.bg,color:sc.color,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
                     {o.status}
                   </button>
+                  {/* Show PO number when ordered */}
+                  {o.po_number && (
+                    <span style={{fontSize:10,fontWeight:700,color:'#374151',background:'#F3F4F6',border:'1px solid #E8ECF0',borderRadius:6,padding:'2px 7px',fontFamily:'monospace',flexShrink:0}}>
+                      {o.po_number}
+                    </span>
+                  )}
                   <button onClick={()=>removeItem(o.id)}
                     style={{background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:16,lineHeight:1,flexShrink:0,padding:'0 2px'}}
                     onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
@@ -750,6 +805,16 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
         <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:13}}>
           Search for a material above to add it to the order sheet
         </div>
+      )}
+
+      {/* PO Number modal */}
+      {poModal && (
+        <POModal
+          jobNumber={jobNumber}
+          existingPO={poModal.existingPO}
+          onConfirm={po => { applyStatusChange(poModal.orderId, 'Ordered', po); setPoModal(null) }}
+          onCancel={() => setPoModal(null)}
+        />
       )}
     </div>
   )
