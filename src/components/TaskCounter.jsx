@@ -199,13 +199,13 @@ export default function TaskCounter() {
             <span style={{ fontSize:12, color:'#9CA3AF' }}>{count} outstanding</span>
           </div>
 
-          <div style={{ maxHeight:380, overflowY:'auto' }}>
+          <div style={{ maxHeight:420, overflowY:'auto' }}>
             {tasks.length === 0 ? (
               <div style={{ padding:'32px 16px', textAlign:'center', color:'#9CA3AF', fontSize:13 }}>
                 <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
                 All caught up!
               </div>
-            ) : tasks.slice(0, 3).map(task => {
+            ) : tasks.map(task => {
               const days = task.date ? daysUntil(task.date) : null
               const isOverdue = days !== null && days < 0
               const isUrgent  = days !== null && days <= 3
@@ -247,15 +247,6 @@ export default function TaskCounter() {
               )
             })}
           </div>
-
-          {tasks.length > 3 && (
-            <div style={{ padding:'8px 16px', borderTop:'1px solid #F9FAFB', textAlign:'center' }}>
-              <button onClick={()=>{ navigate('/'); setOpen(false) }}
-                style={{ fontSize:11, fontWeight:700, color:'#5B8AF0', background:'none', border:'none', cursor:'pointer' }}>
-                +{tasks.length - 3} more tasks · View all →
-              </button>
-            </div>
-          )}
 
           {/* Add task footer */}
           {!showAdd ? (
