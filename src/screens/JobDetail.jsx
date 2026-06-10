@@ -3002,6 +3002,7 @@ export default function JobDetail() {
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
   const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'details')
+  const [autoOpenRoomId] = useState(() => new URLSearchParams(location.search).get('room') || null)
   // Persist edits to sessionStorage — survives page reload
   const _jobRef = React.useRef(job)
   _jobRef.current = job
@@ -3065,6 +3066,11 @@ export default function JobDetail() {
       Promise.resolve({ data: [] }), // notifications handled separately
     ]).then(([{data:roomData},{data:procData},{data:fbData},{data:notifData}]) => {
       setRooms(roomData||[])
+      // Auto-open room if navigated from dashboard
+      if (autoOpenRoomId && roomData) {
+        const targetRoom = roomData.find(r => r.id === autoOpenRoomId)
+        if (targetRoom) { setActiveRoom(targetRoom); setJobTab('rooms') }
+      }
       setProcesses(procData||[])
       setFeedback(fbData||[])
     })

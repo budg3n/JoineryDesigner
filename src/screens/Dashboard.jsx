@@ -90,41 +90,55 @@ function SwatchDot({ c }) {
   return <div style={{ width:14, height:14, borderRadius:3, background:c.color||'#D1D5DB', border:'2px solid #fff', boxShadow:'0 0 0 1px #E8ECF0', flexShrink:0 }} />
 }
 
-function MatHoverPanel({ colors, visible }) {
-  if (!colors.length) return null
+function RoomHoverPanel({ rooms, visible, onClickRoom }) {
+  if (!rooms?.length) return null
   return (
     <div style={{
       position:'absolute', left:'calc(100% + 8px)', top:0, zIndex:200,
       opacity: visible ? 1 : 0,
       transform: visible ? 'translateX(0) scale(1)' : 'translateX(-8px) scale(0.97)',
       transition:'all 0.16s ease',
-      pointerEvents:'none',
-      minWidth:220, maxWidth:280,
+      pointerEvents: visible ? 'auto' : 'none',
+      minWidth:200, maxWidth:260,
     }}>
-      <div style={{ background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', border:'1px solid #E8ECF0', padding:10 }}>
-        <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:8 }}>Materials</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-          {colors.map((c, i) => (
-            <div key={i} style={{
-              display:'flex', alignItems:'center', gap:8,
-              opacity: visible ? 1 : 0,
-              transform: visible ? 'translateX(0)' : 'translateX(-4px)',
-              transition: `opacity 0.12s ease ${i*0.04}s, transform 0.12s ease ${i*0.04}s`,
-            }}>
-              {/* Swatch / image */}
-              <div style={{ width:28, height:28, borderRadius:6, overflow:'hidden', border:'1px solid #E8ECF0', flexShrink:0 }}>
-                {c.storage_path
-                  ? <img src={pubUrl(c.storage_path)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} loading="lazy"
-                      onError={e=>{ e.target.style.display='none'; e.target.parentNode.style.background=c.color||'#D1D5DB' }} />
-                  : <div style={{ width:'100%', height:'100%', background: c.color||'#D1D5DB' }} />
-                }
+      <div style={{ background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.12)', border:'1px solid #E8ECF0', padding:10, overflow:'hidden' }}>
+        <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:8 }}>Rooms</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+          {rooms.map((r, i) => {
+            const status = r.status || 'Pending'
+            const statusColors = {
+              'Pending':                { bg:'#F3F4F6', color:'#6B7280' },
+              'In progress':            { bg:'#EEF2FF', color:'#5B8AF0' },
+              'Submitted for approval': { bg:'#FFF7ED', color:'#C2410C' },
+              'Review':                 { bg:'#FEF9C3', color:'#854D0E' },
+              'On hold':                { bg:'#FEF2F2', color:'#E24B4A' },
+              'Nested':                 { bg:'#F5F3FF', color:'#8B5CF6' },
+              'Complete':               { bg:'#DCFCE7', color:'#166534' },
+            }
+            const sc = statusColors[status] || statusColors['Pending']
+            const emoji = r.icon || (r.type==='Kitchen'?'🍳':r.type==='Laundry'?'🫧':r.type==='Bathroom'||r.type==='Ensuite'?'🚿':r.type==='Bedroom'?'🛏':r.type==='Living'?'🛋':r.type==='Office'?'💼':'🏠')
+            return (
+              <div key={r.id}
+                onClick={e => { e.stopPropagation(); onClickRoom(r) }}
+                style={{
+                  display:'flex', alignItems:'center', gap:8, padding:'6px 8px',
+                  borderRadius:8, cursor:'pointer',
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? 'translateX(0)' : 'translateX(-4px)',
+                  transition: `opacity 0.1s ease ${i*0.03}s, transform 0.1s ease ${i*0.03}s, background 0.1s`,
+                }}
+                onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <span style={{ fontSize:14, flexShrink:0 }}>{emoji}</span>
+                <span style={{ fontSize:12, color:'#374151', fontWeight:500, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {r.name}
+                </span>
+                <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:6, background:sc.bg, color:sc.color, flexShrink:0 }}>
+                  {status}
+                </span>
               </div>
-              {/* Name */}
-              <span style={{ fontSize:12, color:'#374151', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                {c.name || c.colour_code || 'Material'}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
         <div style={{ position:'absolute', top:16, left:-5, width:10, height:10, background:'#fff', border:'1px solid #E8ECF0', borderRight:'none', borderTop:'none', transform:'rotate(45deg)' }} />
       </div>
@@ -335,7 +349,13 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
           </div>
         </div>
       </div>
-      {colors.length > 0 && <MatHoverPanel colors={colors} visible={hovered} />}
+      {(jobRooms[job.id]||[]).length > 0 && (
+        <RoomHoverPanel
+          rooms={jobRooms[job.id]||[]}
+          visible={hovered}
+          onClickRoom={room => navigate(`/job/${job.id}?room=${room.id}`)}
+        />
+      )}
     </div>
   )
 }
@@ -355,7 +375,7 @@ export default function Dashboard() {
   const [allCustomers, setAllCustomers] = useState([])
   const [jobProcessData, setJobProcessData] = useState({})
   const [jobProcessStatus, setJobProcessStatus] = useState({})
-  const [unorderedCounts, setUnorderedCounts] = useState({})
+  const [jobRooms, setJobRooms] = useState({}) // jobId -> rooms[]
 
   // Build filter tabs from dynamic statuses
   const TABS = jobStatuses.map(s => ({
@@ -410,7 +430,8 @@ export default function Dashboard() {
         .select('job_id,name,status,color,allocated_hours,time_logged,assigned_to,profiles(id,full_name,email)')
         .neq('status','Complete').order('sort_order'),
       supabase.from('order_items').select('job_id').eq('status','To order'),
-    ]).then(([{data:ae1},{data:ae2},{data:jp},{data:oi}]) => {
+      supabase.from('rooms').select('id,job_id,name,type,icon,status,sort_order').order('sort_order'),
+    ]).then(([{data:ae1},{data:ae2},{data:jp},{data:oi},{data:roomData}]) => {
       setActiveEntries(ae1 || [])
       const pMap = {}
       ;(ae2||[]).forEach(e => { if (!pMap[e.job_id]) pMap[e.job_id]=[]; pMap[e.job_id].push(e) })
@@ -421,6 +442,9 @@ export default function Dashboard() {
       const counts = {}
       ;(oi||[]).forEach(o => { counts[o.job_id]=(counts[o.job_id]||0)+1 })
       setUnorderedCounts(counts)
+      const rMap = {}
+      ;(roomData||[]).forEach(r => { if (!rMap[r.job_id]) rMap[r.job_id]=[]; rMap[r.job_id].push(r) })
+      setJobRooms(rMap)
     })
   }
 
