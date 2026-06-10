@@ -52,14 +52,33 @@ function SpecRow({ label, value, unit='mm', onChange }) {
 
 function TaskRow({ task, onToggle, onDelete, onUpdate }) {
   const [editing, setEditing] = React.useState(false)
+  const [localTitle, setLocalTitle] = React.useState(task.title || '')
+  const titleRef = React.useRef()
   const isOver = !task.done && task.date && new Date(task.date) < new Date()
+
+  React.useEffect(() => { setLocalTitle(task.title || '') }, [task.id])
+  React.useEffect(() => { if (editing && titleRef.current) { titleRef.current.focus(); titleRef.current.select() } }, [editing])
+
+  function saveTitle() {
+    const val = localTitle.trim()
+    if (val && val !== task.title) onUpdate('title', val)
+  }
+
   return (
     <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background:'#F9FAFB', borderRadius:9, border:`1px solid ${isOver?'#FCA5A5':'#E8ECF0'}`, marginBottom:6 }}>
       <div onClick={onToggle} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${task.done?'#1D9E75':isOver?'#E24B4A':'#C4C9D4'}`, background:task.done?'#1D9E75':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:2, cursor:'pointer', transition:'all .12s' }}>
         {task.done && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none' }}>{task.title}</div>
+        {editing ? (
+          <input ref={titleRef} value={localTitle}
+            onChange={e => setLocalTitle(e.target.value)}
+            onBlur={saveTitle}
+            onKeyDown={e => { if (e.key==='Enter') { saveTitle(); } if (e.key==='Escape') { setLocalTitle(task.title||''); setEditing(false) } }}
+            style={{ width:'100%', fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', boxSizing:'border-box', fontFamily:'inherit', marginBottom:4 }} />
+        ) : (
+          <div style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none' }}>{task.title}</div>
+        )}
         {editing ? (
           <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap', alignItems:'center' }}>
             <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
@@ -72,7 +91,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate }) {
               <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
                 style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', width:95, background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
             </div>
-            <button onClick={()=>setEditing(false)} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
+            <button onClick={()=>{ saveTitle(); setEditing(false) }} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
           </div>
         ) : (
           <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
