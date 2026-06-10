@@ -1521,11 +1521,11 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
-  const [expandedId, setExpandedId] = React.useState(null)
+  const [expandedId, setExpandedId] = React.useState(autoOpenRoomId || null)
 
   const DEFAULT_ROOM_STATUSES = [
     { label:'Pending',                color:'#9CA3AF' },
@@ -3066,11 +3066,9 @@ export default function JobDetail() {
       Promise.resolve({ data: [] }), // notifications handled separately
     ]).then(([{data:roomData},{data:procData},{data:fbData},{data:notifData}]) => {
       setRooms(roomData||[])
-      // Auto-open room if navigated from dashboard
-      if (autoOpenRoomId && roomData) {
-        const targetRoom = roomData.find(r => r.id === autoOpenRoomId)
-        if (targetRoom) { setActiveRoom(targetRoom); setJobTab('rooms') }
-      }
+      // Auto-open room if navigated from dashboard — just switch to rooms tab,
+      // InlineRoomsPanel picks up autoOpenRoomId as its initial expandedId
+      if (autoOpenRoomId) setJobTab('rooms')
       setProcesses(procData||[])
       setFeedback(fbData||[])
     })
@@ -3723,7 +3721,8 @@ export default function JobDetail() {
       {jobTab === 'rooms' && <InlineRoomsPanel
         rooms={rooms} jobId={id} toast={toast}
         jobMats={jobMats} allAppliances={allAppliances}
-        onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom} />}
+        onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
+        autoOpenRoomId={autoOpenRoomId} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
