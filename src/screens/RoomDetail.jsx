@@ -495,6 +495,125 @@ function RFIResponseInput({ detail, onSave }) {
   )
 }
 
+// ── Room Materials Tab ────────────────────────────────────────────
+function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
+  const [showPicker, setShowPicker] = React.useState(false)
+  const [search, setSearch]         = React.useState('')
+  const pickerRef = React.useRef()
+
+  React.useEffect(() => {
+    if (!showPicker) return
+    function handleClick(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false)
+    }
+    setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showPicker])
+
+  const searchFiltered = filteredMats.filter(jm => {
+    if (!search.trim()) return true
+    const q = search.toLowerCase()
+    const m = jm.materials
+    return [m.name, m.supplier, m.panel_type, m.colour_code, m.finish].filter(Boolean)
+      .some(v => v.toLowerCase().includes(q))
+  })
+
+  return (
+    <div>
+      {/* Header row */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
+          {roomMats.length > 0 ? `${roomMats.length} material${roomMats.length!==1?'s':''} in this room` : 'No materials assigned yet'}
+        </div>
+        {filteredMats.length > 0 && (
+          <div ref={pickerRef} style={{ position:'relative' }}>
+            <button onClick={() => { setShowPicker(p=>!p); setSearch('') }}
+              style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+              <span style={{ fontSize:14 }}>+</span> Add material
+            </button>
+
+            {showPicker && (
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, width:300, background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.15)', border:'1px solid #E8ECF0', zIndex:50, overflow:'hidden' }}>
+                {/* Search */}
+                <div style={{ padding:'10px 12px', borderBottom:'1px solid #F3F4F6' }}>
+                  <input
+                    autoFocus
+                    value={search} onChange={e=>setSearch(e.target.value)}
+                    placeholder="Search job materials…"
+                    style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                </div>
+                {/* List */}
+                <div style={{ maxHeight:280, overflowY:'auto' }}>
+                  {searchFiltered.length === 0 ? (
+                    <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:12 }}>No materials found</div>
+                  ) : searchFiltered.map(jm => {
+                    const m = jm.materials
+                    return (
+                      <div key={jm.id}
+                        onClick={() => { onAdd(jm); setShowPicker(false); setSearch('') }}
+                        style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        {/* Swatch */}
+                        {m.storage_path
+                          ? <img src={pubUrl(m.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                          : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
+                        }
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
+                          <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
+                            {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                        <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Assigned materials list */}
+      {roomMats.length === 0 && filteredMats.length === 0 && (
+        <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>
+          No materials assigned to this job yet — add materials from the job card first.
+        </div>
+      )}
+      {roomMats.length === 0 && filteredMats.length > 0 && (
+        <div style={{ textAlign:'center', padding:'20px 0', color:'#9CA3AF', fontSize:13 }}>
+          Tap <strong>+ Add material</strong> to assign materials to this room.
+        </div>
+      )}
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        {roomMats.map(rm => {
+          const m = rm.materials; if (!m) return null
+          return (
+            <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
+              {m.storage_path
+                ? <img src={pubUrl(m.storage_path)} style={{ width:40,height:40,borderRadius:9,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                : <div style={{ width:40,height:40,borderRadius:9,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
+              }
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{m.name}</div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                  {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <button onClick={() => onRemove(rm.id)}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
+                onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Room Files Tab ────────────────────────────────────────────────
 function RoomFilesTab({ room, jobId }) {
   const toast = useToast()
@@ -1502,71 +1621,10 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
 
           {/* ── MATERIALS ── */}
           {tab==='materials' && (
-            <div>
-              {/* Available job materials not yet added to this room */}
-              {filteredMats.length > 0 && (
-                <div style={{ marginBottom:14 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>
-                    Job materials — tap to add
-                  </div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                    {filteredMats.map(jm=>(
-                      <div key={jm.id} onClick={()=>addMat(jm.materials)}
-                        style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', fontSize:13, background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', transition:'all .1s' }}
-                        onMouseEnter={e=>{e.currentTarget.style.background='#F0F4FF';e.currentTarget.style.borderColor='#C4D4F8'}}
-                        onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#E8ECF0'}}>
-                        {jm.materials.storage_path
-                          ? <img src={pubUrl(jm.materials.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                          : <div style={{ width:36,height:36,borderRadius:8,background:jm.materials.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
-                        }
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:700, color:'#2A3042', fontSize:13 }}>{jm.materials.name}</div>
-                          <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                            {[jm.materials.supplier, jm.materials.panel_type,
-                              jm.materials.thickness ? jm.materials.thickness+'mm' : null,
-                              jm.materials.colour_code, jm.materials.finish
-                            ].filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
-                        <div style={{ width:22, height:22, borderRadius:'50%', border:'1.5px solid #C4D4F8', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                          <span style={{ fontSize:14, color:'#5B8AF0', lineHeight:1 }}>+</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {filteredMats.length === 0 && roomMats.length === 0 && (
-                <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13 }}>
-                  No materials assigned to this job yet — add materials from the job card first
-                </div>
-              )}
-              {roomMats.length > 0 && (
-                <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>
-                  In this room
-                </div>
-              )}
-              {roomMats.map(rm=>{
-                    const m=rm.materials; if(!m) return null
-                    return (
-                      <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', marginBottom:7 }}>
-                        {m.storage_path
-                          ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                          : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
-                        }
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:13,fontWeight:700,color:'#2A3042' }}>{m.name}</div>
-                          <div style={{ fontSize:11,color:'#9CA3AF',marginTop:2 }}>
-                            {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
-                        <button onClick={()=>removeMat(rm.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:18 }}
-                          onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
-                      </div>
-                    )
-                  })
-              }
-            </div>
+            <RoomMaterialsTab
+              roomMats={roomMats} filteredMats={filteredMats}
+              onAdd={jm=>addMat(jm.materials)} onRemove={removeMat}
+            />
           )}
 
           {/* ── APPLIANCES ── */}
