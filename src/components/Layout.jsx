@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext'
 import { useState, useRef, useEffect } from 'react'
 import JobProcessesDropdown from '../screens/JobProcesses'
 import NotificationBell from './NotificationBell'
+import RFIBell from './RFIBell'
 import TaskCounter from './TaskCounter'
 import WeekSnapshot from './WeekSnapshot'
 import JobClock from './JobClock'
@@ -328,6 +329,7 @@ export default function Layout() {
             </>)}
 
             <TaskCounter />
+            <RFIBell />
             <WeekSnapshot />
             <JobClock />
             <NotificationBell />
