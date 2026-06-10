@@ -259,7 +259,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor }) {
+function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [] }) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors     = job.mat_colors ? JSON.parse(job.mat_colors) : []
@@ -349,9 +349,9 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
           </div>
         </div>
       </div>
-      {(jobRooms[job.id]||[]).length > 0 && (
+      {(rooms||[]).length > 0 && (
         <RoomHoverPanel
-          rooms={jobRooms[job.id]||[]}
+          rooms={rooms||[]}
           visible={hovered}
           onClickRoom={room => navigate(`/job/${job.id}?room=${room.id}`)}
         />
@@ -566,7 +566,7 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers}
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers} rooms={jobRooms[job.id]||[]}
               statusColor={(jobStatuses.find(s=>s.label===job.status)||{}).color} />
           ))}
           {can('createJob') && tab !== 'done' && (
