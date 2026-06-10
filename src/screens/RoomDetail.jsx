@@ -53,15 +53,14 @@ function SpecRow({ label, value, unit='mm', onChange }) {
 function TaskRow({ task, onToggle, onDelete, onUpdate }) {
   const [editing, setEditing] = React.useState(false)
   const [localTitle, setLocalTitle] = React.useState(task.title || '')
-  const titleRef = React.useRef()
   const isOver = !task.done && task.date && new Date(task.date) < new Date()
 
-  React.useEffect(() => { setLocalTitle(task.title || '') }, [task.id])
-  React.useEffect(() => { if (editing && titleRef.current) { titleRef.current.focus(); titleRef.current.select() } }, [editing])
+  React.useEffect(() => { setLocalTitle(task.title || '') }, [task.title])
 
-  function saveTitle() {
-    const val = localTitle.trim()
-    if (val && val !== task.title) onUpdate('title', val)
+  function saveTitle(val) {
+    const v = val.trim()
+    if (v && v !== task.title) onUpdate('title', v)
+    setEditing(false)
   }
 
   return (
@@ -70,39 +69,43 @@ function TaskRow({ task, onToggle, onDelete, onUpdate }) {
         {task.done && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        {editing ? (
-          <input ref={titleRef} value={localTitle}
+        {/* Title — click to edit */}
+        {editing && !task.done ? (
+          <input
+            autoFocus
+            value={localTitle}
             onChange={e => setLocalTitle(e.target.value)}
-            onBlur={saveTitle}
-            onKeyDown={e => { if (e.key==='Enter') { saveTitle(); } if (e.key==='Escape') { setLocalTitle(task.title||''); setEditing(false) } }}
-            style={{ width:'100%', fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', boxSizing:'border-box', fontFamily:'inherit', marginBottom:4 }} />
+            onBlur={e => saveTitle(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') saveTitle(e.target.value)
+              if (e.key === 'Escape') { setLocalTitle(task.title || ''); setEditing(false) }
+            }}
+            style={{ width:'100%', fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', fontFamily:'inherit', boxSizing:'border-box' }}
+          />
         ) : (
-          <div style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none' }}>{task.title}</div>
-        )}
-        {editing ? (
-          <div style={{ display:'flex', gap:5, marginTop:5, flexWrap:'wrap', alignItems:'center' }}>
-            <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
-              <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
-                style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
-            </div>
-            <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
-              <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
-                style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #C4D4F8', borderRadius:6, outline:'none', width:95, background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
-            </div>
-            <button onClick={()=>{ saveTitle(); setEditing(false) }} style={{ fontSize:11, color:'#1D9E75', fontWeight:700, background:'none', border:'none', cursor:'pointer' }}>Done</button>
-          </div>
-        ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
-            {task.date && <span style={{ fontSize:11, color:isOver?'#E24B4A':'#9CA3AF' }}>Due {new Date(task.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}{task.time ? ' ' + task.time : ''}</span>}
-            {!task.done && <button onClick={()=>setEditing(true)} style={{ fontSize:10, color:'#C4C9D4', background:'none', border:'none', cursor:'pointer', padding:0 }}
-              onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'} onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>✏️</button>}
-            {task.done && task.completed_by && <span style={{ fontSize:10, color:'#9CA3AF' }}>✓ {task.completed_by}</span>}
+          <div
+            onClick={() => !task.done && setEditing(true)}
+            title={task.done ? '' : 'Click to edit'}
+            style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none', cursor: task.done?'default':'text', minHeight:18 }}>
+            {task.title}
           </div>
         )}
+        {/* Date/time row */}
+        <div style={{ display:'flex', gap:5, marginTop:4, flexWrap:'wrap', alignItems:'center' }}>
+          <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+            <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
+              style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #E8ECF0', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none', color: task.date ? (isOver?'#E24B4A':'#6B7280') : '#C4C9D4' }} />
+          </div>
+          <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
+            <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <input type="time" defaultValue={task.time||''} onChange={e=>onUpdate('time',e.target.value)}
+              style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #E8ECF0', borderRadius:6, outline:'none', width:95, background:'#fff', WebkitAppearance:'none', appearance:'none' }} />
+          </div>
+          {task.done && task.completed_by && <span style={{ fontSize:10, color:'#9CA3AF' }}>✓ {task.completed_by}</span>}
+        </div>
       </div>
-      <button onClick={onDelete} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1 }}
+      <button onClick={onDelete} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, flexShrink:0 }}
         onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
     </div>
   )

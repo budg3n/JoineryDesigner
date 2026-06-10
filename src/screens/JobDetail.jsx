@@ -3636,7 +3636,17 @@ export default function JobDetail() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <div className={`text-sm ${t.done?'line-through text-[#9CA3AF]':'text-[#2A3042]'}`}>{t.title}</div>
+                    {!t.from_room && editingTaskId === t.id ? (
+                      <input
+                        autoFocus
+                        defaultValue={t.title}
+                        onBlur={e => { if (e.target.value.trim() && e.target.value.trim() !== t.title) updateTaskField(t.id,'title',e.target.value.trim()) }}
+                        onKeyDown={e => { if(e.key==='Enter') { if (e.target.value.trim() && e.target.value.trim() !== t.title) updateTaskField(t.id,'title',e.target.value.trim()) } if(e.key==='Escape') setEditingTaskId(null) }}
+                        style={{ fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', fontFamily:'inherit', minWidth:120, flex:1 }}
+                      />
+                    ) : (
+                      <div className={`text-sm ${t.done?'line-through text-[#9CA3AF]':'text-[#2A3042]'}`}>{t.title}</div>
+                    )}
                     {t.from_room && <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0FDF4', color:'#065F46', fontWeight:600, flexShrink:0, border:'1px solid #86EFAC' }}>🏠 {t.room_name}</span>}
                     {t.from_note && <span onClick={()=>navigate(`/notes/${t.from_note}`)} style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>📄 Note</span>}
                     {t.private && <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'#F3F4F6', color:'#6B7280', fontWeight:600, flexShrink:0 }}>🔒</span>}
