@@ -183,6 +183,7 @@ export default function RFIBell() {
                       {job && (
                         <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
                           {job.job_number ? `#${job.job_number} · ` : ''}{job.name}
+                          {rfi.room_name && <span style={{ marginLeft:5, padding:'1px 6px', borderRadius:5, background:'#F0FDF4', color:'#065F46', fontSize:10, fontWeight:600, border:'1px solid #86EFAC' }}>🏠 {rfi.room_name}</span>}
                         </div>
                       )}
                       {rfi.external_reply && (

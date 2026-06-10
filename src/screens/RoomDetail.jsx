@@ -182,6 +182,319 @@ function POModal({ jobNumber, existingPO, onConfirm, onCancel }) {
   )
 }
 
+// ── Room RFI Tab ──────────────────────────────────────────────────
+const RFI_PRIORITIES = ['Low','Normal','High','Urgent']
+const RFI_STATUSES   = ['Open','In Review','Resolved','Closed']
+
+const RFI_STATUS_STYLE = {
+  'Open':      { bg:'#EEF2FF', color:'#3730A3', border:'#C7D2FE' },
+  'In Review': { bg:'#FEF9C3', color:'#854D0E', border:'#FDE68A' },
+  'Resolved':  { bg:'#DCFCE7', color:'#166534', border:'#86EFAC' },
+  'Closed':    { bg:'#F3F4F6', color:'#6B7280', border:'#E5E7EB' },
+}
+
+const RFI_PRIORITY_STYLE = {
+  'Low':    { color:'#9CA3AF' },
+  'Normal': { color:'#5B8AF0' },
+  'High':   { color:'#F97316' },
+  'Urgent': { color:'#E24B4A' },
+}
+
+function RoomRFITab({ room, jobId, profile }) {
+  const toast = useToast()
+  const [rfis, setRfis]       = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm]       = useState(null)
+  const [detail, setDetail]   = useState(null)
+  const [saving, setSaving]   = useState(false)
+
+  useEffect(() => {
+    if (!jobId) return
+    supabase.from('job_rfis').select('*')
+      .eq('job_id', jobId).eq('room_id', room.id)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error('Room RFI load:', error.message)
+        setRfis(data || [])
+        setLoading(false)
+      })
+  }, [room.id, jobId])
+
+  function openNew() {
+    const next = rfis.length ? Math.max(...rfis.map(r => r.number || 0)) + 1 : 1
+    setForm({ title:'', description:'', type:'external', status:'Open', priority:'Normal',
+      assigned_to: null, due_date: '', number: next })
+  }
+
+  async function saveRFI() {
+    if (!form?.title?.trim()) { toast('Title is required', 'error'); return }
+    setSaving(true)
+    const payload = {
+      title: form.title, description: form.description||'',
+      type: form.type || 'external', status: form.status || 'Open',
+      priority: form.priority || 'Normal',
+      assigned_to: form.assigned_to ? String(form.assigned_to).replace('contact_','') : null,
+      due_date: form.due_date || null,
+      updated_at: new Date().toISOString(),
+      room_id: room.id,
+      room_name: room.name,
+    }
+    if (form.number) payload.number = form.number
+    if (form.id) {
+      const { error } = await supabase.from('job_rfis').update(payload).eq('id', form.id)
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
+      setRfis(p => p.map(r => r.id===form.id ? {...r,...payload} : r))
+    } else {
+      const insertData = { ...payload, job_id: jobId }
+      if (profile?.id) insertData.created_by = profile.id
+      const { data, error } = await supabase.from('job_rfis').insert(insertData).select().single()
+      if (error) { toast(`Save failed: ${error.message}`, 'error'); setSaving(false); return }
+      setRfis(p => [...p, data])
+    }
+    toast('RFI saved ✓'); setForm(null); setSaving(false)
+  }
+
+  async function changeStatus(status) {
+    if (!detail) return
+    await supabase.from('job_rfis').update({ status, updated_at: new Date().toISOString() }).eq('id', detail.id)
+    setRfis(p => p.map(r => r.id===detail.id ? {...r,status} : r))
+    setDetail(d => ({...d, status}))
+  }
+
+  async function respond(response) {
+    if (!detail) return
+    await supabase.from('job_rfis').update({ response, responded_at: new Date().toISOString() }).eq('id', detail.id)
+    setRfis(p => p.map(r => r.id===detail.id ? {...r,response} : r))
+    setDetail(d => ({...d,response}))
+  }
+
+  async function deleteRFI(id) {
+    if (!confirm('Delete this RFI?')) return
+    await supabase.from('job_rfis').delete().eq('id', id)
+    setRfis(p => p.filter(r => r.id !== id))
+    if (detail?.id === id) setDetail(null)
+  }
+
+  function daysUntil(d) {
+    if (!d) return null
+    const now = new Date(); now.setHours(0,0,0,0)
+    const dt = new Date(d); dt.setHours(0,0,0,0)
+    return Math.round((dt - now) / 86400000)
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
+          RFIs for <span style={{ color:'#5B8AF0' }}>{room.name}</span>
+        </div>
+        <button onClick={openNew}
+          style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+          + New RFI
+        </button>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div style={{ textAlign:'center', padding:'20px 0', color:'#9CA3AF', fontSize:13 }}>Loading…</div>
+      ) : rfis.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'20px 0', color:'#9CA3AF', fontSize:13 }}>
+          No RFIs for this room yet
+        </div>
+      ) : rfis.map(rfi => {
+        const ss = RFI_STATUS_STYLE[rfi.status] || RFI_STATUS_STYLE.Open
+        const ps = RFI_PRIORITY_STYLE[rfi.priority] || RFI_PRIORITY_STYLE.Normal
+        const days = daysUntil(rfi.due_date)
+        const isOverdue = days !== null && days < 0 && rfi.status !== 'Resolved' && rfi.status !== 'Closed'
+        const hasReply = !!rfi.external_reply
+        return (
+          <div key={rfi.id}
+            onClick={() => setDetail(rfi)}
+            style={{ background: isOverdue?'#FFF5F5': hasReply?'#F0FDF4':'#fff', borderRadius:10,
+              border:`1px solid ${isOverdue?'#FCA5A5':hasReply?'#86EFAC':'#E8ECF0'}`,
+              padding:'10px 14px', marginBottom:8, cursor:'pointer' }}
+            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?'#FEE2E2':hasReply?'#DCFCE7':'#F8FAFF'}
+            onMouseLeave={e=>e.currentTarget.style.background=isOverdue?'#FFF5F5':hasReply?'#F0FDF4':'#fff'}>
+            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', fontFamily:'monospace' }}>
+                    RFI-{String(rfi.number||0).padStart(3,'0')}
+                  </span>
+                  <span style={{ fontSize:11, fontWeight:700, padding:'1px 8px', borderRadius:8,
+                    background:ss.bg, color:ss.color, border:`1px solid ${ss.border}` }}>
+                    {rfi.status}
+                  </span>
+                  {hasReply && <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:8, background:'#DCFCE7', color:'#166534', border:'1px solid #86EFAC' }}>✓ reply</span>}
+                  {isOverdue && <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:8, background:'#FEF2F2', color:'#E24B4A', border:'1px solid #FCA5A5' }}>
+                    {Math.abs(days)}d overdue
+                  </span>}
+                </div>
+                <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{rfi.title}</div>
+                {rfi.description && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{rfi.description}</div>}
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:ps.color }}>{rfi.priority}</span>
+                {rfi.due_date && <span style={{ fontSize:10, color: isOverdue?'#E24B4A':'#9CA3AF' }}>
+                  {new Date(rfi.due_date).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}
+                </span>}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+
+      {/* New/Edit form modal */}
+      {form && (
+        <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={e=>e.target===e.currentTarget&&setForm(null)}>
+          <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:480, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:800, color:'#2A3042' }}>New RFI — #{String(form.number||0).padStart(3,'0')}</div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>Room: <strong>{room.name}</strong></div>
+              </div>
+              <button onClick={()=>setForm(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22 }}>×</button>
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:18 }}>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Title *</label>
+                <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Brief description…"
+                  style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Description</label>
+                <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={3} placeholder="Details…"
+                  style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Priority</label>
+                  <select value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}
+                    style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                    {RFI_PRIORITIES.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Due date</label>
+                  <input type="date" value={form.due_date||''} onChange={e=>setForm(f=>({...f,due_date:e.target.value}))}
+                    style={{ width:'100%', padding:'8px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' }} />
+                </div>
+              </div>
+            </div>
+            <div style={{ padding:'10px 18px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, justifyContent:'flex-end', flexShrink:0 }}>
+              <button onClick={()=>setForm(null)} style={{ padding:'8px 14px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, cursor:'pointer' }}>Cancel</button>
+              <button onClick={saveRFI} disabled={saving}
+                style={{ padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                {saving ? 'Saving…' : 'Save RFI'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail modal */}
+      {detail && (
+        <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={e=>e.target===e.currentTarget&&setDetail(null)}>
+          <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:500, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
+              <div>
+                <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', fontFamily:'monospace', marginBottom:2 }}>
+                  RFI-{String(detail.number||0).padStart(3,'0')} · {room.name}
+                </div>
+                <div style={{ fontSize:15, fontWeight:800, color:'#2A3042' }}>{detail.title}</div>
+              </div>
+              <button onClick={()=>setDetail(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:18 }}>
+              {/* Status buttons */}
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
+                {RFI_STATUSES.map(s => {
+                  const st = RFI_STATUS_STYLE[s]
+                  return (
+                    <button key={s} onClick={()=>changeStatus(s)}
+                      style={{ padding:'4px 12px', borderRadius:20, fontSize:11, fontWeight:s===detail.status?700:500, cursor:'pointer',
+                        border:`1px solid ${s===detail.status?st.border:'#E8ECF0'}`,
+                        background:s===detail.status?st.bg:'#fff', color:s===detail.status?st.color:'#9CA3AF' }}>
+                      {s}
+                    </button>
+                  )
+                })}
+              </div>
+              {detail.description && (
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Description</div>
+                  <div style={{ fontSize:13, color:'#374151', lineHeight:1.6 }}>{detail.description}</div>
+                </div>
+              )}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:14, fontSize:12 }}>
+                {detail.due_date && <div><span style={{ color:'#9CA3AF' }}>Due: </span><strong>{new Date(detail.due_date).toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'})}</strong></div>}
+                <div><span style={{ color:'#9CA3AF' }}>Priority: </span><strong>{detail.priority}</strong></div>
+              </div>
+              {/* External reply */}
+              {detail.external_reply && (
+                <div style={{ background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:10, padding:12, marginBottom:12 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#065F46', marginBottom:4 }}>
+                    ✓ External reply {detail.external_reply_name ? `from ${detail.external_reply_name}` : ''}
+                  </div>
+                  <div style={{ fontSize:13, color:'#166534', lineHeight:1.5 }}>{detail.external_reply}</div>
+                </div>
+              )}
+              {/* Internal response */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>Internal response</div>
+                <RFIResponseInput detail={detail} onSave={respond} />
+              </div>
+            </div>
+            <div style={{ padding:'10px 18px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, justifyContent:'space-between', flexShrink:0 }}>
+              <button onClick={()=>deleteRFI(detail.id)}
+                style={{ padding:'7px 14px', borderRadius:8, border:'1px solid #FCA5A5', background:'#FEF2F2', color:'#E24B4A', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                Delete
+              </button>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={()=>{setForm({...detail,id:detail.id});setDetail(null)}}
+                  style={{ padding:'7px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  Edit
+                </button>
+                <button onClick={()=>setDetail(null)}
+                  style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RFIResponseInput({ detail, onSave }) {
+  const [val, setVal] = useState(detail.response || '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => setVal(detail.response || ''), [detail.id])
+  async function save() {
+    if (!val.trim()) return
+    setSaving(true)
+    await onSave(val.trim())
+    setSaving(false)
+  }
+  return (
+    <div>
+      <textarea value={val} onChange={e=>setVal(e.target.value)} rows={3}
+        placeholder="Add internal notes or response…"
+        style={{ width:'100%', padding:'10px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' }} />
+      <button onClick={save} disabled={saving||!val.trim()}
+        style={{ marginTop:6, padding:'7px 18px', borderRadius:8, border:'none', fontSize:12, fontWeight:700, cursor:val.trim()?'pointer':'default',
+          background:val.trim()?'#1D9E75':'#E8ECF0', color:val.trim()?'#fff':'#9CA3AF' }}>
+        {saving?'Saving…':'Save response'}
+      </button>
+    </div>
+  )
+}
+
 // ── Room Files Tab ────────────────────────────────────────────────
 function RoomFilesTab({ room, jobId }) {
   const toast = useToast()
@@ -969,6 +1282,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
     { key:'appliances',label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
     { key:'files',     label:'📁 Files' },
     { key:'orders',    label:'📋 Orders' },
+    { key:'rfi',       label:'🗒 RFI' },
     { key:'onsite',    label:'📸 On-Site' },
   ]
 
@@ -1331,6 +1645,11 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
+          )}
+
+        {/* ── RFI ── */}
+          {tab==='rfi' && (
+            <RoomRFITab room={room} jobId={jobId} profile={profile} />
           )}
 
         {/* ── FILES ── */}
