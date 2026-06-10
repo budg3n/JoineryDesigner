@@ -375,6 +375,7 @@ export default function Dashboard() {
   const [allCustomers, setAllCustomers] = useState([])
   const [jobProcessData, setJobProcessData] = useState({})
   const [jobProcessStatus, setJobProcessStatus] = useState({})
+  const [unorderedCounts, setUnorderedCounts] = useState({})
   const [jobRooms, setJobRooms] = useState({}) // jobId -> rooms[]
 
   // Build filter tabs from dynamic statuses
