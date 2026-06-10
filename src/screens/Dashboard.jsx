@@ -119,7 +119,7 @@ function RoomHoverPanel({ rooms, visible, onClickRoom }) {
             const emoji = r.icon || (r.type==='Kitchen'?'🍳':r.type==='Laundry'?'🫧':r.type==='Bathroom'||r.type==='Ensuite'?'🚿':r.type==='Bedroom'?'🛏':r.type==='Living'?'🛋':r.type==='Office'?'💼':'🏠')
             return (
               <div key={r.id}
-                onClick={e => { e.stopPropagation(); onClickRoom(r) }}
+                onClick={e => { e.stopPropagation(); e.preventDefault(); onClickRoom(r) }}
                 style={{
                   display:'flex', alignItems:'center', gap:8, padding:'6px 8px',
                   borderRadius:8, cursor:'pointer',
@@ -260,6 +260,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
 }
 
 function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [] }) {
+  const navigate  = useNavigate()
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors     = job.mat_colors ? JSON.parse(job.mat_colors) : []
