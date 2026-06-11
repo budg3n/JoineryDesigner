@@ -50,10 +50,19 @@ function SpecRow({ label, value, unit='mm', onChange }) {
   )
 }
 
+const TASK_PRIORITIES = ['High', 'Medium', 'Low']
+const TASK_PRIORITY_STYLE = {
+  High:   { bg:'#FEF2F2', color:'#E24B4A', border:'#FCA5A5', dot:'#E24B4A' },
+  Medium: { bg:'#FFF7ED', color:'#C2410C', border:'#FED7AA', dot:'#F97316' },
+  Low:    { bg:'#F0FDF4', color:'#166534', border:'#86EFAC', dot:'#1D9E75' },
+}
+
 function TaskRow({ task, onToggle, onDelete, onUpdate }) {
   const [editing, setEditing] = React.useState(false)
   const [localTitle, setLocalTitle] = React.useState(task.title || '')
   const isOver = !task.done && task.date && new Date(task.date) < new Date()
+  const priority = task.priority || 'Medium'
+  const ps = TASK_PRIORITY_STYLE[priority] || TASK_PRIORITY_STYLE.Medium
 
   React.useEffect(() => { setLocalTitle(task.title || '') }, [task.title])
 
@@ -64,38 +73,35 @@ function TaskRow({ task, onToggle, onDelete, onUpdate }) {
   }
 
   return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background:'#F9FAFB', borderRadius:9, border:`1px solid ${isOver?'#FCA5A5':'#E8ECF0'}`, marginBottom:6 }}>
-      <div onClick={onToggle} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${task.done?'#1D9E75':isOver?'#E24B4A':'#C4C9D4'}`, background:task.done?'#1D9E75':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:2, cursor:'pointer', transition:'all .12s' }}>
+    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', background: ps.bg, borderRadius:9, border:`1px solid ${isOver?'#FCA5A5':ps.border}`, marginBottom:6 }}>
+      <div onClick={onToggle} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${task.done?'#1D9E75':isOver?'#E24B4A':ps.dot}`, background:task.done?'#1D9E75':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:2, cursor:'pointer', transition:'all .12s' }}>
         {task.done && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        {/* Title — click to edit */}
+        {/* Priority + title row */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+          <select value={priority} onChange={e => onUpdate('priority', e.target.value)}
+            onClick={e => e.stopPropagation()}
+            style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:5, border:`1px solid ${ps.border}`, background:'#fff', color:ps.color, cursor:'pointer', outline:'none', flexShrink:0 }}>
+            {TASK_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
         {editing && !task.done ? (
-          <input
-            autoFocus
-            value={localTitle}
-            onChange={e => setLocalTitle(e.target.value)}
+          <input autoFocus value={localTitle} onChange={e => setLocalTitle(e.target.value)}
             onBlur={e => saveTitle(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') saveTitle(e.target.value)
-              if (e.key === 'Escape') { setLocalTitle(task.title || ''); setEditing(false) }
-            }}
-            style={{ width:'100%', fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', fontFamily:'inherit', boxSizing:'border-box' }}
-          />
+            onKeyDown={e => { if(e.key==='Enter') saveTitle(e.target.value); if(e.key==='Escape'){setLocalTitle(task.title||'');setEditing(false)} }}
+            style={{ width:'100%', fontSize:13, fontWeight:500, color:'#2A3042', border:'none', borderBottom:'1.5px solid #5B8AF0', outline:'none', background:'transparent', padding:'0 0 2px', fontFamily:'inherit', boxSizing:'border-box' }} />
         ) : (
-          <div
-            onClick={() => !task.done && setEditing(true)}
-            title={task.done ? '' : 'Click to edit'}
-            style={{ fontSize:13, fontWeight:500, color: task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none', cursor: task.done?'default':'text', minHeight:18 }}>
+          <div onClick={() => !task.done && setEditing(true)} title={task.done?'':'Click to edit'}
+            style={{ fontSize:13, fontWeight:500, color:task.done?'#9CA3AF':'#2A3042', textDecoration:task.done?'line-through':'none', cursor:task.done?'default':'text', minHeight:18 }}>
             {task.title}
           </div>
         )}
-        {/* Date/time row */}
         <div style={{ display:'flex', gap:5, marginTop:4, flexWrap:'wrap', alignItems:'center' }}>
           <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
             <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <input type="date" defaultValue={task.date||''} onChange={e=>onUpdate('date',e.target.value)}
-              style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #E8ECF0', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none', color: task.date ? (isOver?'#E24B4A':'#6B7280') : '#C4C9D4' }} />
+              style={{ fontSize:11, padding:'3px 5px 3px 20px', border:'1px solid #E8ECF0', borderRadius:6, outline:'none', background:'#fff', WebkitAppearance:'none', appearance:'none', color:task.date?(isOver?'#E24B4A':'#6B7280'):'#C4C9D4' }} />
           </div>
           <div style={{ position:'relative', display:'flex', alignItems:'center' }}>
             <svg style={{ position:'absolute', left:5, pointerEvents:'none', color:'#9CA3AF' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1353,7 +1359,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   const [dirty, setDirty]     = useState(false)
   const [saving, setSaving]   = useState(false)
   const [tab, setTab]         = useState('overview')
-  const [newTask, setNewTask] = useState({ title:'', date:'', time:'' })
+  const [newTask, setNewTask] = useState({ title:'', date:'', time:'', priority:'Medium' })
   const [addingTask, setAddingTask] = useState(false)
   const [appSearch, setAppSearch] = useState('')
   const [matSearch, setMatSearch] = useState('')
@@ -1642,6 +1648,22 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                     onKeyDown={e=>e.key==='Enter'&&addTask()}
                     placeholder="Task title…"
                     style={{ width:'100%', border:'none', borderBottom:'1px solid #E8ECF0', outline:'none', fontSize:13, marginBottom:10, fontFamily:'inherit', paddingBottom:8, boxSizing:'border-box' }} />
+                  {/* Priority */}
+                  <div style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Priority</div>
+                    <div style={{ display:'flex', gap:6 }}>
+                      {['High','Medium','Low'].map(p => {
+                        const ps = {High:{bg:'#FEF2F2',color:'#E24B4A',border:'#FCA5A5'},Medium:{bg:'#FFF7ED',color:'#C2410C',border:'#FED7AA'},Low:{bg:'#F0FDF4',color:'#166534',border:'#86EFAC'}}[p]
+                        const active = (newTask.priority||'Medium') === p
+                        return (
+                          <button key={p} onClick={()=>setNewTask(x=>({...x,priority:p}))}
+                            style={{ padding:'4px 12px', borderRadius:7, border:`1px solid ${active?ps.border:'#E8ECF0'}`, background:active?ps.bg:'#fff', color:active?ps.color:'#9CA3AF', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                            {p}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
                     <div>
                       <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Due date</div>
@@ -1662,7 +1684,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                   </div>
                   <div style={{ display:'flex', gap:8 }}>
                     <button onClick={addTask} style={{ flex:1, fontSize:13, fontWeight:700, padding:'8px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', cursor:'pointer' }}>Add task</button>
-                    <button onClick={()=>{ setAddingTask(false); setNewTask({title:'',date:'',time:''}) }} style={{ fontSize:13, padding:'8px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
+                    <button onClick={()=>{ setAddingTask(false); setNewTask({title:'',date:'',time:'',priority:'Medium'}) }} style={{ fontSize:13, padding:'8px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', color:'#6B7280' }}>Cancel</button>
                   </div>
                 </div>
               ) : (

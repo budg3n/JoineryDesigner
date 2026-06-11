@@ -85,7 +85,11 @@ export default function TaskCounter() {
       })
     }
 
+    const PRIORITY_ORDER = { High:0, Medium:1, Low:2 }
     allTasks.sort((a, b) => {
+      const pa = PRIORITY_ORDER[a.priority||'Medium'] ?? 1
+      const pb = PRIORITY_ORDER[b.priority||'Medium'] ?? 1
+      if (pa !== pb) return pa - pb
       const da = a.date ? daysUntil(a.date) : 999
       const db = b.date ? daysUntil(b.date) : 999
       return da - db
@@ -210,10 +214,19 @@ export default function TaskCounter() {
               const isOverdue = days !== null && days < 0
               const isUrgent  = days !== null && days <= 3
               const isConfirming = confirmId === task.id
+              const taskPriority = task.priority || 'Medium'
+              const priorityStyle = {
+                High:   { bg:'#FEF2F2', left:'#E24B4A', badge:{ bg:'#FEF2F2', color:'#E24B4A', border:'#FCA5A5' } },
+                Medium: { bg:'#FFF7ED', left:'#F97316', badge:{ bg:'#FFF7ED', color:'#C2410C', border:'#FED7AA' } },
+                Low:    { bg:'#F0FDF4', left:'#1D9E75', badge:{ bg:'#F0FDF4', color:'#166534', border:'#86EFAC' } },
+              }[taskPriority] || { bg:'#F9FAFB', left:'#9CA3AF', badge:{ bg:'#F3F4F6', color:'#6B7280', border:'#E8ECF0' } }
 
               return (
-                <div key={task.id} style={{ padding:'10px 16px', borderBottom:'1px solid #F9FAFB',
-                  background: isConfirming ? '#F0FDF4' : isOverdue ? '#FFF9F9' : '#fff' }}>
+                <div key={task.id} style={{
+                  padding:'10px 16px', borderBottom:'1px solid #F9FAFB',
+                  background: isConfirming ? '#F0FDF4' : priorityStyle.bg,
+                  borderLeft: `3px solid ${priorityStyle.left}`,
+                }}>
                   {isConfirming ? (
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                       <div style={{ flex:1, fontSize:13, color:'#374151' }}>Mark "<b>{task.title}</b>" complete?</div>
@@ -227,7 +240,12 @@ export default function TaskCounter() {
                       <button onClick={() => setConfirmId(task.id)}
                         style={{ width:18, height:18, borderRadius:4, border:`1.5px solid ${isOverdue?'#FCA5A5':'#DDE3EC'}`, background:'#fff', cursor:'pointer', flexShrink:0, marginTop:2, display:'flex', alignItems:'center', justifyContent:'center' }} />
                       <div style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={() => { navigate(`/job/${task.jobId}`); setOpen(false) }}>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', marginBottom:3 }}>{task.title}</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', marginBottom:3, display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:priorityStyle.badge.bg, color:priorityStyle.badge.color, border:`1px solid ${priorityStyle.badge.border}`, flexShrink:0 }}>
+                            {taskPriority}
+                          </span>
+                          {task.title}
+                        </div>
                         <div style={{ display:'flex', flexWrap:'wrap', gap:5, alignItems:'center' }}>
                           <span style={{ fontSize:11, color:'#9CA3AF' }}>{task.jobName}{task.jobNumber ? ` · #${task.jobNumber}` : ''}</span>
                           {task.room_name && <span style={{ fontSize:10, fontWeight:600, padding:'1px 6px', borderRadius:6, background:'#F0FDF4', color:'#065F46', border:'1px solid #86EFAC' }}>🏠 {task.room_name}</span>}
