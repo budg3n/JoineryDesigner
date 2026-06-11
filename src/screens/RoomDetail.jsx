@@ -614,7 +614,76 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
   )
 }
 
-// ── Room Files Tab ────────────────────────────────────────────────
+// ── Scrollable Tab Bar ────────────────────────────────────────────
+function ScrollableTabs({ tabs, activeTab, onSelect, dark = false }) {
+  const scrollRef = React.useRef()
+  const [canLeft, setCanLeft]   = React.useState(false)
+  const [canRight, setCanRight] = React.useState(false)
+
+  function updateArrows() {
+    const el = scrollRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 4)
+    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4)
+  }
+
+  React.useEffect(() => {
+    updateArrows()
+    const el = scrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateArrows, { passive: true })
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => { el.removeEventListener('scroll', updateArrows); ro.disconnect() }
+  }, [tabs])
+
+  function scroll(dir) {
+    scrollRef.current?.scrollBy({ left: dir * 120, behavior:'smooth' })
+  }
+
+  const arrowStyle = (show) => ({
+    flexShrink: 0, width:24, height:28, display:'flex', alignItems:'center', justifyContent:'center',
+    background: dark ? 'rgba(255,255,255,0.15)' : '#fff',
+    border: dark ? '1px solid rgba(255,255,255,0.2)' : '1px solid #E8ECF0',
+    borderRadius:6, cursor:'pointer', fontSize:12,
+    color: dark ? '#fff' : '#6B7280',
+    opacity: show ? 1 : 0, pointerEvents: show ? 'auto' : 'none',
+    transition:'opacity .15s',
+  })
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:3, width:'100%', minWidth:0 }}>
+      <button style={arrowStyle(canLeft)} onClick={() => scroll(-1)}>‹</button>
+      <div ref={scrollRef} style={{
+        display:'flex', gap:2, flex:1, overflowX:'auto', scrollbarWidth:'none', msOverflowStyle:'none',
+        WebkitOverflowScrolling:'touch', minWidth:0,
+        ...(dark ? {} : { background:'#EEEFF2', borderRadius:9, padding:3 }),
+      }}
+        onScroll={updateArrows}>
+        <style>{`#rdtabs::-webkit-scrollbar{display:none}`}</style>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => onSelect(t.key)}
+            style={{
+              fontSize:12, fontWeight:activeTab===t.key ? 700 : 500,
+              padding: dark ? '6px 14px' : '5px 12px',
+              borderRadius: dark ? 8 : 7,
+              border:'none', whiteSpace:'nowrap', cursor:'pointer', flexShrink:0,
+              background: dark
+                ? (activeTab===t.key ? 'rgba(255,255,255,0.2)' : 'transparent')
+                : (activeTab===t.key ? '#fff' : 'transparent'),
+              color: dark
+                ? (activeTab===t.key ? '#fff' : 'rgba(255,255,255,0.7)')
+                : (activeTab===t.key ? '#2A3042' : '#6B7280'),
+              boxShadow: (!dark && activeTab===t.key) ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <button style={arrowStyle(canRight)} onClick={() => scroll(1)}>›</button>
+    </div>
+  )
+}
 function RoomFilesTab({ room, jobId }) {
   const toast = useToast()
   const [files, setFiles]       = useState([])
@@ -1446,17 +1515,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
               </div>
             </div>
             {/* tabs inline style */}
-            <div style={{ display:'flex', gap:2, overflowX:'auto', background:'#EEEFF2', borderRadius:9, padding:3 }}>
-              {TABS.map(t=>(
-                <button key={t.key} onClick={()=>setTab(t.key)}
-                  style={{ fontSize:12, fontWeight:tab===t.key?700:500, padding:'5px 12px', borderRadius:7, border:'none', whiteSpace:'nowrap', cursor:'pointer',
-                    background: tab===t.key?'#fff':'transparent',
-                    color: tab===t.key?'#2A3042':'#6B7280',
-                    boxShadow: tab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <ScrollableTabs tabs={TABS} activeTab={tab} onSelect={setTab} />
           </div>
         ) : (
           <>
@@ -1482,13 +1541,8 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
               {ROOM_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          <div style={{ display:'flex', gap:2, padding:'8px 12px', background:'#fff', borderBottom:'1px solid #E8ECF0', overflowX:'auto', flexShrink:0 }}>
-            {TABS.map(t=>(
-              <button key={t.key} onClick={()=>setTab(t.key)}
-                style={{ fontSize:12, fontWeight:tab===t.key?700:500, padding:'6px 14px', borderRadius:8, border:'none', background:tab===t.key?'#EEF2FF':'transparent', color:tab===t.key?'#3730A3':'#6B7280', cursor:'pointer', whiteSpace:'nowrap' }}>
-                {t.label}
-              </button>
-            ))}
+          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'8px 12px', background:'#fff', borderBottom:'1px solid #E8ECF0', flexShrink:0 }}>
+            <ScrollableTabs tabs={TABS} activeTab={tab} onSelect={setTab} dark={false} />
           </div>
           </>
         )}

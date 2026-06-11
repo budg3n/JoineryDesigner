@@ -2949,6 +2949,102 @@ function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
   )
 }
 
+// ── Scrollable Job Tabs ───────────────────────────────────────────
+function JobScrollableTabs({ jobTab, setJobTab, rooms, processes, specs, atts, feedback, unorderedCount, openTasks, allMaterials, setAllMaterials, allAppliances, setAllAppliances }) {
+  const scrollRef = React.useRef()
+  const [canLeft, setCanLeft]   = React.useState(false)
+  const [canRight, setCanRight] = React.useState(false)
+
+  const tabs = [
+    { key:'details',    label:'Details' },
+    { key:'contacts',   label:'Contacts' },
+    { key:'rfi',        label:'RFI' },
+    { key:'tasks',      label:'Tasks',     badge: openTasks?.length||null },
+    { key:'rooms',      label:'Rooms',     badge: rooms?.length||null },
+    { key:'materials',  label:'Materials' },
+    { key:'appliances', label:'Appliances' },
+    { key:'processes',  label:'Processes', badge: processes?.filter(p=>p.status!=='Complete').length||null },
+    { key:'startup',    label:'Startup' },
+    { key:'notes',      label:'Notes' },
+    { key:'orders',     label:'Orders',    badge: unorderedCount||null },
+    { key:'files',      label:'Files',     badge: atts?.length||null },
+    { key:'feedback',   label:'Feedback',  badge: feedback?.filter(f=>f.status==='Open').length||null },
+    { key:'specs',      label:'Specs',     badge: specs?.length||null },
+    { key:'onsite',     label:'On-Site' },
+  ]
+
+  function updateArrows() {
+    const el = scrollRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 4)
+    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4)
+  }
+
+  React.useEffect(() => {
+    updateArrows()
+    const el = scrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateArrows, { passive:true })
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => { el.removeEventListener('scroll', updateArrows); ro.disconnect() }
+  }, [])
+
+  // Scroll active tab into view when tab changes
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const activeBtn = el.querySelector('[data-active="true"]')
+    if (activeBtn) activeBtn.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'nearest' })
+  }, [jobTab])
+
+  function scroll(dir) {
+    scrollRef.current?.scrollBy({ left: dir * 140, behavior:'smooth' })
+  }
+
+  const arrowBtn = (show, dir) => (
+    <button onClick={() => scroll(dir)}
+      style={{ flexShrink:0, width:26, height:34, display:'flex', alignItems:'center', justifyContent:'center',
+        background:'#fff', border:'1px solid #E8ECF0', borderRadius:8, cursor:'pointer',
+        fontSize:14, color:'#6B7280', opacity: show ? 1 : 0, pointerEvents: show ? 'auto' : 'none', transition:'opacity .15s' }}>
+      {dir < 0 ? '‹' : '›'}
+    </button>
+  )
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:16, minWidth:0 }}>
+      {arrowBtn(canLeft, -1)}
+      <div ref={scrollRef} onScroll={updateArrows}
+        style={{ display:'flex', gap:2, flex:1, overflowX:'auto', background:'#F3F4F6', borderRadius:12, padding:4,
+          scrollbarWidth:'none', msOverflowStyle:'none', WebkitOverflowScrolling:'touch', minWidth:0 }}>
+        <style>{`.jd-tabs2::-webkit-scrollbar{display:none}`}</style>
+        {tabs.map(t => (
+          <button key={t.key} data-active={jobTab===t.key ? 'true' : 'false'}
+            onClick={() => {
+              setJobTab(t.key)
+              if (t.key==='materials' && (!allMaterials||allMaterials.length===0))
+                supabase.from('materials').select('id,name,supplier,panel_type,thickness,colour_code,finish,price,color,storage_path,category_id,custom_fields').order('name').then(({data})=>setAllMaterials(data||[]))
+              if (t.key==='appliances' && (!allAppliances||allAppliances.length===0))
+                supabase.from('appliances').select('id,name,brand,model,type,supplier,sku,price,storage_path,category_id').order('brand').then(({data})=>setAllAppliances(data||[]))
+            }}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none',
+              cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
+              fontWeight: jobTab===t.key?700:500,
+              background: jobTab===t.key?'#fff':'transparent',
+              color: jobTab===t.key?'#2A3042':'#6B7280',
+              boxShadow: jobTab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
+            {t.label}
+            {t.badge ? <span style={{ fontSize:10, fontWeight:700, minWidth:16, height:16, borderRadius:8,
+              background:jobTab===t.key?'#5B8AF0':'#9CA3AF', color:'#fff',
+              display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px' }}>{t.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+      {arrowBtn(canRight, 1)}
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { id }  = useParams()
   const navigate = useNavigate()
@@ -3508,40 +3604,11 @@ export default function JobDetail() {
       )}
 
       {/* TABS */}
-      <style>{'.jd-tabs::-webkit-scrollbar{display:none}'}</style>
-      <div className="jd-tabs" style={{ display:'flex', gap:2, overflowX:'auto', overflowY:'visible', background:'#F3F4F6', borderRadius:12, padding:4, marginBottom:16, WebkitOverflowScrolling:'touch', scrollbarWidth:'none', msOverflowStyle:'none', minWidth:0 }}>
-        {[
-          { key:'details',    label:'Details' },
-          { key:'contacts',   label:'Contacts' },
-          { key:'rfi',        label:'RFI' },
-          { key:'tasks',      label:'Tasks',     badge: openTasks.length||null },
-          { key:'rooms',      label:'Rooms',     badge: rooms.length||null },
-          { key:'materials',  label:'Materials' },
-          { key:'appliances', label:'Appliances' },
-          { key:'processes',  label:'Processes', badge: processes.filter(p=>p.status!=='Complete').length||null },
-          { key:'startup',    label:'Startup' },
-          { key:'notes',      label:'Notes' },
-          { key:'orders',     label:'Orders',    badge: unorderedCount||null },
-          { key:'files',      label:'Files',     badge: atts.length||null },
-          { key:'feedback',   label:'Feedback',  badge: feedback.filter(f=>f.status==='Open').length||null },
-          { key:'specs',      label:'Specs',     badge: specs.length||null },
-          { key:'onsite',     label:'On-Site' },
-        ].map(t => (
-          <button key={t.key} onClick={() => {
-              setJobTab(t.key)
-              if (t.key==='materials' && allMaterials.length===0)
-                supabase.from('materials').select('id,name,supplier,panel_type,thickness,colour_code,finish,price,color,storage_path,category_id,custom_fields').order('name').then(({data})=>setAllMaterials(data||[]))
-              if (t.key==='appliances' && allAppliances.length===0)
-                supabase.from('appliances').select('id,name,brand,model,type,supplier,sku,price,storage_path,category_id').order('brand').then(({data})=>setAllAppliances(data||[]))
-            }}
-            style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', borderRadius:9, border:'none', cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, fontSize:13,
-              fontWeight: jobTab===t.key?700:500, background: jobTab===t.key?'#fff':'transparent',
-              color: jobTab===t.key?'#2A3042':'#6B7280', boxShadow: jobTab===t.key?'0 1px 3px rgba(0,0,0,0.1)':'none' }}>
-            {t.label}
-            {t.badge ? <span style={{ fontSize:10, fontWeight:700, minWidth:16, height:16, borderRadius:8, background:jobTab===t.key?'#5B8AF0':'#9CA3AF', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px' }}>{t.badge}</span> : null}
-          </button>
-        ))}
-      </div>
+      <JobScrollableTabs jobTab={jobTab} setJobTab={setJobTab}
+        rooms={rooms} processes={processes} specs={specs} atts={atts}
+        feedback={feedback} unorderedCount={unorderedCount} openTasks={openTasks}
+        allMaterials={allMaterials} setAllMaterials={setAllMaterials}
+        allAppliances={allAppliances} setAllAppliances={setAllAppliances} />
 
       {/* DETAILS */}
       {jobTab === 'details' && <div>
