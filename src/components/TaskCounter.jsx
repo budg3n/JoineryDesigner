@@ -216,15 +216,15 @@ export default function TaskCounter() {
               const isConfirming = confirmId === task.id
               const taskPriority = task.priority || 'Medium'
               const priorityStyle = {
-                High:   { bg:'#FEF2F2', left:'#E24B4A', badge:{ bg:'#FEF2F2', color:'#E24B4A', border:'#FCA5A5' } },
-                Medium: { bg:'#FFF7ED', left:'#F97316', badge:{ bg:'#FFF7ED', color:'#C2410C', border:'#FED7AA' } },
-                Low:    { bg:'#F0FDF4', left:'#1D9E75', badge:{ bg:'#F0FDF4', color:'#166534', border:'#86EFAC' } },
-              }[taskPriority] || { bg:'#F9FAFB', left:'#9CA3AF', badge:{ bg:'#F3F4F6', color:'#6B7280', border:'#E8ECF0' } }
+                High:   { bg:'#E24B4A', color:'#fff', left:'#E24B4A' },
+                Medium: { bg:'#F97316', color:'#fff', left:'#F97316' },
+                Low:    { bg:'#1D9E75', color:'#fff', left:'#1D9E75' },
+              }[taskPriority] || { bg:'#9CA3AF', color:'#fff', left:'#9CA3AF' }
 
               return (
                 <div key={task.id} style={{
                   padding:'10px 16px', borderBottom:'1px solid #F9FAFB',
-                  background: isConfirming ? '#F0FDF4' : priorityStyle.bg,
+                  background: isConfirming ? '#F0FDF4' : '#fff',
                   borderLeft: `3px solid ${priorityStyle.left}`,
                 }}>
                   {isConfirming ? (
@@ -241,7 +241,7 @@ export default function TaskCounter() {
                         style={{ width:18, height:18, borderRadius:4, border:`1.5px solid ${isOverdue?'#FCA5A5':'#DDE3EC'}`, background:'#fff', cursor:'pointer', flexShrink:0, marginTop:2, display:'flex', alignItems:'center', justifyContent:'center' }} />
                       <div style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={() => { navigate(`/job/${task.jobId}`); setOpen(false) }}>
                         <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', marginBottom:3, display:'flex', alignItems:'center', gap:6 }}>
-                          <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:priorityStyle.badge.bg, color:priorityStyle.badge.color, border:`1px solid ${priorityStyle.badge.border}`, flexShrink:0 }}>
+                          <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:priorityStyle.bg, color:priorityStyle.color, flexShrink:0 }}>
                             {taskPriority}
                           </span>
                           {task.title}

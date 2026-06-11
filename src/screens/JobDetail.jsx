@@ -3700,11 +3700,15 @@ export default function JobDetail() {
           {sortedTasks.map(t => {
             const isOver = !t.done && t.date && dFromNow(t.date, t.time) < 0
             const tPriority = t.priority || 'Medium'
-            const tPs = { High:{bg:'#FEF2F2',color:'#E24B4A',border:'#FCA5A5',dot:'#E24B4A'}, Medium:{bg:'#FFF7ED',color:'#C2410C',border:'#FED7AA',dot:'#F97316'}, Low:{bg:'#F0FDF4',color:'#166534',border:'#86EFAC',dot:'#1D9E75'} }[tPriority]||{bg:'#F9FAFB',color:'#6B7280',border:'#E8ECF0',dot:'#9CA3AF'}
+            const tPs = {
+              High:   { bg:'#E24B4A', color:'#fff', border:'#E24B4A', dot:'#E24B4A' },
+              Medium: { bg:'#F97316', color:'#fff', border:'#F97316', dot:'#F97316' },
+              Low:    { bg:'#1D9E75', color:'#fff', border:'#1D9E75', dot:'#1D9E75' },
+            }[tPriority] || { bg:'#9CA3AF', color:'#fff', border:'#9CA3AF', dot:'#9CA3AF' }
             return (
-              <div key={t.id} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 12px', borderRadius:9, border:`1px solid ${tPs.border}`, background:tPs.bg, marginBottom:6 }}>
+              <div key={t.id} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 12px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', marginBottom:6 }}>
                 <div onClick={() => toggleTask(t.id)}
-                  style={{ width:18, height:18, borderRadius:5, border:`2px solid ${t.done?'#1D9E75':isOver?'#E24B4A':tPs.dot}`, background:t.done?'#1D9E75':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1, cursor:'pointer', transition:'all .12s' }}>
+                  style={{ width:18, height:18, borderRadius:5, border:`2px solid ${t.done?'#1D9E75':isOver?'#E24B4A':'#DDE3EC'}`, background:t.done?'#1D9E75':'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1, cursor:'pointer', transition:'all .12s' }}>
                   {t.done && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
@@ -3714,11 +3718,11 @@ export default function JobDetail() {
                     {!t.from_room ? (
                       <button onClick={e=>{ e.stopPropagation(); const order=['High','Medium','Low']; updateTaskField(t.id,'priority',order[(order.indexOf(tPriority)+1)%3]) }}
                         title="Click to change priority"
-                        style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, border:`1px solid ${tPs.border}`, background:'#fff', color:tPs.color, cursor:'pointer', outline:'none', flexShrink:0 }}>
+                        style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, border:'none', background:tPs.bg, color:tPs.color, cursor:'pointer', outline:'none', flexShrink:0 }}>
                         {tPriority}
                       </button>
                     ) : (
-                      <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, border:`1px solid ${tPs.border}`, background:'#fff', color:tPs.color, flexShrink:0 }}>{tPriority}</span>
+                      <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, border:'none', background:tPs.bg, color:tPs.color, flexShrink:0 }}>{tPriority}</span>
                     )}
                     {t.from_room && <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'#F0FDF4', color:'#065F46', fontWeight:600, flexShrink:0, border:'1px solid #86EFAC' }}>🏠 {t.room_name}</span>}
                     {t.from_note && <span onClick={()=>navigate(`/notes/${t.from_note}`)} style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'#F0F4FF', color:'#3730A3', fontWeight:600, cursor:'pointer', border:'1px solid #C4D4F8', flexShrink:0 }}>📄 Note</span>}
