@@ -1668,8 +1668,19 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   onChange={async e => {
                     e.stopPropagation()
                     const newStatus = e.target.value
-                    await supabase.from('rooms').update({ status: newStatus }).eq('id', room.id)
-                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus} : r))
+                    if (newStatus === roomStatus) return
+                    if (!confirm(`Change "${room.name}" status from "${roomStatus}" to "${newStatus}"?`)) {
+                      // Reset the select visually
+                      e.target.value = roomStatus
+                      return
+                    }
+                    const now = new Date().toISOString()
+                    await supabase.from('rooms').update({
+                      status: newStatus,
+                      status_changed_at: now,
+                      status_changed_from: roomStatus,
+                    }).eq('id', room.id)
+                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus, status_changed_at: now, status_changed_from: roomStatus} : r))
                   }}
                   style={{
                     padding:'3px 8px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}22`,
@@ -1680,6 +1691,13 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   }}>
                   {roomStatuses.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
                 </select>
+                {/* Timestamp */}
+                {room.status_changed_at && (
+                  <span style={{ fontSize:9, color:'#9CA3AF', whiteSpace:'nowrap', flexShrink:0 }}
+                    title={`Changed from "${room.status_changed_from||'Pending'}" on ${new Date(room.status_changed_at).toLocaleString('en-NZ')}`}>
+                    {new Date(room.status_changed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}
+                  </span>
+                )}
                 <button onClick={e=>deleteRoom(e,room.id)}
                   style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 4px', marginRight:4 }}
                   onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
