@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import JobProcessesDropdown from '../screens/JobProcesses'
 import NotificationBell from './NotificationBell'
 import RFIBell from './RFIBell'
+import { useTheme } from '../context/ThemeContext'
 import TaskCounter from './TaskCounter'
 import WeekSnapshot from './WeekSnapshot'
 import JobClock from './JobClock'
@@ -55,6 +56,7 @@ const PAGE_TITLES = {
 
 export default function Layout() {
   const { profile, can, signOut, previewRole, setPreviewRole } = useApp()
+  const { theme, toggleTheme } = useTheme()
   const navigate  = useNavigate()
   const location  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -212,7 +214,7 @@ export default function Layout() {
       {/* ── DESKTOP SIDEBAR ── */}
       {role === 'Production Team' ? (
         /* Production Team — slim sidebar, username + sign out only */
-        <aside style={{ width:220, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh' }}
+        <aside style={{ width:220, flexShrink:0, background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh' }}
           className="desktop-sidebar">
           {/* header */}
           <div style={{ padding:'20px 16px 16px', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
@@ -249,7 +251,7 @@ export default function Layout() {
         </aside>
       ) : (
         /* All other roles — full sidebar */
-        <aside style={{ width:220, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' }}
+        <aside style={{ width:220, flexShrink:0, background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' }}
           className="desktop-sidebar">
           <SidebarContent />
         </aside>
@@ -259,7 +261,7 @@ export default function Layout() {
       {sidebarOpen && (
         <div style={{ position:'fixed', inset:0, zIndex:300 }}>
           <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)' }} onClick={() => setSidebarOpen(false)} />
-          <div style={{ position:'absolute', left:0, top:0, bottom:0, width:260, background:'#111318', display:'flex', flexDirection:'column', boxShadow:'4px 0 24px rgba(0,0,0,0.3)' }}>
+          <div style={{ position:'absolute', left:0, top:0, bottom:0, width:260, background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column', boxShadow:'4px 0 24px rgba(0,0,0,0.3)' }}>
             {role === 'Production Team' ? (
               <>
                 <div style={{ padding:'20px 16px 16px', borderBottom:'1px solid rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -294,7 +296,7 @@ export default function Layout() {
       {/* ── MAIN COLUMN ── */}
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100vh', overflowY:'auto' }}>
         {/* topbar */}
-        <header style={{ background:'#fff', height:56, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', borderBottom:'1px solid #E8ECF0', position:'sticky', top:0, zIndex:100, gap:8 }}>
+        <header style={{ background:'var(--bg-header)', height:56, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:100, gap:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
             {/* hamburger — mobile only */}
             <button onClick={() => setSidebarOpen(true)}
@@ -330,6 +332,11 @@ export default function Layout() {
 
             <TaskCounter />
             <RFIBell />
+            {/* Dark mode toggle */}
+            <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              style={{ width:36, height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card)', color:'var(--text-secondary)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, transition:'all .15s' }}>
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
             <WeekSnapshot />
             <JobClock />
             <NotificationBell />

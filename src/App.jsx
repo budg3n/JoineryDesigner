@@ -27,6 +27,7 @@ import JobStatuses from './screens/JobStatuses'
 import RoomTypeSettings from './screens/RoomTypeSettings'
 import ApplianceSettings from './screens/ApplianceSettings'
 import UnitSettings from './screens/UnitSettings'
+import { ThemeProvider } from './context/ThemeContext'
 import RFIReply from './screens/RFIReply'
 import RoomStatuses from './screens/RoomStatuses'
 
@@ -57,6 +58,7 @@ export default function App() {
   usePageRestore()
 
   return (
+    <ThemeProvider>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/rfi/:token" element={<RFIReply />} />
@@ -90,5 +92,6 @@ export default function App() {
         <Route path="settings/room-statuses" element={<RoomStatuses />} />
       </Route>
     </Routes>
+    </ThemeProvider>
   )
 }

@@ -1,5 +1,33 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTheme } from '../context/ThemeContext'
+
+function ThemeToggleRow() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ width:36, height:36, borderRadius:10, background: theme==='dark'?'#1A2448':'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>
+          {theme === 'dark' ? '🌙' : '☀️'}
+        </div>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>Appearance</div>
+          <div style={{ fontSize:11, color:'var(--text-muted)' }}>Choose light or dark mode</div>
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:4, background:'var(--bg-card2)', borderRadius:10, padding:3, border:'1px solid var(--border)' }}>
+        {['light','dark'].map(t => (
+          <button key={t} onClick={() => setTheme(t)}
+            style={{ padding:'6px 14px', borderRadius:8, border:'none', fontSize:12, fontWeight:700, cursor:'pointer', transition:'all .15s',
+              background: theme===t ? 'var(--accent)' : 'transparent',
+              color: theme===t ? '#fff' : 'var(--text-secondary)' }}>
+            {t === 'light' ? '☀️ Light' : '🌙 Dark'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Shared components ──────────────────────────────────────────────
 function NavRow({ icon, iconBg, iconColor, label, sub, to }) {
@@ -131,6 +159,7 @@ export default function Settings() {
 
         {/* GENERAL */}
         {tab === 'general' && <>
+          <ThemeToggleRow />
           <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6' }}>
             <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em' }}>Order sheet</div>
           </div>
