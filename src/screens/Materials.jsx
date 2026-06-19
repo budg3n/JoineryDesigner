@@ -796,7 +796,7 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
             onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'||e.key==='Tab')commit(val)}}
             placeholder={placeholder}
             style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontSize:12 }} />
-        : <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%' }}>{val||placeholder}</span>
+        : <span title={val||''} style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%' }}>{val||placeholder}</span>
       }
     </div>
   )
@@ -905,6 +905,109 @@ function PriceBreaksBtn({ material, onUpdate }) {
         document.body
       )}
     </>
+  )
+}
+
+// ── Material Detail Modal ─────────────────────────────────────────
+function MaterialDetailModal({ material, cols, allCats, onClose, onUpdate }) {
+  if (!material) return null
+  const cf = (() => { try { return material.custom_fields ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields)) : {} } catch { return {} } })()
+  const priceBreaks = Array.isArray(cf.price_breaks) ? cf.price_breaks : []
+  const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
+
+  const cat = allCats?.find(c => c.id === material.category_id)
+  const parentCat = cat?.parent_id ? allCats?.find(c => c.id === cat.parent_id) : null
+  const catPath = [parentCat?.name, cat?.name].filter(Boolean).join(' > ')
+
+  // Build a list of all fields with values, excluding name/image/category (shown separately)
+  const fieldRows = (cols || [])
+    .filter(c => c.type !== 'image' && c.key !== 'category_name' && c.key !== 'name' && c.key !== 'price')
+    .map(c => {
+      const isNonNative = NON_NATIVE.includes(c.key) || c.fieldId
+      const val = c.fieldId
+        ? (cf[c.fieldId] ?? cf[c.fieldLabel] ?? '')
+        : (isNonNative ? (cf[c.key] ?? '') : (material[c.key] ?? ''))
+      return val ? { label: c.label, value: val } : null
+    })
+    .filter(Boolean)
+
+  const imgUrl = material.storage_path ? `https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${material.storage_path}` : null
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:520, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            {catPath && <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{catPath}</div>}
+            <div style={{ fontSize:17, fontWeight:800, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis' }}>{material.name || 'Material'}</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:24, lineHeight:1, flexShrink:0 }}>×</button>
+        </div>
+
+        <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+          {/* Large image */}
+          <div style={{ width:'100%', aspectRatio:'4/3', borderRadius:14, overflow:'hidden', border:'1px solid #E8ECF0', background:'#F9FAFB', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:18 }}>
+            {imgUrl
+              ? <img src={imgUrl} alt={material.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+              : material.color
+                ? <div style={{ width:'100%', height:'100%', background:material.color }} />
+                : <span style={{ color:'#C4C9D4', fontSize:13 }}>No image</span>
+            }
+          </div>
+
+          {/* Price + breaks */}
+          {(material.price || priceBreaks.length > 0) && (
+            <div style={{ background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, padding:14, marginBottom:18 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: priceBreaks.length ? 10 : 0 }}>
+                <span style={{ fontSize:11, fontWeight:700, color:'#3730A3', textTransform:'uppercase', letterSpacing:'.05em' }}>Price</span>
+                <span style={{ fontSize:18, fontWeight:800, color:'#2A3042' }}>{material.price ? `$${parseFloat(material.price).toFixed(2)}` : '—'}</span>
+              </div>
+              {priceBreaks.length > 0 && (
+                <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:2 }}>Qty price breaks</div>
+                  {[...priceBreaks].sort((a,b)=>parseFloat(a.qty)-parseFloat(b.qty)).map((b, i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 10px', background:'#fff', borderRadius:8, border:'1px solid #E0E7FF' }}>
+                      <span style={{ fontSize:12, color:'#6B7280' }}>≥ {b.qty} units</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#5B8AF0' }}>${parseFloat(b.price).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* All other fields */}
+          {fieldRows.length > 0 && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Details</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 16px' }}>
+                {fieldRows.map(f => (
+                  <div key={f.label}>
+                    <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:2 }}>{f.label}</div>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {fieldRows.length === 0 && !material.price && priceBreaks.length === 0 && (
+            <div style={{ textAlign:'center', color:'#9CA3AF', fontSize:13, padding:'10px 0' }}>No additional details set for this item.</div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:'12px 20px', borderTop:'1px solid #F3F4F6', flexShrink:0 }}>
+          <button onClick={onClose}
+            style={{ width:'100%', padding:'10px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1225,26 +1328,26 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   // All possible native + standard columns
   const ALL_COLS = [
     { key:'img',          label:'Image',          w:60,  type:'image' },
-    { key:'name',         label:'Name',           w:180, type:'text',   required:true,  always:true },
-    { key:'category_name',label:'Category',       w:120, type:'category', settingKey:'category_name' },
-    { key:'supplier',     label:'Supplier',        w:130, type:'text',   settingKey:'supplier' },
-    { key:'brand',        label:'Brand',           w:110, type:'text',   settingKey:'brand' },
-    { key:'sku',          label:'SKU',             w:110, type:'text',   settingKey:'sku' },
-    { key:'panel_type',   label:'Panel type',      w:110, type:'text',   settingKey:'panel_type' },
-    { key:'thickness',    label:'Thickness',       w:90,  type:'mm',     settingKey:'thickness' },
-    { key:'colour_code',  label:'Colour',          w:110, type:'text',   settingKey:'colour_code' },
-    { key:'finish',       label:'Finish',          w:110, type:'text',   settingKey:'finish' },
-    { key:'grade',        label:'Grade',           w:100, type:'text',   settingKey:'grade' },
-    { key:'edge_profile', label:'Edge profile',    w:110, type:'text',   settingKey:'edge_profile' },
-    { key:'dimensions',   label:'Dimensions',      w:130, type:'text',   settingKey:'dimensions', placeholder:'e.g. 2400×1220' },
-    { key:'weight',       label:'Weight (kg)',      w:90,  type:'text',   settingKey:'weight' },
-    { key:'price',        label:'Price',           w:90,  type:'price',  settingKey:'price', placeholder:'0.00' },
-    { key:'unit', label:'Unit', w:90, type:'unit_select', settingKey:'unit' },
-    { key:'qty',          label:'Default qty',     w:80,  type:'text',   settingKey:'qty' },
-    { key:'lead_time',    label:'Lead time',       w:90,  type:'text',   settingKey:'lead_time' },
-    { key:'min_order',    label:'Min order',       w:90,  type:'text',   settingKey:'min_order' },
-    { key:'po_number',    label:'PO number',       w:110, type:'text',   settingKey:'po_number' },
-    { key:'notes',        label:'Notes',           w:160, type:'text',   settingKey:'notes' },
+    { key:'name',         label:'Name',           w:220, type:'text',   required:true,  always:true },
+    { key:'category_name',label:'Category',       w:150, type:'category', settingKey:'category_name' },
+    { key:'supplier',     label:'Supplier',        w:160, type:'text',   settingKey:'supplier' },
+    { key:'brand',        label:'Brand',           w:140, type:'text',   settingKey:'brand' },
+    { key:'sku',          label:'SKU',             w:140, type:'text',   settingKey:'sku' },
+    { key:'panel_type',   label:'Panel type',      w:140, type:'text',   settingKey:'panel_type' },
+    { key:'thickness',    label:'Thickness',       w:110, type:'mm',     settingKey:'thickness' },
+    { key:'colour_code',  label:'Colour',          w:140, type:'text',   settingKey:'colour_code' },
+    { key:'finish',       label:'Finish',          w:140, type:'text',   settingKey:'finish' },
+    { key:'grade',        label:'Grade',           w:120, type:'text',   settingKey:'grade' },
+    { key:'edge_profile', label:'Edge profile',    w:140, type:'text',   settingKey:'edge_profile' },
+    { key:'dimensions',   label:'Dimensions',      w:160, type:'text',   settingKey:'dimensions', placeholder:'e.g. 2400×1220' },
+    { key:'weight',       label:'Weight (kg)',      w:110, type:'text',   settingKey:'weight' },
+    { key:'price',        label:'Price',           w:110, type:'price',  settingKey:'price', placeholder:'0.00' },
+    { key:'unit', label:'Unit', w:110, type:'unit_select', settingKey:'unit' },
+    { key:'qty',          label:'Default qty',     w:100, type:'text',   settingKey:'qty' },
+    { key:'lead_time',    label:'Lead time',       w:110, type:'text',   settingKey:'lead_time' },
+    { key:'min_order',    label:'Min order',       w:110, type:'text',   settingKey:'min_order' },
+    { key:'po_number',    label:'PO number',       w:140, type:'text',   settingKey:'po_number' },
+    { key:'notes',        label:'Notes',           w:200, type:'text',   settingKey:'notes' },
   ]
 
   const [catVisibility, setCatVisibility] = React.useState(null)
@@ -1380,6 +1483,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
   const [cols, setCols]           = React.useState([...coreCols, ...customCols])
   const [selectedIds, setSelectedIds] = React.useState(new Set())
+  const [detailMaterial, setDetailMaterial] = React.useState(null)
   React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
   const { getHeaderProps } = useDragColumns(cols, setCols)
 
@@ -1724,6 +1828,34 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                       <circle cx="2" cy="8" r="1.2"/><circle cx="6" cy="8" r="1.2"/>
                     </svg>
                   )}
+
+                  {/* Resize handle — drag to widen/narrow, double-click to auto-fit */}
+                  <div
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const startX = e.clientX
+                      const startW = col.w
+                      function onMove(ev) {
+                        const newW = Math.max(60, startW + (ev.clientX - startX))
+                        setCols(prev => prev.map(c => c.key === col.key ? { ...c, w: newW } : c))
+                      }
+                      function onUp() {
+                        document.removeEventListener('mousemove', onMove)
+                        document.removeEventListener('mouseup', onUp)
+                      }
+                      document.addEventListener('mousemove', onMove)
+                      document.addEventListener('mouseup', onUp)
+                    }}
+                    onDoubleClick={e => {
+                      e.stopPropagation()
+                      setCols(prev => prev.map(c => c.key === col.key ? { ...c, w: Math.max(120, col.label.length * 10 + 50) } : c))
+                    }}
+                    title="Drag to resize, double-click to auto-fit"
+                    style={{ position:'absolute', right:0, top:0, bottom:0, width:6, cursor:'col-resize', zIndex:5, background:'transparent' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(91,138,240,0.3)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  />
                 </div>
               ))}
               <div style={{ width:40, flexShrink:0 }} />
@@ -1733,6 +1865,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
               .name-preview-tooltip { display:none; }
               .mat-col-header:hover .name-preview-tooltip { display:block; }
               tr:hover .row-checkbox, div:hover > .row-checkbox { opacity: 1 !important; }
+              tr:hover .row-view-btn, div:hover > .row-view-btn { opacity: 1 !important; }
             `}</style>
 
             {/* Category path toggle — let user star ancestor category names into the auto-name */}
@@ -1807,6 +1940,15 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                     />
                     {!selectedIds.has(m.id) && <span style={{ color:'#D1D5DB', fontSize:12, cursor:'grab', position:'absolute' }}>⠿</span>}
                   </div>
+                  {/* View detail button */}
+                  <button onClick={() => setDetailMaterial(m)}
+                    title="View details"
+                    className="row-view-btn"
+                    style={{ width:30, height:36, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'1px solid #E8ECF0', background:'none', border:'none', borderRightWidth:1, borderRightStyle:'solid', borderRightColor:'#E8ECF0', cursor:'pointer', color:'#C4C9D4', opacity:0, transition:'opacity .12s' }}
+                    onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'}
+                    onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </button>
                   {cols.map(col => {
                     if (col.type === 'image') return (
                       <ImageCell key={col.key} storagePath={m.storage_path} matId={m.id} w={col.w}
@@ -1934,6 +2076,16 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
           title={`Move ${selectedIds.size} item${selectedIds.size>1?'s':''} to…`}
           onSelect={moveToCategory}
           onClose={() => setShowMovePicker(false)} />
+      )}
+
+      {/* Material detail popout */}
+      {detailMaterial && (
+        <MaterialDetailModal
+          material={detailMaterial}
+          cols={cols}
+          allCats={allCats}
+          onClose={() => setDetailMaterial(null)}
+        />
       )}
     </div>
   )

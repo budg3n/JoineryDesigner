@@ -1,5 +1,6 @@
 // RoomDetail — floating panel showing a single room's details
 import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { supabase, pubUrl, BUCKET } from '../lib/supabase'
 import { enrichMaterialNames } from '../lib/materialName'
@@ -505,16 +506,40 @@ function RFIResponseInput({ detail, onSave }) {
 function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
+  const [adding, setAdding]         = React.useState(false)
+  const [pos, setPos]               = React.useState({ top:-9999, left:-9999, width:300, maxHeight:380 })
+  const btnRef    = React.useRef()
   const pickerRef = React.useRef()
 
   React.useEffect(() => {
     if (!showPicker) return
     function handleClick(e) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false)
+      if (pickerRef.current && !pickerRef.current.contains(e.target) && !btnRef.current?.contains(e.target)) {
+        setShowPicker(false)
+      }
     }
     setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showPicker])
+
+  function openPicker() {
+    if (showPicker) { setShowPicker(false); return }
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (rect && rect.width > 0) {
+      const dropdownHeight = 380
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      const openUpward = spaceBelow < dropdownHeight + 20 && spaceAbove > spaceBelow
+      setPos({
+        top: openUpward ? Math.max(10, rect.top - dropdownHeight - 8) : rect.bottom + 8,
+        left: Math.max(10, Math.min(rect.right - 300, window.innerWidth - 310)),
+        width: 300,
+        maxHeight: openUpward ? Math.min(dropdownHeight, spaceAbove - 16) : Math.min(dropdownHeight, spaceBelow - 16),
+      })
+    }
+    setSearch('')
+    setShowPicker(true)
+  }
 
   const searchFiltered = filteredMats.filter(jm => {
     if (!search.trim()) return true
@@ -524,63 +549,87 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
       .some(v => v.toLowerCase().includes(q))
   })
 
+  async function addAll() {
+    if (!filteredMats.length) return
+    setAdding(true)
+    for (const jm of filteredMats) {
+      await onAdd(jm)
+    }
+    setAdding(false)
+    setShowPicker(false)
+  }
+
   return (
     <div>
       {/* Header row */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:8, flexWrap:'wrap' }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
           {roomMats.length > 0 ? `${roomMats.length} material${roomMats.length!==1?'s':''} in this room` : 'No materials assigned yet'}
         </div>
         {filteredMats.length > 0 && (
-          <div ref={pickerRef} style={{ position:'relative' }}>
-            <button onClick={() => { setShowPicker(p=>!p); setSearch('') }}
-              style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ fontSize:14 }}>+</span> Add material
-            </button>
-
-            {showPicker && (
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, width:300, background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.15)', border:'1px solid #E8ECF0', zIndex:50, overflow:'hidden' }}>
-                {/* Search */}
-                <div style={{ padding:'10px 12px', borderBottom:'1px solid #F3F4F6' }}>
-                  <input
-                    autoFocus
-                    value={search} onChange={e=>setSearch(e.target.value)}
-                    placeholder="Search job materials…"
-                    style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
-                </div>
-                {/* List */}
-                <div style={{ maxHeight:280, overflowY:'auto' }}>
-                  {searchFiltered.length === 0 ? (
-                    <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:12 }}>No materials found</div>
-                  ) : searchFiltered.map(jm => {
-                    const m = jm.materials
-                    return (
-                      <div key={jm.id}
-                        onClick={() => { onAdd(jm); setShowPicker(false); setSearch('') }}
-                        style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB' }}
-                        onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                        {/* Swatch */}
-                        {m.storage_path
-                          ? <img src={pubUrl(m.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                          : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
-                        }
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
-                          <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
-                            {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
-                        <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+          <button ref={btnRef} onClick={openPicker}
+            style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+            <span style={{ fontSize:14 }}>+</span> Add material
+          </button>
         )}
       </div>
+
+      {/* Portal dropdown — escapes any parent overflow clipping */}
+      {showPicker && ReactDOM.createPortal(
+        <div ref={pickerRef} style={{
+          position:'fixed', top:pos.top, left:pos.left, width:pos.width,
+          background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.2)',
+          border:'1px solid #E8ECF0', zIndex:99999, overflow:'hidden',
+          display:'flex', flexDirection:'column', maxHeight:pos.maxHeight || 380,
+        }}>
+          {/* Search */}
+          <div style={{ padding:'10px 12px', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
+            <input
+              autoFocus
+              value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Search job materials…"
+              style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+          </div>
+
+          {/* Add all */}
+          {filteredMats.length > 1 && (
+            <button onClick={addAll} disabled={adding}
+              style={{ margin:'8px 12px 4px', padding:'8px 10px', borderRadius:8, border:'1px dashed #C7D2FE', background:'#F0F4FF', color:'#5B8AF0', fontSize:12, fontWeight:700, cursor:adding?'default':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, flexShrink:0 }}>
+              {adding ? 'Adding…' : `✓ Add all ${filteredMats.length} job materials`}
+            </button>
+          )}
+
+          {/* List */}
+          <div style={{ overflowY:'auto', flex:1 }}>
+            {searchFiltered.length === 0 ? (
+              <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:12 }}>No materials found</div>
+            ) : searchFiltered.map(jm => {
+              const m = jm.materials
+              return (
+                <div key={jm.id}
+                  onClick={() => { onAdd(jm); setShowPicker(false); setSearch('') }}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  {/* Swatch */}
+                  {m.storage_path
+                    ? <img src={pubUrl(m.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                    : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
+                  }
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
+                    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
+                      {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Assigned materials list */}
       {roomMats.length === 0 && filteredMats.length === 0 && (
@@ -818,7 +867,7 @@ function RoomFilesTab({ room, jobId }) {
   )
 }
 
-function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
+function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
@@ -833,21 +882,11 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
       .then(({ data }) => { if (data?.job_number) setJobNumber(String(data.job_number)) })
   }, [jobId])
 
-  // Load materials on mount
+  // Materials available to order = only those assigned to THIS room (not the whole library)
   useEffect(() => {
-    supabase.from('materials').select('*').order('name')
-      .then(async ({ data, error }) => {
-        if (error) { console.error('Materials load error:', error.message); return }
-        const raw = data || []
-        setAllMats(raw) // set immediately so search works even before enrichment
-        try {
-          const enriched = await enrichMaterialNames(raw)
-          setAllMats(enriched)
-        } catch (e) {
-          console.warn('Name enrichment failed, using raw names:', e.message)
-        }
-      })
-  }, [])
+    const roomMaterials = (roomMats || []).map(rm => rm.materials).filter(Boolean)
+    setAllMats(roomMaterials)
+  }, [roomMats])
   const [search,  setSearch]  = useState('')
   const [showDrop,setShowDrop]= useState(false)
   const [selected, setSelected] = useState(null)   // picked material
@@ -911,7 +950,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
         const words = search.trim().toLowerCase().split(/\s+/)
         return words.every(w => haystack.includes(w))
       }).slice(0, 20)
-    : []
+    : allMats.slice(0, 20) // show all room materials when search is empty
 
   async function pickMaterial(m) {
     // Re-fetch the full material to ensure custom_fields.price_breaks are current
@@ -960,6 +999,47 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
     const native = m[key]
     if (native !== undefined && native !== null && native !== '') return native
     return cf[key] || ''
+  }
+
+
+
+  // Step-through "Add all" queue — walks the user through setting qty for each material one by one
+  const [addQueue, setAddQueue] = useState(null) // { items:[...], index:0 }
+
+  function startAddAllQueue() {
+    const alreadyOrderedIds = new Set(orders.map(o => o.material_id).filter(Boolean))
+    const toAdd = allMats.filter(m => !alreadyOrderedIds.has(m.id))
+    if (!toAdd.length) { toast('All room materials are already on the order sheet', 'error'); return }
+    setShowDrop(false)
+    setSearch('')
+    setAddQueue({ items: toAdd, index: 0 })
+  }
+
+  async function saveQueueItem(material, qtyVal, unitVal) {
+    const cf = getCF(material)
+    const priceBreaks = getPriceBreaks(material)
+    const basePrice = material.price ? String(material.price) : ''
+    const effPrice = priceBreaks.length && qtyVal
+      ? getEffectivePrice(basePrice, priceBreaks, qtyVal)
+      : (parseFloat(basePrice) || 0)
+    const row = {
+      id: Date.now().toString(36)+Math.random().toString(36).slice(2),
+      job_id: jobId, room_id: room.id, status:'To order',
+      item: material.name||'', supplier: material.supplier||'', panel_type: material.panel_type||'',
+      thickness: material.thickness ? String(material.thickness) : '',
+      colour: material.colour_code||cf.colour||'', finish: material.finish||'',
+      sku: material.sku||cf.sku||'',
+      price: effPrice ? String(effPrice) : basePrice,
+      category: material.panel_type ? 'Board' : 'Hardware',
+      material_id: material.id || null,
+      qty: qtyVal||'', unit: unitVal||'pcs', notes:'',
+      updated_at: new Date().toISOString(),
+      ...(priceBreaks.length ? { price_breaks: JSON.stringify(priceBreaks) } : {}),
+    }
+    const { data, error } = await supabase.from('order_items').insert(row).select().single()
+    if (error) { toast(error.message, 'error'); return false }
+    setOrders(p => [...p, { ...data, price_breaks: priceBreaks }])
+    return true
   }
 
   async function addItem() {
@@ -1101,13 +1181,13 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
             onChange={e=>{setSearch(e.target.value);setShowDrop(true)}}
             onFocus={()=>setShowDrop(true)}
             onBlur={()=>setTimeout(()=>setShowDrop(false),300)}
-            placeholder="Search materials library…"
+            placeholder="Search materials in this room…"
             style={{width:'100%',padding:'9px 32px 9px 32px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',boxSizing:'border-box',background:'#fff'}}/>
           {search && (
             <button onClick={clearSelection} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:16}}>×</button>
           )}
           {/* Dropdown — fixed position to escape overflow:hidden parent */}
-          {showDrop && search.trim().length > 0 && (() => {
+          {showDrop && (() => {
             const rect = searchWrapRef.current?.getBoundingClientRect()
             return (
               <div style={{
@@ -1120,12 +1200,25 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                 borderRadius:10,
                 boxShadow:'0 8px 24px rgba(0,0,0,0.12)',
                 zIndex:9999,
-                maxHeight:320,
+                maxHeight:360,
                 overflowY:'auto'
               }}>
               {allMats.length === 0 ? (
-                <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',textAlign:'center'}}>Loading materials…</div>
-              ) : matches.length > 0 ? (
+                <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',textAlign:'center'}}>No materials assigned to this room yet — add some from the Materials tab first</div>
+              ) : (
+                <>
+                  {/* Add all — only meaningful when no search filter applied */}
+                  <div onMouseDown={startAddAllQueue}
+                    style={{padding:'10px 14px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,borderBottom:'1px solid #F3F4F6',background:'#F8FAFF'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
+                    onMouseLeave={e=>e.currentTarget.style.background='#F8FAFF'}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:'#5B8AF0'}}>Add all {allMats.length} room material{allMats.length!==1?'s':''}</div>
+                      <div style={{fontSize:11,color:'#9CA3AF'}}>Set quantity for each, one by one</div>
+                    </div>
+                  </div>
+                  {matches.length > 0 ? (
                 matches.map(m=>(
                   <div key={m.id} onMouseDown={()=>pickMaterial(m)}
                     style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
@@ -1137,7 +1230,7 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                     </div>
                   </div>
                 ))
-              ) : (
+                  ) : search.trim().length > 0 ? (
                 <div>
                   <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',borderBottom:'1px solid #F9FAFB'}}>
                     No materials found for "{search}"
@@ -1153,6 +1246,8 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
                     </div>
                   </div>
                 </div>
+                  ) : null}
+                </>
               )}
             </div>
             )
@@ -1345,6 +1440,123 @@ function RoomOrdersTab({ room, jobId, jobMats, onOpenFull }) {
           onCancel={() => setPoModal(null)}
         />
       )}
+
+      {/* Step-through Add All queue */}
+      {addQueue && (
+        <AddAllQueueModal
+          queue={addQueue}
+          unitOptions={unitOptions}
+          onSaveItem={saveQueueItem}
+          onAdvance={() => {
+            setAddQueue(q => {
+              if (!q) return null
+              const nextIndex = q.index + 1
+              if (nextIndex >= q.items.length) {
+                toast(`${q.items.length} material${q.items.length!==1?'s':''} added ✓`)
+                return null
+              }
+              return { ...q, index: nextIndex }
+            })
+          }}
+          onSkip={() => {
+            setAddQueue(q => {
+              if (!q) return null
+              const nextIndex = q.index + 1
+              if (nextIndex >= q.items.length) return null
+              return { ...q, index: nextIndex }
+            })
+          }}
+          onClose={() => setAddQueue(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Step-through "Add all" modal ────────────────────────────────────
+function AddAllQueueModal({ queue, unitOptions, onSaveItem, onAdvance, onSkip, onClose }) {
+  const material = queue.items[queue.index]
+  const [qty, setQty] = useState('')
+  const [unit, setUnit] = useState('pcs')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef()
+
+  useEffect(() => {
+    setQty('')
+    setUnit('pcs')
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }, [queue.index])
+
+  async function handleSave() {
+    setSaving(true)
+    const ok = await onSaveItem(material, qty, unit)
+    setSaving(false)
+    if (ok) onAdvance()
+  }
+
+  if (!material) return null
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#5B8AF0' }}>
+            Adding {queue.index + 1} of {queue.items.length}
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:20, lineHeight:1 }}>×</button>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ height:3, background:'#F3F4F6' }}>
+          <div style={{ height:'100%', width:`${((queue.index)/queue.items.length)*100}%`, background:'#5B8AF0', transition:'width .2s' }} />
+        </div>
+
+        <div style={{ padding:20 }}>
+          {/* Material preview */}
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:18 }}>
+            {material.storage_path
+              ? <img src={pubUrl(material.storage_path)} style={{ width:44,height:44,borderRadius:9,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+              : <div style={{ width:44,height:44,borderRadius:9,background:material.color||'#E8ECF0',flexShrink:0 }} />
+            }
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{material.name}</div>
+              <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                {[material.supplier, material.panel_type, material.thickness?material.thickness+'mm':null, material.finish].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          </div>
+
+          {/* Qty + unit */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Quantity</label>
+              <input ref={inputRef} type="number" min="0" value={qty}
+                onChange={e=>setQty(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') handleSave() }}
+                placeholder="0"
+                style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:14, fontWeight:600, outline:'none', boxSizing:'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Unit</label>
+              <select value={unit} onChange={e=>setUnit(e.target.value)}
+                style={{ width:'100%', padding:'9px 10px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:14, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                {unitOptions.map(u=><option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={onSkip}
+              style={{ padding:'10px 14px', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              Skip
+            </button>
+            <button onClick={handleSave} disabled={saving}
+              style={{ flex:1, padding:'10px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              {saving ? 'Saving…' : queue.index + 1 === queue.items.length ? 'Save & finish' : 'Save & next →'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1777,7 +1989,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           )}
         {/* ── ORDERS ── */}
           {tab==='orders' && (
-            <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats}
+            <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats} roomMats={roomMats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
           )}
 

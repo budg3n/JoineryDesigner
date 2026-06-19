@@ -126,24 +126,95 @@ const DARK_CSS = `
   ::-webkit-scrollbar-thumb { background: #3A3A3C; border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #48484A; }
 
-  /* Keep colour accents — don't override these backgrounds */
+  /* ── NEON ACCENTS — remap every accent colour used across the app ── */
+  /* Blue (#5B8AF0 / primary actions) → neon electric blue */
+  *[style*="rgb(91, 138, 240)" i] { color: #00D4FF !important; }
+  *[style*="background: rgb(91, 138, 240)"],
+  *[style*="background-color: rgb(91, 138, 240)"] { background: #00D4FF !important; color: #000 !important; }
+  *[style*="border: 1px solid rgb(91, 138, 240)"],
+  *[style*="border-color: rgb(91, 138, 240)"] { border-color: #00D4FF !important; }
+
+  /* Secondary blue (#3B82F6 / #6C9EFF) → neon blue */
+  *[style*="color: rgb(59, 130, 246)"],
+  *[style*="color: rgb(108, 158, 255)"],
+  *[style*="color: rgb(123, 159, 255)"] { color: #00D4FF !important; }
+  *[style*="background: rgb(59, 130, 246)"],
+  *[style*="background: rgb(108, 158, 255)"] { background: #00D4FF !important; color: #000 !important; }
+
+  /* Green (#1D9E75 / #10B981 / success) → neon green */
+  *[style*="color: rgb(29, 158, 117)"],
+  *[style*="color: rgb(16, 185, 129)"],
+  *[style*="color: rgb(6, 95, 70)"],
+  *[style*="color: rgb(22, 101, 52)"],
+  *[style*="color: rgb(52, 199, 89)"] { color: #39FF14 !important; }
+  *[style*="background: rgb(29, 158, 117)"],
+  *[style*="background: rgb(16, 185, 129)"] { background: #39FF14 !important; color: #000 !important; }
+  *[style*="background: rgb(236, 253, 245)"],
+  *[style*="background: rgb(220, 252, 231)"],
+  *[style*="background: rgb(240, 253, 244)"] { background: rgba(57,255,20,0.12) !important; }
+
+  /* Red (#E24B4A / #FF453A / danger) → neon red/pink */
+  *[style*="color: rgb(226, 75, 74)"],
+  *[style*="color: rgb(255, 69, 58)"],
+  *[style*="color: rgb(153, 27, 27)"],
+  *[style*="color: rgb(220, 38, 38)"] { color: #FF2E63 !important; }
+  *[style*="background: rgb(226, 75, 74)"],
+  *[style*="background: rgb(255, 69, 58)"] { background: #FF2E63 !important; color: #000 !important; }
+  *[style*="background: rgb(254, 242, 242)"],
+  *[style*="background: rgb(254, 226, 226)"],
+  *[style*="background: rgb(255, 245, 245)"] { background: rgba(255,46,99,0.12) !important; }
+
+  /* Orange (#F97316 / #FF9F0A / warning) → neon orange */
+  *[style*="color: rgb(249, 115, 22)"],
+  *[style*="color: rgb(255, 159, 10)"],
+  *[style*="color: rgb(194, 65, 12)"],
+  *[style*="color: rgb(133, 77, 14)"],
+  *[style*="color: rgb(239, 159, 39)"] { color: #FF9100 !important; }
+  *[style*="background: rgb(249, 115, 22)"],
+  *[style*="background: rgb(255, 159, 10)"] { background: #FF9100 !important; color: #000 !important; }
+  *[style*="background: rgb(255, 247, 237)"],
+  *[style*="background: rgb(254, 249, 195)"],
+  *[style*="background: rgb(253, 230, 138)"] { background: rgba(255,145,0,0.12) !important; }
+
+  /* Purple (#8B5CF6 / #7F77DD) → neon magenta/purple */
+  *[style*="color: rgb(139, 92, 246)"],
+  *[style*="color: rgb(127, 119, 221)"],
+  *[style*="color: rgb(55, 48, 163)"] { color: #D946EF !important; }
+  *[style*="background: rgb(139, 92, 246)"],
+  *[style*="background: rgb(127, 119, 221)"] { background: #D946EF !important; color: #000 !important; }
+  *[style*="background: rgb(245, 243, 255)"],
+  *[style*="background: rgb(238, 242, 255)"] { background: rgba(217,70,239,0.12) !important; }
+
+  /* Pink (#EC4899) → hot neon pink */
+  *[style*="color: rgb(236, 72, 153)"] { color: #FF10F0 !important; }
+  *[style*="background: rgb(236, 72, 153)"] { background: #FF10F0 !important; color: #000 !important; }
+
+  /* Yellow/amber → neon yellow */
+  *[style*="color: rgb(234, 179, 8)"],
+  *[style*="color: rgb(217, 119, 6)"] { color: #FFEE00 !important; }
+  *[style*="background: rgb(234, 179, 8)"] { background: #FFEE00 !important; color: #000 !important; }
+
+  /* Cyan/teal → neon cyan */
+  *[style*="color: rgb(6, 182, 212)"],
+  *[style*="color: rgb(20, 184, 166)"] { color: #00FFE5 !important; }
+  *[style*="background: rgb(6, 182, 212)"] { background: #00FFE5 !important; color: #000 !important; }
+
+  /* General brightness boost on any remaining saturated background accents */
   *[style*="background: rgb(91, 138, 240)"],
   *[style*="background: rgb(29, 158, 117)"],
   *[style*="background: rgb(226, 75, 74)"],
   *[style*="background: rgb(249, 115, 22)"],
   *[style*="background: rgb(139, 92, 246)"],
-  *[style*="background: rgb(59, 130, 246)"],
-  *[style*="background: rgb(16, 185, 129)"] {
-    /* keep accent colours as-is */
-    filter: brightness(1.1);
+  *[style*="background: rgb(236, 72, 153)"] {
+    filter: saturate(1.6) brightness(1.15);
   }
 
-  /* Make accent colour pop more in dark mode */
-  *[style*="color: rgb(91, 138, 240)"],
-  *[style*="color: rgb(59, 130, 246)"] { color: #7B9FFF !important; }
-  *[style*="color: rgb(29, 158, 117)"] { color: #34C759 !important; }
-  *[style*="color: rgb(226, 75, 74)"]  { color: #FF453A !important; }
-  *[style*="color: rgb(249, 115, 22)"] { color: #FF9F0A !important; }
+  /* Neon glow on buttons/badges using accent backgrounds */
+  button[style*="background: rgb(91, 138, 240)"],
+  button[style*="background: rgb(29, 158, 117)"],
+  button[style*="background: rgb(226, 75, 74)"] {
+    box-shadow: 0 0 12px currentColor, 0 0 4px rgba(255,255,255,0.3) !important;
+  }
 `
 
 export function ThemeProvider({ children }) {
