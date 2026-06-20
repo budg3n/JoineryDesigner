@@ -164,6 +164,9 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   const [matSuppliers, setMatSuppliers] = useState([]) // [{id, supplier_id, supplier, price, sku, lead_time, is_preferred}]
   const [suppliersLoading, setSuppliersLoading] = useState(false)
   const [addingSupplierId, setAddingSupplierId] = useState('')
+  const [creatingSupplier, setCreatingSupplier] = useState(false)
+  const [newSupplierName, setNewSupplierName] = useState('')
+  const [savingNewSupplier, setSavingNewSupplier] = useState(false)
 
   useEffect(() => {
     if (modalTab !== 'suppliers' || allSuppliers.length > 0) return
@@ -199,6 +202,21 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
     setAddingSupplierId('')
     if (isFirst) syncPreferredPrice(data)
     window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  // Quick-create a new supplier right from this modal, then immediately link it to this product
+  async function createSupplierAndLink() {
+    if (!newSupplierName.trim()) { toast('Enter a supplier name', 'error'); return }
+    setSavingNewSupplier(true)
+    const { data: newSupplier, error } = await supabase.from('suppliers')
+      .insert({ name: newSupplierName.trim() }).select().single()
+    if (error) { toast(error.message, 'error'); setSavingNewSupplier(false); return }
+    setAllSuppliers(p => [...p, newSupplier].sort((a,b) => (a.name||'').localeCompare(b.name||'')))
+    setNewSupplierName('')
+    setCreatingSupplier(false)
+    setSavingNewSupplier(false)
+    toast(`"${newSupplier.name}" added ✓`)
+    await addSupplierLink(newSupplier.id)
   }
 
   async function updateSupplierLink(id, patch) {
@@ -440,22 +458,46 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
           <div style={{ flex:1, overflowY:'auto', padding:20 }}>
             <div style={{ marginBottom:14 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Add a supplier</label>
-              <div style={{ display:'flex', gap:8 }}>
-                <select value={addingSupplierId} onChange={e => setAddingSupplierId(e.target.value)}
-                  style={{ flex:1, padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
-                  <option value="">Select a supplier…</option>
-                  {allSuppliers.filter(s => !matSuppliers.some(ms => ms.supplier_id === s.id)).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-                <button onClick={() => addSupplierLink(addingSupplierId)} disabled={!addingSupplierId}
-                  style={{ padding:'9px 16px', borderRadius:9, border:'none', background: addingSupplierId ? '#5B8AF0' : '#E8ECF0', color: addingSupplierId ? '#fff' : '#9CA3AF', fontSize:13, fontWeight:700, cursor: addingSupplierId ? 'pointer' : 'default' }}>
-                  + Add
-                </button>
-              </div>
-              {allSuppliers.length === 0 && (
+
+              {creatingSupplier ? (
+                <div style={{ display:'flex', gap:8 }}>
+                  <input autoFocus value={newSupplierName} onChange={e => setNewSupplierName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') createSupplierAndLink(); if (e.key === 'Escape') { setCreatingSupplier(false); setNewSupplierName('') } }}
+                    placeholder="New supplier name…"
+                    style={{ flex:1, padding:'9px 12px', border:'1px solid #5B8AF0', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  <button onClick={createSupplierAndLink} disabled={savingNewSupplier || !newSupplierName.trim()}
+                    style={{ padding:'9px 16px', borderRadius:9, border:'none', background: newSupplierName.trim() ? '#1D9E75' : '#E8ECF0', color: newSupplierName.trim() ? '#fff' : '#9CA3AF', fontSize:13, fontWeight:700, cursor: newSupplierName.trim() ? 'pointer' : 'default', whiteSpace:'nowrap' }}>
+                    {savingNewSupplier ? 'Saving…' : '+ Create'}
+                  </button>
+                  <button onClick={() => { setCreatingSupplier(false); setNewSupplierName('') }}
+                    style={{ padding:'9px 12px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, cursor:'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display:'flex', gap:8 }}>
+                  <select value={addingSupplierId}
+                    onChange={e => {
+                      if (e.target.value === '__new__') { setCreatingSupplier(true); setAddingSupplierId('') }
+                      else setAddingSupplierId(e.target.value)
+                    }}
+                    style={{ flex:1, padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                    <option value="">Select a supplier…</option>
+                    {allSuppliers.filter(s => !matSuppliers.some(ms => ms.supplier_id === s.id)).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                    <option value="__new__">+ New supplier…</option>
+                  </select>
+                  <button onClick={() => addSupplierLink(addingSupplierId)} disabled={!addingSupplierId}
+                    style={{ padding:'9px 16px', borderRadius:9, border:'none', background: addingSupplierId ? '#5B8AF0' : '#E8ECF0', color: addingSupplierId ? '#fff' : '#9CA3AF', fontSize:13, fontWeight:700, cursor: addingSupplierId ? 'pointer' : 'default' }}>
+                    + Add
+                  </button>
+                </div>
+              )}
+
+              {allSuppliers.length === 0 && !creatingSupplier && (
                 <div style={{ fontSize:11, color:'#9CA3AF', marginTop:6 }}>
-                  No suppliers set up yet — add some in Settings → Suppliers first.
+                  No suppliers yet — choose <strong>+ New supplier…</strong> above to create one.
                 </div>
               )}
             </div>

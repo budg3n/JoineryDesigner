@@ -1528,6 +1528,13 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   const [newType, setNewType] = React.useState('Kitchen')
   const [expandedId, setExpandedId] = React.useState(autoOpenRoomId || null)
 
+  // Re-open the requested room whenever autoOpenRoomId changes (e.g. clicked from Overview tab),
+  // not just on first mount — autoOpenRoomId may have a "_<timestamp>" suffix appended so that
+  // clicking the same room twice in a row still re-triggers this effect
+  React.useEffect(() => {
+    if (autoOpenRoomId) setExpandedId(autoOpenRoomId.split('_')[0])
+  }, [autoOpenRoomId])
+
   const DEFAULT_ROOM_STATUSES = [
     { label:'Pending',                color:'#9CA3AF' },
     { label:'In progress',            color:'#5B8AF0' },
@@ -2969,12 +2976,193 @@ function RFIDetailPanel({ rfi, profiles, onClose, onRespond, onStatusChange }) {
 }
 
 // ── Scrollable Job Tabs ───────────────────────────────────────────
+// ── Job Overview — room-by-room status & order summary ──────────────
+const OVERVIEW_STATUS_COLORS = {
+  'Pending':                '#9CA3AF',
+  'In progress':            '#5B8AF0',
+  'Submitted for approval': '#F97316',
+  'Review':                 '#EF9F27',
+  'On hold':                '#E24B4A',
+  'Nested':                 '#8B5CF6',
+  'Complete':               '#1D9E75',
+}
+
+function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom }) {
+  const [roomOrderStats, setRoomOrderStats] = React.useState({}) // room_id -> { total, ordered, toOrder }
+  const [loading, setLoading] = React.useState(true)
+  const [roomTaskCounts, setRoomTaskCounts] = React.useState({})
+
+  React.useEffect(() => {
+    if (!jobId) return
+    setLoading(true)
+    supabase.from('order_items').select('room_id,status').eq('job_id', jobId)
+      .then(({ data }) => {
+        const stats = {}
+        ;(data || []).forEach(o => {
+          if (!o.room_id) return
+          if (!stats[o.room_id]) stats[o.room_id] = { total:0, ordered:0, toOrder:0, received:0 }
+          stats[o.room_id].total++
+          if (o.status === 'Ordered') stats[o.room_id].ordered++
+          else if (o.status === 'To order') stats[o.room_id].toOrder++
+          else if (o.status === 'Received') stats[o.room_id].received++
+        })
+        setRoomOrderStats(stats)
+        setLoading(false)
+      })
+  }, [jobId, rooms.length])
+
+  React.useEffect(() => {
+    const counts = {}
+    ;(rooms || []).forEach(r => {
+      const tasks = r.tasks ? (typeof r.tasks==='string' ? JSON.parse(r.tasks) : r.tasks) : []
+      counts[r.id] = tasks.filter(t => !t.done).length
+    })
+    setRoomTaskCounts(counts)
+  }, [rooms])
+
+  const totalRooms = rooms.length
+  const statusCounts = {}
+  rooms.forEach(r => {
+    const s = r.status || 'Pending'
+    statusCounts[s] = (statusCounts[s] || 0) + 1
+  })
+  const completeCount = statusCounts['Complete'] || 0
+
+  const allOrderTotals = Object.values(roomOrderStats).reduce((acc, s) => ({
+    total: acc.total + s.total, ordered: acc.ordered + s.ordered, toOrder: acc.toOrder + s.toOrder, received: acc.received + s.received,
+  }), { total:0, ordered:0, toOrder:0, received:0 })
+
+  function roomEmoji(room) {
+    if (room.icon) return room.icon
+    const t = room.type
+    return t==='Kitchen'?'🍳':t==='Laundry'?'🫧':t==='Bathroom'||t==='Ensuite'?'🚿':t==='Bedroom'?'🛏':t==='Living'?'🛋':t==='Office'?'💼':'🏠'
+  }
+
+  return (
+    <div style={{ marginBottom:16 }}>
+      {/* Summary stat row */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10, marginBottom:16 }}>
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Rooms</div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#2A3042' }}>{totalRooms}</div>
+          <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>{completeCount} complete</div>
+        </div>
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Materials ordered</div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#2A3042' }}>{allOrderTotals.ordered + allOrderTotals.received}<span style={{ fontSize:14, fontWeight:600, color:'#C4C9D4' }}>/{allOrderTotals.total}</span></div>
+          <div style={{ fontSize:11, color: allOrderTotals.toOrder > 0 ? '#E24B4A' : '#9CA3AF', marginTop:2 }}>
+            {allOrderTotals.toOrder > 0 ? `${allOrderTotals.toOrder} still to order` : 'All ordered'}
+          </div>
+        </div>
+        <div onClick={onOpenRoomsTab} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px', cursor:'pointer' }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor='#C4D4F8'} onMouseLeave={e=>e.currentTarget.style.borderColor='#E8ECF0'}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Open tasks</div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#2A3042' }}>{Object.values(roomTaskCounts).reduce((a,b)=>a+b,0)}</div>
+          <div style={{ fontSize:11, color:'#5B8AF0', marginTop:2 }}>across all rooms →</div>
+        </div>
+      </div>
+
+      {/* Status breakdown bar */}
+      {totalRooms > 0 && (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px', marginBottom:16 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:10 }}>Room status breakdown</div>
+          <div style={{ display:'flex', height:10, borderRadius:6, overflow:'hidden', marginBottom:10 }}>
+            {Object.entries(statusCounts).map(([status, count]) => (
+              <div key={status} title={`${status}: ${count}`} style={{ flex:count, background: OVERVIEW_STATUS_COLORS[status] || '#9CA3AF' }} />
+            ))}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'6px 14px' }}>
+            {Object.entries(statusCounts).map(([status, count]) => (
+              <div key={status} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'#6B7280' }}>
+                <span style={{ width:8, height:8, borderRadius:'50%', background: OVERVIEW_STATUS_COLORS[status] || '#9CA3AF', flexShrink:0 }} />
+                {status} ({count})
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Room cards */}
+      {totalRooms === 0 ? (
+        <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'40px 20px', textAlign:'center' }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>🏠</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', marginBottom:4 }}>No rooms added yet</div>
+          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:14 }}>Add rooms to start tracking progress room by room</div>
+          <button onClick={onOpenRoomsTab}
+            style={{ padding:'8px 18px', borderRadius:9, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            + Add a room
+          </button>
+        </div>
+      ) : (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:12 }}>
+          {rooms.map(room => {
+            const status = room.status || 'Pending'
+            const color = OVERVIEW_STATUS_COLORS[status] || '#9CA3AF'
+            const stats = roomOrderStats[room.id] || { total:0, ordered:0, toOrder:0, received:0 }
+            const orderedCount = stats.ordered + stats.received
+            const allOrdered = stats.total > 0 && stats.toOrder === 0
+            const taskCount = roomTaskCounts[room.id] || 0
+
+            return (
+              <div key={room.id}
+                onClick={() => onOpenRoom(room)}
+                style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:14, cursor:'pointer', transition:'all .12s' }}
+                onMouseEnter={e=>{ e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor='#C4D4F8' }}
+                onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor='#E8ECF0' }}>
+
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                  <div style={{ width:36, height:36, borderRadius:9, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, flexShrink:0 }}>
+                    {roomEmoji(room)}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>
+                  </div>
+                </div>
+
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
+                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:`${color}18`, color, border:`1px solid ${color}40` }}>
+                    {status}
+                  </span>
+                  {taskCount > 0 && (
+                    <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE68A' }}>
+                      {taskCount} task{taskCount!==1?'s':''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Materials ordered indicator */}
+                {stats.total > 0 ? (
+                  <div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                      <span style={{ fontSize:11, color:'#6B7280' }}>Materials</span>
+                      <span style={{ fontSize:11, fontWeight:700, color: allOrdered ? '#1D9E75' : '#E24B4A' }}>
+                        {orderedCount}/{stats.total} {allOrdered ? '✓' : ''}
+                      </span>
+                    </div>
+                    <div style={{ height:6, borderRadius:4, background:'#F3F4F6', overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${(orderedCount/stats.total)*100}%`, background: allOrdered ? '#1D9E75' : '#F97316', transition:'width .2s' }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:11, color:'#C4C9D4', fontStyle:'italic' }}>No materials ordered yet</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function JobScrollableTabs({ jobTab, setJobTab, rooms, processes, specs, atts, feedback, unorderedCount, openTasks, allMaterials, setAllMaterials, allAppliances, setAllAppliances }) {
   const scrollRef = React.useRef()
   const [canLeft, setCanLeft]   = React.useState(false)
   const [canRight, setCanRight] = React.useState(false)
 
   const tabs = [
+    { key:'overview',   label:'Overview' },
     { key:'details',    label:'Details' },
     { key:'contacts',   label:'Contacts' },
     { key:'rfi',        label:'RFI' },
@@ -3116,8 +3304,8 @@ export default function JobDetail() {
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
-  const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'details')
-  const [autoOpenRoomId] = useState(() => new URLSearchParams(location.search).get('room') || null)
+  const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'overview')
+  const [autoOpenRoomId, setAutoOpenRoomId] = useState(() => new URLSearchParams(location.search).get('room') || null)
   // Persist edits to sessionStorage — survives page reload
   const _jobRef = React.useRef(job)
   _jobRef.current = job
@@ -3622,28 +3810,41 @@ export default function JobDetail() {
         supabase.from('time_entries').select('*').eq('job_id',id).is('clocked_out_at',null)
           .then(({data})=>{ const map={}; (data||[]).forEach(e=>{if(e.process_id)map[e.process_id]=e}); setActiveEntries(map) })
       }} />
-      <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
-          <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
-        </div>
-        <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
-          className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
-          {jobStatuses.map(s => <option key={s.label}>{s.label}</option>)}
-        </select>
-      </div>
-      {overTasks.length > 0 && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-3 text-sm text-red-700">
-          ⚠ {overTasks.length} overdue task{overTasks.length > 1 ? 's' : ''} on this job
-        </div>
-      )}
 
-      {/* TABS */}
-      <JobScrollableTabs jobTab={jobTab} setJobTab={setJobTab}
-        rooms={rooms} processes={processes} specs={specs} atts={atts}
-        feedback={feedback} unorderedCount={unorderedCount} openTasks={openTasks}
-        allMaterials={allMaterials} setAllMaterials={setAllMaterials}
-        allAppliances={allAppliances} setAllAppliances={setAllAppliances} />
+      {/* Sticky header — job title/status + tab bar stay visible while scrolling.
+          Negative top margin + matching padding cancels out <main>'s 16px top padding,
+          so the sticky background covers that gap instead of letting content show through. */}
+      <div style={{ position:'sticky', top:-16, zIndex:40, background:'var(--bg-page, #F0F2F5)', marginTop:-16, marginLeft:-16, marginRight:-16, paddingTop:16, paddingLeft:16, paddingRight:16 }}>
+        <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
+            <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
+          </div>
+          <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
+            {jobStatuses.map(s => <option key={s.label}>{s.label}</option>)}
+          </select>
+        </div>
+        {overTasks.length > 0 && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-3 text-sm text-red-700">
+            ⚠ {overTasks.length} overdue task{overTasks.length > 1 ? 's' : ''} on this job
+          </div>
+        )}
+
+        {/* TABS */}
+        <JobScrollableTabs jobTab={jobTab} setJobTab={setJobTab}
+          rooms={rooms} processes={processes} specs={specs} atts={atts}
+          feedback={feedback} unorderedCount={unorderedCount} openTasks={openTasks}
+          allMaterials={allMaterials} setAllMaterials={setAllMaterials}
+          allAppliances={allAppliances} setAllAppliances={setAllAppliances} />
+      </div>
+
+      {/* OVERVIEW */}
+      {jobTab === 'overview' && (
+        <JobOverviewTab jobId={id} rooms={rooms} unorderedCount={unorderedCount}
+          onOpenRoomsTab={() => setJobTab('rooms')}
+          onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }} />
+      )}
 
       {/* DETAILS */}
       {jobTab === 'details' && <div>
