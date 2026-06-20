@@ -1527,6 +1527,27 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
   const [expandedId, setExpandedId] = React.useState(autoOpenRoomId || null)
+  const [sortMode, setSortMode] = React.useState(() => { try { return localStorage.getItem('room_sort_mode') || 'alpha' } catch { return 'alpha' } })
+
+  React.useEffect(() => { try { localStorage.setItem('room_sort_mode', sortMode) } catch {} }, [sortMode])
+
+  const ROOM_PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
+  const ROOM_PRIORITY_COLORS = { High: '#E24B4A', Medium: '#F97316', Low: '#1D9E75' }
+
+  const sortedRooms = React.useMemo(() => {
+    const list = [...rooms]
+    if (sortMode === 'priority') {
+      list.sort((a, b) => {
+        const pa = ROOM_PRIORITY_ORDER[a.priority] ?? 1
+        const pb = ROOM_PRIORITY_ORDER[b.priority] ?? 1
+        if (pa !== pb) return pa - pb
+        return (a.name || '').localeCompare(b.name || '')
+      })
+    } else {
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+    return list
+  }, [rooms, sortMode])
 
   // Re-open the requested room whenever autoOpenRoomId changes (e.g. clicked from Overview tab),
   // not just on first mount — autoOpenRoomId may have a "_<timestamp>" suffix appended so that
@@ -1575,7 +1596,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
-      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]',
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: 'Medium',
     }).select().single()
     if (error) { toast(error.message, 'error'); return }
     onRoomsChange(p => [...p, data])
@@ -1596,14 +1617,32 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   return (
     <div>
       {/* header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:10, flexWrap:'wrap' }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
           Rooms {rooms.length > 0 && <span style={{ fontSize:11, fontWeight:600, color:'#9CA3AF' }}>({rooms.length})</span>}
         </div>
-        <button onClick={() => setAdding(a=>!a)}
-          style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:adding?'#F3F4F6':'#5B8AF0', color:adding?'#6B7280':'#fff', cursor:'pointer' }}>
-          {adding ? 'Cancel' : '+ Add room'}
-        </button>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {rooms.length > 1 && (
+            <div style={{ display:'flex', background:'#F3F4F6', borderRadius:8, padding:2 }}>
+              <button onClick={() => setSortMode('alpha')}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, border:'none', cursor:'pointer',
+                  background: sortMode==='alpha' ? '#fff' : 'transparent', color: sortMode==='alpha' ? '#2A3042' : '#9CA3AF',
+                  boxShadow: sortMode==='alpha' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                A–Z
+              </button>
+              <button onClick={() => setSortMode('priority')}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, border:'none', cursor:'pointer',
+                  background: sortMode==='priority' ? '#fff' : 'transparent', color: sortMode==='priority' ? '#2A3042' : '#9CA3AF',
+                  boxShadow: sortMode==='priority' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                Priority
+              </button>
+            </div>
+          )}
+          <button onClick={() => setAdding(a=>!a)}
+            style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:adding?'#F3F4F6':'#5B8AF0', color:adding?'#6B7280':'#fff', cursor:'pointer' }}>
+            {adding ? 'Cancel' : '+ Add room'}
+          </button>
+        </div>
       </div>
 
       {/* add form */}
@@ -1640,7 +1679,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
 
       {/* room list with inline expansion */}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {rooms.map(room => {
+        {sortedRooms.map(room => {
           const isOpen = expandedId === room.id
           const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
           const open = tasks.filter(t=>!t.done).length
@@ -1648,6 +1687,8 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const emoji = room.icon || defaultEmoji
           const roomStatus = room.status || 'Pending'
           const statusObj = roomStatuses.find(s => s.label === roomStatus) || roomStatuses[0]
+          const roomPriority = room.priority || 'Medium'
+          const priorityColor = ROOM_PRIORITY_COLORS[roomPriority] || '#9CA3AF'
           return (
             <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
               {/* room header row */}
@@ -1669,6 +1710,18 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
                 </div>
+                {/* Priority selector — click to cycle High → Medium → Low */}
+                <button onClick={e => {
+                    e.stopPropagation()
+                    const order = ['High','Medium','Low']
+                    const next = order[(order.indexOf(roomPriority)+1)%3]
+                    supabase.from('rooms').update({ priority: next }).eq('id', room.id)
+                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, priority: next} : r))
+                  }}
+                  title="Click to change priority"
+                  style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, border:'none', background: priorityColor, color:'#fff', cursor:'pointer', flexShrink:0 }}>
+                  {roomPriority}
+                </button>
                 {/* Room status dropdown */}
                 <select
                   value={roomStatus}
@@ -1747,7 +1800,7 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
-      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]',
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: 'Medium',
     }).select().single()
     if (error) { toast(error.message, 'error'); return }
     onAddRoom(data)
@@ -2992,6 +3045,25 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
   const [loading, setLoading] = React.useState(true)
   const [roomTaskCounts, setRoomTaskCounts] = React.useState({})
 
+  // Mirror the same sort preference used on the Rooms tab — alphabetical by default
+  const OVERVIEW_PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
+  const sortedRooms = React.useMemo(() => {
+    let sortMode = 'alpha'
+    try { sortMode = localStorage.getItem('room_sort_mode') || 'alpha' } catch {}
+    const list = [...rooms]
+    if (sortMode === 'priority') {
+      list.sort((a, b) => {
+        const pa = OVERVIEW_PRIORITY_ORDER[a.priority] ?? 1
+        const pb = OVERVIEW_PRIORITY_ORDER[b.priority] ?? 1
+        if (pa !== pb) return pa - pb
+        return (a.name || '').localeCompare(b.name || '')
+      })
+    } else {
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+    return list
+  }, [rooms])
+
   React.useEffect(() => {
     if (!jobId) return
     setLoading(true)
@@ -3095,13 +3167,15 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
         </div>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:12 }}>
-          {rooms.map(room => {
+          {sortedRooms.map(room => {
             const status = room.status || 'Pending'
             const color = OVERVIEW_STATUS_COLORS[status] || '#9CA3AF'
             const stats = roomOrderStats[room.id] || { total:0, ordered:0, toOrder:0, received:0 }
             const orderedCount = stats.ordered + stats.received
             const allOrdered = stats.total > 0 && stats.toOrder === 0
             const taskCount = roomTaskCounts[room.id] || 0
+            const roomPriority = room.priority || 'Medium'
+            const priorityColor = { High:'#E24B4A', Medium:'#F97316', Low:'#1D9E75' }[roomPriority] || '#9CA3AF'
 
             return (
               <div key={room.id}
@@ -3118,6 +3192,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
                     <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
                     <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>
                   </div>
+                  <span title={`Priority: ${roomPriority}`} style={{ width:8, height:8, borderRadius:'50%', background:priorityColor, flexShrink:0 }} />
                 </div>
 
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
