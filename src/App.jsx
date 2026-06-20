@@ -11,6 +11,7 @@ import Settings from './screens/Settings'
 import Materials from './screens/Materials'
 import MaterialSettings from './screens/MaterialSettings'
 import Customers from './screens/Customers'
+import Suppliers from './screens/Suppliers'
 import Team from './screens/Team'
 import Appliances from './screens/Appliances'
 import Notes from './screens/Notes'
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="settings/materials" element={<MaterialSettings />} />
         <Route path="settings/appliances" element={<ApplianceSettings />} />
         <Route path="settings/customers" element={<Customers />} />
+        <Route path="settings/suppliers" element={<Suppliers />} />
         <Route path="settings/team" element={<Team />} />
         <Route path="settings/file-types" element={<FileTypes />} />
         <Route path="settings/processes" element={<ProcessTemplates />} />

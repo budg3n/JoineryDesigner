@@ -108,6 +108,7 @@ const TODAY = new Date(); TODAY.setHours(0,0,0,0)
 // Module-level cache — persists across navigations within the session
 // so re-opening a job doesn't re-fetch the materials library
 let _materialsCache = null
+let _materialsCacheTime = 0
 const TYPES    = ['Kitchen','Joinery','Laundry','Wardrobe','Other']
 
 function dFromNow(dateStr, timeStr) {
@@ -3294,18 +3295,32 @@ export default function JobDetail() {
     return () => window.dispatchEvent(new CustomEvent('job-actions', { detail: null }))
   }, [])
 
+  // Invalidate the materials cache immediately when a kit (or any material) is created/edited elsewhere
+  useEffect(() => {
+    function handler() {
+      _materialsCache = null
+      _materialsCacheTime = 0
+      allMatsFetched.current = false
+    }
+    window.addEventListener('materials-library-updated', handler)
+    return () => window.removeEventListener('materials-library-updated', handler)
+  }, [])
+
   // Lazy-load the full materials library only when picker is opened.
   // Uses a module-level cache so re-opening the same or different job
   // doesn't hit the database again in the same session.
   async function openMatPicker() {
     setMatPickerOpen(v => !v)
-    if (!allMatsFetched.current) {
+    const cacheAge = Date.now() - _materialsCacheTime
+    const cacheIsStale = cacheAge > 60000 // refresh if older than 60s
+    if (!allMatsFetched.current || cacheIsStale) {
       allMatsFetched.current = true
-      if (_materialsCache) {
+      if (_materialsCache && !cacheIsStale) {
         setAllMats(_materialsCache)
       } else {
         const { data } = await supabase.from('materials').select('*').order('name')
         _materialsCache = data || []
+        _materialsCacheTime = Date.now()
         setAllMats(_materialsCache)
       }
     }
@@ -3511,7 +3526,7 @@ export default function JobDetail() {
   const usedMatIds = jobMats.map(jm => jm.material_id)
   const availMats  = allMats.filter(m => !usedMatIds.includes(m.id))
 
-  async function addMat(mid) {
+  async function addMat(mid, silent=false) {
     const { data } = await supabase.from('job_materials').insert({ job_id: id, material_id: mid }).select('*,materials(*)').single()
     if (data) {
       const named = await enrichMaterialNames([data.materials])
@@ -3526,8 +3541,10 @@ export default function JobDetail() {
       }))
       await supabase.from('jobs').update({ mat_colors: JSON.stringify(colors) }).eq('id', id)
     }
-    setMatPickerOpen(false)
-    toast('Material added ✓')
+    if (!silent) {
+      setMatPickerOpen(false)
+      toast('Material added ✓')
+    }
   }
 
   async function removeMat(jmid) {
@@ -3841,8 +3858,11 @@ export default function JobDetail() {
                 <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
                   {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" loading="lazy" /> : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0 }} />}
                   <div style={{ minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042' }}>{m.name}</div>
-                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                      {m.is_kit && <span title="Kit" style={{ fontSize:11 }}>🧰</span>}
+                      {m.name}
+                    </div>
+                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
                   </div>
                   <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4 }}
                     onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -3852,11 +3872,21 @@ export default function JobDetail() {
           </div>
           <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
           {matPickerOpen && <div style={{ marginTop:10 }}>
+            <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:4 }}>
+              {allMats.length} materials loaded · {allMats.filter(m=>m.is_kit).length} kits
+            </div>
             <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)} placeholder="Search materials…"
               style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:6 }} />
             {matSearch.trim() === '' ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>Start typing…</div> : (() => {
-              const q = matSearch.toLowerCase()
-              const results = availMats.filter(m => (m.name||'').toLowerCase().includes(q)||(m.supplier||'').toLowerCase().includes(q)||(m.colour_code||'').toLowerCase().includes(q)||(m.panel_type||'').toLowerCase().includes(q))
+              const q = matSearch.trim().toLowerCase()
+              const words = q.split(/\s+/)
+              const results = availMats.filter(m => {
+                const haystack = [m.name, m.supplier, m.colour_code, m.panel_type]
+                  .filter(v => v != null && v !== '')
+                  .map(v => String(v).toLowerCase())
+                  .join(' ')
+                return words.every(w => haystack.includes(w))
+              })
               return results.length === 0 ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches</div>
                 : <div style={{ maxHeight:220, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
                     {results.map(m => (
@@ -3865,8 +3895,11 @@ export default function JobDetail() {
                         onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
                         {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" /> : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />}
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
-                          <div style={{ fontSize:11, color:'#9CA3AF' }}>{[m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
+                          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                            {m.is_kit && <span title="Kit">🧰</span>}
+                            {m.name}
+                          </div>
+                          <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
                         </div>
                       </div>
                     ))}

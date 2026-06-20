@@ -558,7 +558,10 @@ function OrderRow({ row, materials, onUpdate, onUpdateStatus, onDelete, showAddL
       onMouseEnter={e=>e.currentTarget.style.background='#F8FAFF'}
       onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
       {/* drag */}
-      <div style={{ width:28, height:36, display:'flex', alignItems:'center', justifyContent:'center', color:'#D1D5DB', fontSize:12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>⠿</div>
+      <div title={row.kit_name ? `From kit: ${row.kit_name}` : ''}
+        style={{ width:28, height:36, display:'flex', alignItems:'center', justifyContent:'center', color: row.kit_name ? '#F97316' : '#D1D5DB', fontSize: row.kit_name ? 13 : 12, cursor:'grab', flexShrink:0, borderRight:'1px solid #E8ECF0' }}>
+        {row.kit_name ? '🧰' : '⠿'}
+      </div>
 
       {cols.map(col=>{
         if (col.type === 'item') return (
@@ -660,7 +663,11 @@ function OrderRow({ row, materials, onUpdate, onUpdateStatus, onDelete, showAddL
             onMouseEnter={e=>e.currentTarget.style.color='#5B8AF0'}
             onMouseLeave={e=>e.currentTarget.style.color='#C4C9D4'}>＋</button>
         )}
-        <button onClick={()=>onDelete(row.id)}
+        <button onClick={()=> row.is_kit_component
+            ? (confirm(`Remove the whole "${row.kit_name}" kit and all its components?`) && onDelete(row.kit_parent_id))
+            : onDelete(row.id)
+          }
+          title={row.is_kit_component ? `Remove whole kit: ${row.kit_name}` : 'Remove'}
           style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, padding:'2px 3px', borderRadius:4 }}
           onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
           onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -898,7 +905,63 @@ export default function OrderSheet() {
           item: (mat?.name && mat.name !== 'New material') ? mat.name : (row.item || ''),
         }
       })
-      setRows(enrichedOrders)
+
+      // Expand kit rows into their live components for display.
+      // The original kit row stays in the DB as the source of truth for status/PO;
+      // we replace it in the rendered list with N component rows tagged kit_parent_id
+      // so price/qty always reflects the current library, and status changes on any
+      // component apply back to the whole kit via kit_parent_id.
+      const kitRowIds = enrichedOrders.filter(r => r.kit_id).map(r => r.id)
+      let kitComponentsByKitId = {}
+      if (kitRowIds.length > 0) {
+        const uniqueKitIds = [...new Set(enrichedOrders.filter(r=>r.kit_id).map(r=>r.kit_id))]
+        const { data: kitItemsData } = await supabase
+          .from('material_kit_items').select('*, materials(*)')
+          .in('kit_id', uniqueKitIds).order('sort_order')
+        ;(kitItemsData || []).forEach(it => {
+          if (!kitComponentsByKitId[it.kit_id]) kitComponentsByKitId[it.kit_id] = []
+          kitComponentsByKitId[it.kit_id].push(it)
+        })
+      }
+
+      const expandedRows = []
+      enrichedOrders.forEach(row => {
+        if (!row.kit_id || !kitComponentsByKitId[row.kit_id]?.length) {
+          expandedRows.push(row)
+          return
+        }
+        // Keep the real kit row (status/PO live here, this is what gets saved to DB)
+        // but mark it so it's not rendered as a normal line — only its components show.
+        expandedRows.push({ ...row, is_kit_parent: true })
+
+        const kitQty = parseFloat(row.qty) || 1
+        const components = kitComponentsByKitId[row.kit_id]
+        components.forEach((it, ci) => {
+          const m = it.materials
+          if (!m) return
+          const componentQty = (parseFloat(it.qty) || 1) * kitQty
+          expandedRows.push({
+            ...row,
+            id: `${row.id}__kit_${ci}`,
+            kit_parent_id: row.id,
+            kit_parent_status: row.status,
+            item: m.name || '',
+            supplier: m.supplier || '',
+            panel_type: m.panel_type || '',
+            thickness: m.thickness ? String(m.thickness) : '',
+            colour: m.colour_code || '',
+            finish: m.finish || '',
+            price: m.price ? String(m.price) : '',
+            material_id: m.id,
+            qty: String(componentQty),
+            price_breaks: [],
+            // Component rows are read-only re: status — they mirror the parent kit row
+            is_kit_component: true,
+          })
+        })
+      })
+
+      setRows(expandedRows)
       // Reconcile the order task immediately on load
       // (catches cases where status was changed elsewhere and task wasn't synced)
       setTimeout(() => syncOrderTask(enrichedOrders), 500)
@@ -975,8 +1038,9 @@ export default function OrderSheet() {
     setSaving(true)
     const toSave = rowsToSave
       .filter(r => r.item && r.item.trim())
+      .filter(r => !r.is_kit_component) // component rows are derived for display — never write them as real order_items
       .map(r => {
-        const { _fromRoom, price_breaks, ...row } = r
+        const { _fromRoom, price_breaks, kit_parent_id, kit_parent_status, is_kit_component, is_kit_parent, ...row } = r
         const hasPriceBreaks = Array.isArray(price_breaks) && price_breaks.length > 0
         return {
           ...row,
@@ -989,6 +1053,7 @@ export default function OrderSheet() {
     if (toSave.length > 0) {
       const { error } = await supabase.from('order_items').upsert(toSave, { onConflict:'id' })
       if (error) { toast(error.message, 'error'); setSaving(false); return }
+      window.dispatchEvent(new CustomEvent('order-items-updated'))
     }
     setSaved(new Date())
     setSaving(false)
@@ -996,8 +1061,14 @@ export default function OrderSheet() {
 
   function updateRow(rowId, patch) {
     setRows(prev=>{
+      const targetRow = prev.find(r => r.id === rowId)
+      // If this is a kit component row, redirect the edit to the parent kit row instead —
+      // components are a live readout of the library and shouldn't be edited individually
+      const effectiveId = targetRow?.is_kit_component ? targetRow.kit_parent_id : rowId
+
       const updated = prev.map(r => {
-        if (r.id !== rowId) return r
+        const rMatches = r.id === rowId || (effectiveId && r.kit_parent_id === effectiveId) || r.id === effectiveId
+        if (!rMatches) return r
         // Custom field columns have _cf_ prefix — store in custom_fields JSON
         const cfPatch = {}, regularPatch = {}
         Object.entries(patch).forEach(([k,v]) => {
@@ -1043,7 +1114,8 @@ export default function OrderSheet() {
   async function deleteRow(rowId) {
     const { error } = await supabase.from('order_items').delete().eq('id', rowId)
     if (error) { toast(error.message, 'error'); return }
-    setRows(prev => prev.filter(r => r.id !== rowId))
+    // Also remove any kit component rows whose parent was just deleted
+    setRows(prev => prev.filter(r => r.id !== rowId && r.kit_parent_id !== rowId))
     toast('Row deleted')
   }
 
@@ -1064,8 +1136,10 @@ export default function OrderSheet() {
     toast(`${ids.length} item${ids.length>1?'s':''} marked as ordered ✓`)
   }
 
-  // Group rows
-  const filteredByRoom = roomFilter ? rows.filter(r=>r.room_id===roomFilter) : rows
+  // Group rows — kit parent rows are excluded from display (their components render instead);
+  // they still live in `rows` so doSave can persist status/PO changes back to them.
+  const displayableRows = rows.filter(r => !r.is_kit_parent)
+  const filteredByRoom = roomFilter ? displayableRows.filter(r=>r.room_id===roomFilter) : displayableRows
   const filtered = filter==='All' ? filteredByRoom : filteredByRoom.filter(r=>r.status===filter)
   // Enrich rows with room_name for display
   const rowsWithRoom = useMemo(()=>
@@ -1109,8 +1183,8 @@ export default function OrderSheet() {
     return Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
   },[rowsWithRoom, groupBy, rooms])
 
-  const toOrderTotal = rows.filter(r=>r.status==='To order').length
-  const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
+  const toOrderTotal = displayableRows.filter(r=>r.status==='To order').length
+  const grandTotal = displayableRows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
   const totalW = 28 + cols.reduce((a,c)=>a+c.w,0) + 80 + 50
 
   async function ensureMaterialsLoaded() {
@@ -1122,7 +1196,7 @@ export default function OrderSheet() {
 
   function printOrder() {
     const date = new Date().toLocaleDateString('en-NZ', { day:'numeric', month:'long', year:'numeric' })
-    const filteredRows = rows.filter(r => filter === 'All' || r.status === filter)
+    const filteredRows = displayableRows.filter(r => filter === 'All' || r.status === filter)
 
     // Always group by Room for print — clearest for a physical order sheet
     const roomOrder = rooms.map(r => r.name)
@@ -1239,8 +1313,8 @@ export default function OrderSheet() {
         </div>`
     }).join('')
 
-    const grandTotal = rows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
-    const toOrder = rows.filter(r=>r.status==='To order').length
+    const grandTotal = filteredRows.reduce((a,r)=>{ const q=parseFloat(r.qty),p=parseFloat(r.price); return a+(!isNaN(q)&&!isNaN(p)?q*p:0) },0)
+    const toOrder = filteredRows.filter(r=>r.status==='To order').length
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Order Sheet — ${job?.name||''} — ${date}</title>
@@ -1453,7 +1527,7 @@ ${grandTotal>0?`<div class="grand-total">Grand total: $${grandTotal.toFixed(2)}<
       {/* status filter */}
       <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>
         {['All',...STATUS_OPTIONS].map(f=>{
-          const count = f==='All'?rows.length:rows.filter(r=>r.status===f).length
+          const count = f==='All'?displayableRows.length:displayableRows.filter(r=>r.status===f).length
           const s = f!=='All'?STATUS_STYLES[f]:null
           return (
             <button key={f} onClick={()=>setFilter(f)}

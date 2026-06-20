@@ -86,7 +86,900 @@ const Btn = ({ onClick, children, variant = 'default', disabled, style: s }) => 
   )
 }
 
-// ── FIELD MANAGER MODAL ───────────────────────────────────────────
+// ── Add Material Modal — popout "product profile" creation ─────────
+function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreated, onUpdated, onDeleted }) {
+  const toast = useToast()
+  const isEditing = !!material
+  const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
+
+  // Parse existing custom_fields when editing
+  const initialCf = (() => {
+    if (!material) return {}
+    try { return material.custom_fields ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields)) : {} } catch { return {} }
+  })()
+
+  const [form, setForm]   = useState(() => material ? {
+    name: material.name || '', supplier: material.supplier || '', panel_type: material.panel_type || '',
+    thickness: material.thickness || '', colour_code: material.colour_code || '', finish: material.finish || '',
+    price: material.price || '', notes: material.notes || '',
+  } : { name:'' })
+  const [cf, setCf]       = useState(() => { const { price_breaks, ...rest } = initialCf; return rest })
+  const [priceBreaks, setPriceBreaks] = useState(() => Array.isArray(initialCf.price_breaks) ? initialCf.price_breaks : [])
+  const [imgFile, setImgFile] = useState(null)
+  const [imgPreview, setImgPreview] = useState(() => material?.storage_path ? `https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${material.storage_path}` : null)
+  const [saving, setSaving] = useState(false)
+  const fileRef = useRef()
+  const [modalTab, setModalTab] = useState('details') // 'details' | 'suppliers'
+
+  // ── Kit mode ──────────────────────────────────────────────────────
+  const [isKit, setIsKit] = useState(() => !!material?.is_kit)
+  const [kitItems, setKitItems] = useState([]) // [{ material_id, material, qty }]
+  const [kitItemsLoading, setKitItemsLoading] = useState(false)
+  const [kitSearch, setKitSearch] = useState('')
+  const [kitResults, setKitResults] = useState([])
+  const [kitSearching, setKitSearching] = useState(false)
+  const kitSearchTimer = useRef()
+
+  // Load existing kit components when editing a material that's already a kit
+  useEffect(() => {
+    if (!material?.is_kit || !material?.kit_id) return
+    setKitItemsLoading(true)
+    supabase.from('material_kit_items').select('*, materials(*)').eq('kit_id', material.kit_id).order('sort_order')
+      .then(({ data }) => {
+        setKitItems((data || []).filter(it => it.materials).map(it => ({ material_id: it.material_id, material: it.materials, qty: it.qty || 1 })))
+        setKitItemsLoading(false)
+      })
+  }, [material?.kit_id])
+
+  function doKitSearch(val) {
+    setKitSearch(val)
+    clearTimeout(kitSearchTimer.current)
+    if (!val.trim()) { setKitResults([]); return }
+    setKitSearching(true)
+    kitSearchTimer.current = setTimeout(async () => {
+      const { data } = await supabase.from('materials').select('*')
+        .ilike('name', `%${val}%`)
+        .or('is_kit.is.null,is_kit.eq.false') // don't allow nesting kits inside kits
+        .order('name').limit(20)
+      setKitResults((data || []).filter(m => m.id !== material?.id))
+      setKitSearching(false)
+    }, 250)
+  }
+
+  function addKitComponent(mat) {
+    if (kitItems.some(it => it.material_id === mat.id)) { toast('Already in this kit', 'error'); return }
+    setKitItems(p => [...p, { material_id: mat.id, material: mat, qty: 1 }])
+    setKitSearch(''); setKitResults([])
+  }
+  function updateKitQty(materialId, qty) {
+    setKitItems(p => p.map(it => it.material_id === materialId ? { ...it, qty } : it))
+  }
+  function removeKitComponent(materialId) {
+    setKitItems(p => p.filter(it => it.material_id !== materialId))
+  }
+  const kitTotalPrice = kitItems.reduce((sum, it) => sum + (parseFloat(it.material?.price) || 0) * (parseFloat(it.qty) || 1), 0)
+
+  // ── Suppliers & per-supplier pricing ───────────────────────────────
+  const [allSuppliers, setAllSuppliers] = useState([])
+  const [matSuppliers, setMatSuppliers] = useState([]) // [{id, supplier_id, supplier, price, sku, lead_time, is_preferred}]
+  const [suppliersLoading, setSuppliersLoading] = useState(false)
+  const [addingSupplierId, setAddingSupplierId] = useState('')
+
+  useEffect(() => {
+    if (modalTab !== 'suppliers' || allSuppliers.length > 0) return
+    supabase.from('suppliers').select('*').order('name').then(({ data }) => setAllSuppliers(data || []))
+  }, [modalTab])
+
+  useEffect(() => {
+    if (!material?.id) return
+    setSuppliersLoading(true)
+    supabase.from('material_suppliers').select('*, suppliers(*)').eq('material_id', material.id).order('is_preferred', { ascending: false })
+      .then(({ data }) => {
+        setMatSuppliers(data || [])
+        setSuppliersLoading(false)
+      })
+  }, [material?.id])
+
+  async function addSupplierLink(supplierId) {
+    if (!supplierId) return
+    if (matSuppliers.some(ms => ms.supplier_id === supplierId)) { toast('Already linked to this supplier', 'error'); return }
+    const isFirst = matSuppliers.length === 0
+    if (!material?.id) {
+      // Not saved yet — queue locally, will be written once the material exists
+      const supplier = allSuppliers.find(s => s.id === supplierId)
+      setMatSuppliers(p => [...p, { id: `_local_${Date.now()}`, supplier_id: supplierId, supplier, price: '', sku: '', lead_time: '', is_preferred: isFirst, _unsaved: true }])
+      setAddingSupplierId('')
+      return
+    }
+    const { data, error } = await supabase.from('material_suppliers')
+      .insert({ material_id: material.id, supplier_id: supplierId, is_preferred: isFirst })
+      .select('*, suppliers(*)').single()
+    if (error) { toast(error.message, 'error'); return }
+    setMatSuppliers(p => [...p, data])
+    setAddingSupplierId('')
+    if (isFirst) syncPreferredPrice(data)
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  async function updateSupplierLink(id, patch) {
+    setMatSuppliers(p => p.map(ms => ms.id === id ? { ...ms, ...patch } : ms))
+    if (String(id).startsWith('_local_')) return // not saved yet, just keep in local state
+    await supabase.from('material_suppliers').update(patch).eq('id', id)
+    if ('price' in patch || 'price_breaks' in patch) {
+      const link = matSuppliers.find(ms => ms.id === id)
+      if (link?.is_preferred) syncPreferredPrice({ ...link, ...patch })
+    }
+  }
+
+  async function setPreferredSupplier(id) {
+    const updated = matSuppliers.map(ms => ({ ...ms, is_preferred: ms.id === id }))
+    setMatSuppliers(updated)
+    // Persist all the flag changes (only real rows)
+    for (const ms of updated) {
+      if (!String(ms.id).startsWith('_local_')) {
+        await supabase.from('material_suppliers').update({ is_preferred: ms.id === id }).eq('id', ms.id)
+      }
+    }
+    const preferred = updated.find(ms => ms.id === id)
+    if (preferred) syncPreferredPrice(preferred)
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  // Whenever the preferred supplier (or its price/breaks) changes, mirror it onto
+  // the material's main `price` field and `custom_fields.price_breaks` so order sheets /
+  // pickers always show the right numbers — they read price_breaks from custom_fields
+  async function syncPreferredPrice(link) {
+    const updates = {}
+    if (link?.price !== undefined && link.price !== '') {
+      setForm(p => ({ ...p, price: link.price }))
+      updates.price = link.price
+    }
+    if (!material?.id) return
+    const validBreaks = Array.isArray(link?.price_breaks)
+      ? link.price_breaks.filter(b => b.qty !== '' && b.price !== '')
+      : []
+    if (Object.keys(updates).length) {
+      await supabase.from('materials').update(updates).eq('id', material.id)
+    }
+    // Merge price_breaks into custom_fields (preserving any other custom field values)
+    const { data: current } = await supabase.from('materials').select('custom_fields').eq('id', material.id).single()
+    let curCf = {}
+    try { curCf = current?.custom_fields ? (typeof current.custom_fields === 'object' ? current.custom_fields : JSON.parse(current.custom_fields)) : {} } catch {}
+    curCf.price_breaks = validBreaks
+    await supabase.from('materials').update({ custom_fields: JSON.stringify(curCf) }).eq('id', material.id)
+    setCf(p => ({ ...p, price_breaks: undefined }))
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  async function removeSupplierLink(ms) {
+    if (!confirm(`Remove ${ms.suppliers?.name || ms.supplier?.name || 'this supplier'} from this product?`)) return
+    setMatSuppliers(p => p.filter(x => x.id !== ms.id))
+    if (!String(ms.id).startsWith('_local_')) {
+      await supabase.from('material_suppliers').delete().eq('id', ms.id)
+    }
+    // If we removed the preferred one, promote the next supplier automatically
+    if (ms.is_preferred) {
+      const remaining = matSuppliers.filter(x => x.id !== ms.id)
+      if (remaining.length > 0) setPreferredSupplier(remaining[0].id)
+    }
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  const catId = material?.category_id || targetCat?.id
+  const cat = allCats?.find(c => c.id === catId)
+  const parentCat = cat?.parent_id ? allCats?.find(c => c.id === cat.parent_id) : null
+  const catPath = [parentCat?.name, cat?.name].filter(Boolean).join(' > ')
+
+  // Fields to render — everything except image/category/name (shown separately) and price (shown with breaks)
+  const fieldCols = (cols || []).filter(c => c.type !== 'image' && c.key !== 'category_name' && c.key !== 'name' && c.key !== 'price')
+
+  function setVal(col, val) {
+    if (col.fieldId) {
+      setCf(p => ({ ...p, [col.fieldId]: val }))
+    } else if (NON_NATIVE.includes(col.key)) {
+      setCf(p => ({ ...p, [col.key]: val }))
+    } else {
+      setForm(p => ({ ...p, [col.key]: val }))
+    }
+  }
+  function getVal(col) {
+    if (col.fieldId) return cf[col.fieldId] || ''
+    if (NON_NATIVE.includes(col.key)) return cf[col.key] || ''
+    return form[col.key] || ''
+  }
+
+  function handleImagePick(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImgFile(file)
+    setImgPreview(URL.createObjectURL(file))
+  }
+
+  async function save() {
+    if (!form.name?.trim()) { toast('Name is required', 'error'); return }
+    if (isKit && kitItems.length === 0) { toast('A kit needs at least one component', 'error'); return }
+    setSaving(true)
+
+    const finalCf = { ...cf }
+    if (priceBreaks.length) finalCf.price_breaks = priceBreaks.filter(b => b.qty !== '' && b.price !== '')
+
+    const payload = {
+      name: form.name.trim(),
+      custom_fields: JSON.stringify(finalCf),
+      is_kit: isKit,
+    }
+    if (!isEditing) payload.category_id = targetCat.id
+    // Native columns — always write them (including empty string to allow clearing)
+    ;['supplier','panel_type','thickness','colour_code','finish','notes'].forEach(k => {
+      payload[k] = form[k] ?? ''
+    })
+    // Kit price is derived from its components, not manually entered
+    payload.price = isKit ? (kitTotalPrice || null) : (form.price ?? '')
+
+    let data, error
+    if (isEditing) {
+      ({ data, error } = await supabase.from('materials').update(payload).eq('id', material.id).select().single())
+    } else {
+      ({ data, error } = await supabase.from('materials').insert(payload).select().single())
+    }
+    if (error) { toast(error.message, 'error'); setSaving(false); return }
+
+    // Upload image if a new one was picked
+    if (imgFile && data) {
+      const ext = imgFile.name.split('.').pop()
+      const path = `materials/${data.id}.${ext}`
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, imgFile, { upsert: true })
+      if (!upErr) {
+        await supabase.from('materials').update({ storage_path: path }).eq('id', data.id)
+        data.storage_path = path
+      }
+    } else if (isEditing && material.storage_path) {
+      data.storage_path = material.storage_path
+    }
+
+    // Sync kit definition (material_kits + material_kit_items) if this product is a kit
+    if (isKit) {
+      let kitId = material?.kit_id
+      if (kitId) {
+        await supabase.from('material_kits').update({ name: form.name.trim(), notes: form.notes || '' }).eq('id', kitId)
+        await supabase.from('material_kit_items').delete().eq('kit_id', kitId)
+      } else {
+        const { data: kitData, error: kitErr } = await supabase.from('material_kits')
+          .insert({ name: form.name.trim(), notes: form.notes || '', linked_material_id: data.id }).select().single()
+        if (kitErr) { toast(`Material saved, but kit setup failed: ${kitErr.message}`, 'error'); setSaving(false); return }
+        kitId = kitData.id
+        await supabase.from('materials').update({ kit_id: kitId }).eq('id', data.id)
+        data.kit_id = kitId
+      }
+      const itemRows = kitItems.map((it, i) => ({ kit_id: kitId, material_id: it.material_id, qty: it.qty || 1, sort_order: i }))
+      const { error: itemsErr } = await supabase.from('material_kit_items').insert(itemRows)
+      if (itemsErr) { toast(`Kit components couldn't be saved: ${itemsErr.message}`, 'error'); setSaving(false); return }
+      data.is_kit = true
+      data.kit_id = kitId
+    } else if (isEditing && material?.is_kit && material?.kit_id) {
+      // Was a kit, now toggled off — clean up the kit definition
+      await supabase.from('material_kit_items').delete().eq('kit_id', material.kit_id)
+      await supabase.from('material_kits').delete().eq('id', material.kit_id)
+      data.is_kit = false
+      data.kit_id = null
+    }
+
+    // Write any supplier links that were queued locally before the material existed yet
+    const unsavedLinks = matSuppliers.filter(ms => ms._unsaved)
+    if (unsavedLinks.length > 0 && data?.id) {
+      for (const link of unsavedLinks) {
+        await supabase.from('material_suppliers').insert({
+          material_id: data.id, supplier_id: link.supplier_id,
+          price: link.price || null, sku: link.sku || null, lead_time: link.lead_time || null,
+          is_preferred: link.is_preferred,
+        })
+      }
+    }
+
+    setSaving(false)
+    toast(isEditing ? 'Material updated ✓' : 'Material created ✓')
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+    if (isEditing) onUpdated(data)
+    else onCreated(data)
+  }
+
+  function inputFor(col) {
+    const val = getVal(col)
+    const common = { style:{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' } }
+    if (col.type === 'select' && col.options?.length) {
+      return (
+        <select value={val} onChange={e=>setVal(col, e.target.value)} {...common}>
+          <option value="">—</option>
+          {col.options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )
+    }
+    if (col.type === 'unit_select') {
+      return <UnitSelectCell val={val} w={'100%'} onChange={v=>setVal(col, v)} />
+    }
+    return (
+      <input type={col.type==='mm'||col.type==='number' ? 'number' : 'text'} value={val}
+        onChange={e=>setVal(col, e.target.value)}
+        placeholder={col.placeholder || col.label}
+        {...common} />
+    )
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            {catPath && <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{catPath}</div>}
+            <div style={{ fontSize:17, fontWeight:800, color:'#2A3042', display:'flex', alignItems:'center', gap:6 }}>
+              {isKit && <span>🧰</span>}
+              {isEditing ? form.name || 'Edit material' : isKit ? 'New kit' : 'New material'}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:24, lineHeight:1, flexShrink:0 }}>×</button>
+        </div>
+
+        {/* Tabs — Suppliers tab only meaningful once the material exists */}
+        {isEditing && (
+          <div style={{ display:'flex', gap:2, padding:'8px 16px 0', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
+            {[['details','Details'],['suppliers',`Suppliers${matSuppliers.length?` (${matSuppliers.length})`:''}`]].map(([key,label]) => (
+              <button key={key} onClick={() => setModalTab(key)}
+                style={{ padding:'8px 14px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer',
+                  color: modalTab===key ? '#5B8AF0' : '#9CA3AF',
+                  borderBottom: modalTab===key ? '2px solid #5B8AF0' : '2px solid transparent' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {modalTab === 'suppliers' && isEditing ? (
+          <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Add a supplier</label>
+              <div style={{ display:'flex', gap:8 }}>
+                <select value={addingSupplierId} onChange={e => setAddingSupplierId(e.target.value)}
+                  style={{ flex:1, padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                  <option value="">Select a supplier…</option>
+                  {allSuppliers.filter(s => !matSuppliers.some(ms => ms.supplier_id === s.id)).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <button onClick={() => addSupplierLink(addingSupplierId)} disabled={!addingSupplierId}
+                  style={{ padding:'9px 16px', borderRadius:9, border:'none', background: addingSupplierId ? '#5B8AF0' : '#E8ECF0', color: addingSupplierId ? '#fff' : '#9CA3AF', fontSize:13, fontWeight:700, cursor: addingSupplierId ? 'pointer' : 'default' }}>
+                  + Add
+                </button>
+              </div>
+              {allSuppliers.length === 0 && (
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:6 }}>
+                  No suppliers set up yet — add some in Settings → Suppliers first.
+                </div>
+              )}
+            </div>
+
+            {suppliersLoading ? (
+              <div className="spinner" style={{ margin:'20px auto' }} />
+            ) : matSuppliers.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13, background:'#F9FAFB', borderRadius:10 }}>
+                No suppliers linked to this product yet
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {matSuppliers.map(ms => {
+                  const sup = ms.suppliers || ms.supplier
+                  return (
+                    <div key={ms.id} style={{ background: ms.is_preferred ? '#F0FDF4' : '#fff', border:`1px solid ${ms.is_preferred ? '#86EFAC' : '#E8ECF0'}`, borderRadius:12, padding:12 }}>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{sup?.name || 'Unknown supplier'}</div>
+                          {ms.is_preferred && (
+                            <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:8, background:'#1D9E75', color:'#fff' }}>★ Preferred</span>
+                          )}
+                        </div>
+                        <div style={{ display:'flex', gap:6 }}>
+                          {!ms.is_preferred && (
+                            <button onClick={() => setPreferredSupplier(ms.id)}
+                              style={{ fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:7, border:'1px solid #C4D4F8', background:'#F0F4FF', color:'#3730A3', cursor:'pointer' }}>
+                              Set preferred
+                            </button>
+                          )}
+                          <button onClick={() => removeSupplierLink(ms)}
+                            style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16 }}
+                            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                        </div>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                        <div>
+                          <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Price</label>
+                          <div style={{ position:'relative' }}>
+                            <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9CA3AF' }}>$</span>
+                            <input type="number" step="0.01" value={ms.price || ''}
+                              onChange={e => updateSupplierLink(ms.id, { price: e.target.value })}
+                              placeholder="0.00"
+                              style={{ width:'100%', padding:'6px 8px 6px 18px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Supplier SKU</label>
+                          <input value={ms.sku || ''} onChange={e => updateSupplierLink(ms.id, { sku: e.target.value })}
+                            placeholder="SKU"
+                            style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Lead time</label>
+                          <input value={ms.lead_time || ''} onChange={e => updateSupplierLink(ms.id, { lead_time: e.target.value })}
+                            placeholder="e.g. 5 days"
+                            style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                        </div>
+                      </div>
+
+                      {/* Qty price breaks for this supplier */}
+                      <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid rgba(0,0,0,0.06)' }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>
+                          Qty price breaks
+                        </div>
+                        {(ms.price_breaks || []).map((b, bi) => (
+                          <div key={bi} style={{ display:'flex', gap:6, marginBottom:5, alignItems:'center' }}>
+                            <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>≥</span>
+                            <input type="number" placeholder="Qty" value={b.qty}
+                              onChange={e => {
+                                const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,qty:e.target.value} : x)
+                                updateSupplierLink(ms.id, { price_breaks: updated })
+                              }}
+                              style={{ width:64, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
+                            <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>units → $</span>
+                            <input type="number" step="0.01" placeholder="0.00" value={b.price}
+                              onChange={e => {
+                                const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,price:e.target.value} : x)
+                                updateSupplierLink(ms.id, { price_breaks: updated })
+                              }}
+                              style={{ flex:1, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
+                            <button onClick={() => {
+                                const updated = (ms.price_breaks || []).filter((_,j) => j!==bi)
+                                updateSupplierLink(ms.id, { price_breaks: updated })
+                              }}
+                              style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, flexShrink:0 }}>×</button>
+                          </div>
+                        ))}
+                        <button onClick={() => updateSupplierLink(ms.id, { price_breaks: [...(ms.price_breaks || []), { qty:'', price:'' }] })}
+                          style={{ width:'100%', padding:'5px', borderRadius:7, border:'1px dashed #C7D2FE', background:'none', color:'#5B8AF0', fontSize:10, fontWeight:600, cursor:'pointer', marginTop:2 }}>
+                          + Add price break
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div style={{ fontSize:11, color:'#9CA3AF', marginTop:14, lineHeight:1.5 }}>
+              The price shown on order sheets and material pickers uses the <strong>preferred</strong> supplier's price and qty breaks.
+            </div>
+          </div>
+        ) : (
+        <div style={{ flex:1, overflowY:'auto', padding:20 }}>
+          {/* Image + Name row */}
+          <div style={{ display:'flex', gap:14, marginBottom:18 }}>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display:'none' }} />
+            <div onClick={()=>fileRef.current?.click()}
+              style={{ width:84, height:84, borderRadius:12, overflow:'hidden', border:'1.5px dashed #C4D4F8', background:'#F8FAFF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer' }}>
+              {imgPreview
+                ? <img src={imgPreview} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                : <span style={{ fontSize:22, color:'#C4D4F8' }}>📷</span>
+              }
+            </div>
+            <div style={{ flex:1 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Name *</label>
+              <input autoFocus value={form.name||''} onChange={e=>setForm(p=>({...p,name:e.target.value}))}
+                placeholder="e.g. Laminex 18mm Borders Oak Organic"
+                style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:14, fontWeight:600, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+              <div style={{ fontSize:11, color:'#9CA3AF' }}>Tap the photo box to upload an image</div>
+            </div>
+          </div>
+
+          {/* Kit toggle */}
+          <div onClick={() => setIsKit(v => !v)}
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:10,
+              background: isKit ? '#FFF7ED' : '#F9FAFB', border:`1px solid ${isKit ? '#FDBA74' : '#E8ECF0'}`,
+              marginBottom:18, cursor:'pointer' }}>
+            <div style={{ width:36, height:20, borderRadius:10, background: isKit ? '#F97316' : '#D1D5DB', position:'relative', flexShrink:0, transition:'background .15s' }}>
+              <div style={{ position:'absolute', top:2, left: isKit ? 18 : 2, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:700, color: isKit ? '#C2410C' : '#2A3042' }}>🧰 This is a kit</div>
+              <div style={{ fontSize:11, color:'#9CA3AF' }}>Bundle multiple products from the library into this one item</div>
+            </div>
+          </div>
+
+          {isKit && (
+            <div style={{ background:'#FFFBF5', border:'1px solid #FDE9D0', borderRadius:12, padding:14, marginBottom:18 }}>
+              {/* Search to add components */}
+              <div style={{ marginBottom:10, position:'relative' }}>
+                <label style={{ fontSize:11, fontWeight:700, color:'#C2410C', display:'block', marginBottom:4 }}>Add components</label>
+                <input value={kitSearch} onChange={e=>doKitSearch(e.target.value)}
+                  placeholder="Search materials library…"
+                  style={{ width:'100%', padding:'9px 12px', border:'1px solid #FDBA74', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' }} />
+                {kitSearch.trim() && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, marginTop:4, background:'#fff', border:'1px solid #E8ECF0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:50, maxHeight:220, overflowY:'auto' }}>
+                    {kitSearching ? (
+                      <div style={{ padding:'12px', fontSize:12, color:'#9CA3AF', textAlign:'center' }}>Searching…</div>
+                    ) : kitResults.length === 0 ? (
+                      <div style={{ padding:'12px', fontSize:12, color:'#9CA3AF', textAlign:'center' }}>No materials found</div>
+                    ) : kitResults.map(m => (
+                      <div key={m.id} onClick={() => addKitComponent(m)}
+                        style={{ padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', display:'flex', alignItems:'center', gap:8 }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#FFF7ED'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        {m.storage_path
+                          ? <img src={pubUrl(m.storage_path)} style={{ width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0 }} alt="" />
+                          : <div style={{ width:28,height:28,borderRadius:6,background:m.color||'#E8ECF0',flexShrink:0 }} />
+                        }
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
+                          <div style={{ fontSize:10, color:'#9CA3AF' }}>{m.price ? `$${m.price}` : ''}</div>
+                        </div>
+                        <span style={{ fontSize:16, color:'#F97316' }}>+</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Component list */}
+              <div style={{ fontSize:11, fontWeight:700, color:'#C2410C', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>
+                Components ({kitItems.length})
+              </div>
+              {kitItemsLoading ? (
+                <div className="spinner" style={{ margin:'12px auto' }} />
+              ) : kitItems.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'16px 0', color:'#C2A47A', fontSize:12, background:'#fff', borderRadius:9 }}>
+                  Search above to add products to this kit
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:10 }}>
+                  {kitItems.map(it => (
+                    <div key={it.material_id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:'#fff', borderRadius:9, border:'1px solid #FDE9D0' }}>
+                      {it.material?.storage_path
+                        ? <img src={pubUrl(it.material.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0 }} alt="" />
+                        : <div style={{ width:32,height:32,borderRadius:7,background:it.material?.color||'#E8ECF0',flexShrink:0 }} />
+                      }
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{it.material?.name}</div>
+                        <div style={{ fontSize:10, color:'#9CA3AF' }}>{it.material?.price ? `$${parseFloat(it.material.price).toFixed(2)} each` : 'No price set'}</div>
+                      </div>
+                      <input type="number" min="0.01" step="0.01" value={it.qty}
+                        onChange={e=>updateKitQty(it.material_id, e.target.value)}
+                        style={{ width:60, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', textAlign:'center' }} />
+                      <button onClick={()=>removeKitComponent(it.material_id)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, flexShrink:0 }}
+                        onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {kitTotalPrice > 0 && (
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:10 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#166534' }}>Total kit price (from components)</span>
+                  <span style={{ fontSize:15, fontWeight:800, color:'#166534' }}>${kitTotalPrice.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Standard + custom fields grid */}
+          {fieldCols.length > 0 && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px 14px', marginBottom:18 }}>
+              {fieldCols.map(col => (
+                <div key={col.key + (col.fieldId||'')}>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>{col.label}</label>
+                  {inputFor(col)}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Price — qty breaks now managed per-supplier in the Suppliers tab */}
+          {!isKit && (
+          <div style={{ background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, padding:14 }}>
+            <label style={{ fontSize:11, fontWeight:700, color:'#3730A3', display:'block', marginBottom:4 }}>Price</label>
+            <div style={{ position:'relative', maxWidth:160, marginBottom: isEditing ? 8 : 0 }}>
+              <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9CA3AF' }}>$</span>
+              <input type="number" step="0.01" value={form.price||''} onChange={e=>setForm(p=>({...p,price:e.target.value}))}
+                placeholder="0.00"
+                style={{ width:'100%', padding:'8px 10px 8px 22px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' }} />
+            </div>
+            {isEditing && (
+              <div style={{ fontSize:11, color:'#9CA3AF', lineHeight:1.5 }}>
+                Set per-supplier pricing and qty breaks in the <strong>Suppliers</strong> tab — the preferred supplier's price will override this field automatically.
+              </div>
+            )}
+          </div>
+          )}
+        </div>
+        )}
+
+        {/* Footer */}
+        <div style={{ padding:'12px 20px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, flexShrink:0 }}>
+          {isEditing && onDeleted && (
+            <button onClick={async () => {
+                if (!confirm(`Delete "${material.name}"? This cannot be undone.`)) return
+                if (material.is_kit && material.kit_id) {
+                  await supabase.from('material_kit_items').delete().eq('kit_id', material.kit_id)
+                  await supabase.from('material_kits').delete().eq('id', material.kit_id)
+                }
+                await supabase.from('materials').delete().eq('id', material.id)
+                toast('Material deleted')
+                onDeleted(material.id)
+              }}
+              style={{ padding:'10px 14px', borderRadius:10, border:'1px solid #FCA5A5', background:'#FEF2F2', color:'#E24B4A', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              Delete
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{ padding:'10px 18px', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving || !form.name?.trim() || (isKit && kitItems.length===0)}
+            style={{ flex:1, padding:'10px', borderRadius:10, border:'none', fontSize:13, fontWeight:700,
+              cursor: (form.name?.trim() && (!isKit || kitItems.length>0)) ? 'pointer' : 'default',
+              background: (form.name?.trim() && (!isKit || kitItems.length>0)) ? '#1D9E75' : '#E8ECF0',
+              color: (form.name?.trim() && (!isKit || kitItems.length>0)) ? '#fff' : '#9CA3AF' }}>
+            {saving ? 'Saving…' : isEditing ? 'Save changes' : isKit ? '+ Create kit' : '+ Create material'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Standard field definitions (kept in sync with MaterialSettings.jsx) ──
+const FIELD_TYPES = [
+  { value:'text', label:'Text' }, { value:'number', label:'Number' },
+  { value:'select', label:'Dropdown' }, { value:'toggle', label:'Toggle' },
+]
+const ALL_STANDARD_FIELDS = [
+  { key:'supplier',     label:'Supplier',           field_type:'text',   group:'Identity' },
+  { key:'brand',        label:'Brand',              field_type:'text',   group:'Identity' },
+  { key:'sku',          label:'SKU / Product code', field_type:'text',   group:'Identity' },
+  { key:'panel_type',   label:'Panel type',         field_type:'text',   group:'Specification' },
+  { key:'thickness',    label:'Thickness (mm)',      field_type:'number', group:'Specification' },
+  { key:'colour_code',  label:'Colour code',         field_type:'text',   group:'Specification' },
+  { key:'colour',       label:'Colour name',         field_type:'text',   group:'Specification' },
+  { key:'finish',       label:'Finish',              field_type:'text',   group:'Specification' },
+  { key:'grade',        label:'Grade',               field_type:'text',   group:'Specification' },
+  { key:'edge_profile', label:'Edge profile',        field_type:'text',   group:'Specification' },
+  { key:'grain',        label:'Grain direction',     field_type:'select', group:'Specification', options:['Grained','No grain','Any'] },
+  { key:'dimensions',   label:'Sheet dimensions',    field_type:'text',   group:'Specification' },
+  { key:'weight',       label:'Weight (kg)',          field_type:'number', group:'Specification' },
+  { key:'price',        label:'Unit price ($)',       field_type:'number', group:'Ordering' },
+  { key:'unit',         label:'Order unit',          field_type:'select', group:'Ordering', options:['sheets','m','m²','m³','lm','kg','pcs','boxes','rolls','litres'] },
+  { key:'qty',          label:'Default qty',         field_type:'number', group:'Ordering' },
+  { key:'lead_time',    label:'Lead time (days)',     field_type:'number', group:'Ordering' },
+  { key:'min_order',    label:'Minimum order qty',   field_type:'number', group:'Ordering' },
+  { key:'po_number',    label:'PO number',           field_type:'text',   group:'Ordering' },
+  { key:'notes',        label:'Notes',               field_type:'text',   group:'Other' },
+]
+const DEFAULT_VISIBLE_FIELDS = ['supplier','panel_type','thickness','colour_code','finish','price','notes']
+
+// ── Comprehensive Fields modal — standard field visibility + custom fields ──
+// This is the same control surface as Settings > Materials > category > Fields,
+// surfaced directly in the Materials list so changes don't require leaving the page.
+function MaterialFieldsModal({ catId, catName, onClose, onChanged }) {
+  const toast = useToast()
+  const [visible, setVisible]   = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [adding, setAdding]     = useState(false)
+  const [customFields, setCustomFields] = useState([])
+  const [nf, setNf]             = useState({ label:'', field_type:'text', required:false, options:'' })
+  const [saving, setSaving]     = useState(false)
+  const [savedKey, setSavedKey] = useState(null)
+  const settingsKey = `mat_cat_fields_${catId}`
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('app_settings').select('value').eq('key', settingsKey).maybeSingle(),
+      supabase.from('category_fields').select('*').eq('category_id', catId).order('sort_order'),
+    ]).then(([{ data: cfg }, { data: cf }]) => {
+      if (cfg?.value) setVisible(new Set(JSON.parse(cfg.value)))
+      else setVisible(new Set(DEFAULT_VISIBLE_FIELDS))
+      setCustomFields(cf || [])
+      setLoading(false)
+    })
+  }, [catId])
+
+  async function saveVisible(newSet, key) {
+    setSaving(true)
+    setSavedKey(key)
+    await supabase.from('app_settings').upsert(
+      { key: settingsKey, value: JSON.stringify([...newSet]) },
+      { onConflict: 'key' }
+    )
+    setSaving(false)
+    setTimeout(() => setSavedKey(null), 1500)
+    onChanged?.({ visible: newSet, customFields })
+  }
+
+  function toggle(key) {
+    const next = new Set(visible)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setVisible(next)
+    saveVisible(next, key)
+  }
+
+  async function addCustom() {
+    if (!nf.label.trim()) return
+    const opts = nf.field_type==='select'
+      ? nf.options.split(',').map(s=>s.trim()).filter(Boolean)
+      : null
+    const payload = { category_id: catId, label: nf.label.trim(), field_type: nf.field_type, sort_order: customFields.length }
+    if (opts) payload.options = JSON.stringify(opts)
+    const { data, error } = await supabase.from('category_fields').insert(payload).select().single()
+    if (error) { toast(error.message, 'error'); return }
+    const updated = [...customFields, data]
+    setCustomFields(updated)
+    setNf({ label:'', field_type:'text', required:false, options:'' })
+    setAdding(false)
+    toast('Field added ✓')
+    onChanged?.({ visible, customFields: updated })
+  }
+
+  async function delCustom(id) {
+    if (!confirm('Delete this field?')) return
+    await supabase.from('category_fields').delete().eq('id', id)
+    const updated = customFields.filter(f=>f.id!==id)
+    setCustomFields(updated)
+    onChanged?.({ visible, customFields: updated })
+  }
+
+  async function toggleReq(f) {
+    const { error } = await supabase.from('category_fields').update({ required: !f.required }).eq('id', f.id)
+    if (!error) {
+      const updated = customFields.map(x => x.id===f.id ? {...x, required:!f.required} : x)
+      setCustomFields(updated)
+      onChanged?.({ visible, customFields: updated })
+    }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:540, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Manage fields</div>
+            <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>{catName}</div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            {saving && <span style={{ fontSize:11, color:'#9CA3AF' }}>Saving…</span>}
+            {!saving && savedKey && <span style={{ fontSize:11, color:'#1D9E75', fontWeight:600 }}>✓ Saved</span>}
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+          </div>
+        </div>
+
+        <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
+          {loading || !visible ? <div className="spinner" style={{ margin:'20px auto' }} /> : <>
+
+            {/* Standard fields — toggle visibility, applied from the category template */}
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
+                Standard fields
+              </div>
+              <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:12 }}>
+                Toggle which fields appear for materials in this category — applies instantly, no need to leave this page
+              </div>
+              {['Identity','Specification','Ordering','Other'].map(group => {
+                const gFields = ALL_STANDARD_FIELDS.filter(f => f.group === group)
+                return (
+                  <div key={group} style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#C4C9D4', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6, paddingLeft:2 }}>{group}</div>
+                    {gFields.map(sf => {
+                      const on = visible.has(sf.key)
+                      return (
+                        <div key={sf.key} onClick={()=>toggle(sf.key)}
+                          style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
+                            background: on ? '#F0F4FF' : '#F9FAFB',
+                            borderRadius:9, border:`1px solid ${on?'#C4D4F8':'#E8ECF0'}`, marginBottom:5, cursor:'pointer' }}>
+                          <div style={{ width:36, height:20, borderRadius:10, background:on?'#5B8AF0':'#D1D5DB',
+                            position:'relative', flexShrink:0, transition:'background .15s' }}>
+                            <div style={{ position:'absolute', top:2, left:on?18:2, width:16, height:16,
+                              borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:600, color: on?'#2A3042':'#9CA3AF' }}>{sf.label}</div>
+                            <div style={{ fontSize:10, color:'#C4C9D4' }}>
+                              {FIELD_TYPES.find(t=>t.value===sf.field_type)?.label}
+                              {sf.options && ` · ${sf.options.slice(0,3).join(', ')}${sf.options.length>3?'…':''}`}
+                            </div>
+                          </div>
+                          {on && <span style={{ fontSize:10, color: savedKey===sf.key ? '#1D9E75' : '#5B8AF0', fontWeight:700, transition:'color .3s', minWidth:40, textAlign:'right' }}>
+                            {savedKey===sf.key ? '✓ Saved' : 'Visible'}
+                          </span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Custom fields */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:10 }}>
+                Custom fields
+              </div>
+              {customFields.length===0&&!adding && (
+                <div style={{ textAlign:'center', padding:'16px 0', color:'#9CA3AF', fontSize:13, background:'#F9FAFB', borderRadius:9, marginBottom:8 }}>
+                  No custom fields yet
+                </div>
+              )}
+              {customFields.map(f => (
+                <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', marginBottom:8 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{f.label}</div>
+                    <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
+                      {FIELD_TYPES.find(t=>t.value===f.field_type)?.label}{f.required?' · Required':''}
+                      {f.options && ` · ${JSON.parse(f.options).join(', ')}`}
+                    </div>
+                  </div>
+                  <button onClick={()=>toggleReq(f)} style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${f.required?'#86EFAC':'#E8ECF0'}`, background:f.required?'#F0FDF4':'#F9FAFB', color:f.required?'#166534':'#9CA3AF', cursor:'pointer' }}>
+                    {f.required?'✓ Required':'Optional'}
+                  </button>
+                  <button onClick={()=>delCustom(f.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16 }}
+                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                </div>
+              ))}
+              {adding && (
+                <div style={{ background:'#F0F4FF', borderRadius:10, border:'1px solid #C4D4F8', padding:14 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Label *</label>
+                      <input autoFocus value={nf.label} onChange={e=>setNf(p=>({...p,label:e.target.value}))}
+                        placeholder="e.g. Batch number" style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Type</label>
+                      <select value={nf.field_type} onChange={e=>setNf(p=>({...p,field_type:e.target.value}))}
+                        style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box' }}>
+                        {FIELD_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {nf.field_type==='select' && (
+                    <div style={{ marginBottom:10 }}>
+                      <label style={{ fontSize:11, fontWeight:600, color:'#6B7280', display:'block', marginBottom:4 }}>Options (comma separated)</label>
+                      <input value={nf.options} onChange={e=>setNf(p=>({...p,options:e.target.value}))} placeholder="Option 1, Option 2"
+                        style={{ width:'100%', padding:'7px 10px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                    </div>
+                  )}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <label style={{ fontSize:12, display:'flex', alignItems:'center', gap:6, color:'#6B7280', cursor:'pointer' }}>
+                      <input type="checkbox" checked={nf.required} onChange={e=>setNf(p=>({...p,required:e.target.checked}))} /> Required
+                    </label>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <Btn onClick={()=>setAdding(false)}>Cancel</Btn>
+                      <Btn onClick={addCustom} variant="primary" disabled={!nf.label.trim()}>Add field</Btn>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>}
+        </div>
+
+        <div style={{ padding:'12px 20px', borderTop:'1px solid #F3F4F6' }}>
+          {!adding && <Btn onClick={()=>setAdding(true)} variant="primary">+ Add custom field</Btn>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── FIELD MANAGER MODAL (legacy — custom fields only, kept for compatibility) ──
 function FieldManager({ catId, catName, fields, onClose, onChanged }) {
   const toast = useToast()
   const [items, setItems] = useState(fields)
@@ -802,215 +1695,6 @@ function MCell({ value='', onChange, type='text', options=[], placeholder='', w=
   )
 }
 
-// ── Image upload cell ─────────────────────────────────────────────
-// ── Price Breaks Button ───────────────────────────────────────────
-function PriceBreaksBtn({ material, onUpdate }) {
-  const [open, setOpen] = React.useState(false)
-  const [breaks, setBreaks] = React.useState([])
-  const btnRef = React.useRef()
-  const popRef = React.useRef()
-  const [pos, setPos] = React.useState({ top:0, left:0 })
-
-  React.useEffect(() => {
-    try {
-      const cf = material.custom_fields
-        ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields))
-        : {}
-      const b = cf.price_breaks
-      setBreaks(Array.isArray(b) ? b : [])
-    } catch { setBreaks([]) }
-  }, [material.id, material.custom_fields])
-
-  React.useEffect(() => {
-    if (!open) return
-    const rect = btnRef.current?.getBoundingClientRect()
-    if (rect) setPos({ top: rect.bottom + 4, left: Math.max(10, rect.left - 220) })
-    function handleClick(e) {
-      if (popRef.current && !popRef.current.contains(e.target) && !btnRef.current?.contains(e.target)) setOpen(false)
-    }
-    setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
-
-  function save() {
-    const valid = breaks.filter(b => b.qty !== '' && b.price !== '' && !isNaN(parseFloat(b.qty)) && !isNaN(parseFloat(b.price)))
-    try {
-      const cf = material.custom_fields
-        ? (typeof material.custom_fields === 'object' ? { ...material.custom_fields } : JSON.parse(material.custom_fields))
-        : {}
-      cf.price_breaks = valid
-      onUpdate({ custom_fields: JSON.stringify(cf) })
-    } catch {}
-    setBreaks(valid)
-    setOpen(false)
-  }
-
-  const hasBreaks = breaks.length > 0
-
-  return (
-    <>
-      <button ref={btnRef} onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-        title={hasBreaks ? `${breaks.length} qty price break${breaks.length>1?'s':''} — click to edit` : 'Add qty price breaks'}
-        style={{
-          width:20, height:20, flexShrink:0,
-          background: hasBreaks ? '#EEF2FF' : '#F3F4F6',
-          border: hasBreaks ? '1px solid #C7D2FE' : '1px solid #E8ECF0',
-          borderRadius:5, cursor:'pointer', padding:0,
-          fontSize:9, fontWeight:700,
-          color: hasBreaks ? '#5B8AF0' : '#9CA3AF',
-          display:'flex', alignItems:'center', justifyContent:'center',
-          transition:'all .12s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background='#EEF2FF'; e.currentTarget.style.color='#5B8AF0'; e.currentTarget.style.borderColor='#C7D2FE' }}
-        onMouseLeave={e => { if(!hasBreaks){ e.currentTarget.style.background='#F3F4F6'; e.currentTarget.style.color='#9CA3AF'; e.currentTarget.style.borderColor='#E8ECF0' } }}>
-        ✦
-      </button>
-      {open && ReactDOM.createPortal(
-        <div ref={popRef} style={{ position:'fixed', zIndex:9999, top:pos.top, left:pos.left, background:'#fff', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', border:'1px solid #E8ECF0', padding:16, minWidth:280 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            Qty price breaks
-            <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:16 }}>×</button>
-          </div>
-          <div style={{ fontSize:11, color:'#9CA3AF', marginBottom:10 }}>Lower prices at higher quantities. Best match applies automatically on orders.</div>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, padding:'6px 8px', background:'#F9FAFB', borderRadius:7 }}>
-            <span style={{ fontSize:11, color:'#6B7280', flex:1 }}>Base price</span>
-            <span style={{ fontSize:12, fontWeight:600, color:'#2A3042' }}>{material.price ? `$${parseFloat(material.price).toFixed(2)}` : '—'}</span>
-            <span style={{ fontSize:10, color:'#9CA3AF' }}>any qty</span>
-          </div>
-          {breaks.map((b, i) => (
-            <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
-              <span style={{ fontSize:11, color:'#9CA3AF', width:16, flexShrink:0 }}>≥</span>
-              <input type="number" min="1" value={b.qty} placeholder="Qty"
-                onChange={e => setBreaks(p => p.map((x,j) => j===i ? {...x,qty:e.target.value} : x))}
-                style={{ width:58, padding:'5px 7px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
-              <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>→ $</span>
-              <input type="number" min="0" step="0.01" value={b.price} placeholder="0.00"
-                onChange={e => setBreaks(p => p.map((x,j) => j===i ? {...x,price:e.target.value} : x))}
-                style={{ flex:1, padding:'5px 7px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none' }} />
-              <button onClick={() => setBreaks(p => p.filter((_,j) => j!==i))}
-                style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, padding:0 }}
-                onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
-                onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
-            </div>
-          ))}
-          <button onClick={() => setBreaks(p => [...p, { qty:'', price:'' }])}
-            style={{ width:'100%', marginTop:4, padding:'5px', borderRadius:7, border:'1px dashed #C7D2FE', background:'none', color:'#5B8AF0', fontSize:11, cursor:'pointer' }}>
-            + Add break
-          </button>
-          <div style={{ display:'flex', gap:8, marginTop:12 }}>
-            <button onClick={save} style={{ flex:1, padding:'7px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>Save</button>
-            <button onClick={() => setOpen(false)} style={{ padding:'7px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, cursor:'pointer' }}>Cancel</button>
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
-  )
-}
-
-// ── Material Detail Modal ─────────────────────────────────────────
-function MaterialDetailModal({ material, cols, allCats, onClose, onUpdate }) {
-  if (!material) return null
-  const cf = (() => { try { return material.custom_fields ? (typeof material.custom_fields === 'object' ? material.custom_fields : JSON.parse(material.custom_fields)) : {} } catch { return {} } })()
-  const priceBreaks = Array.isArray(cf.price_breaks) ? cf.price_breaks : []
-  const NON_NATIVE = ['brand','sku','colour','grade','edge_profile','dimensions','weight','unit','qty','lead_time','min_order','po_number']
-
-  const cat = allCats?.find(c => c.id === material.category_id)
-  const parentCat = cat?.parent_id ? allCats?.find(c => c.id === cat.parent_id) : null
-  const catPath = [parentCat?.name, cat?.name].filter(Boolean).join(' > ')
-
-  // Build a list of all fields with values, excluding name/image/category (shown separately)
-  const fieldRows = (cols || [])
-    .filter(c => c.type !== 'image' && c.key !== 'category_name' && c.key !== 'name' && c.key !== 'price')
-    .map(c => {
-      const isNonNative = NON_NATIVE.includes(c.key) || c.fieldId
-      const val = c.fieldId
-        ? (cf[c.fieldId] ?? cf[c.fieldLabel] ?? '')
-        : (isNonNative ? (cf[c.key] ?? '') : (material[c.key] ?? ''))
-      return val ? { label: c.label, value: val } : null
-    })
-    .filter(Boolean)
-
-  const imgUrl = material.storage_path ? `https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${material.storage_path}` : null
-
-  return (
-    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:520, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
-
-        {/* Header */}
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
-          <div style={{ minWidth:0 }}>
-            {catPath && <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{catPath}</div>}
-            <div style={{ fontSize:17, fontWeight:800, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis' }}>{material.name || 'Material'}</div>
-          </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:24, lineHeight:1, flexShrink:0 }}>×</button>
-        </div>
-
-        <div style={{ flex:1, overflowY:'auto', padding:20 }}>
-          {/* Large image */}
-          <div style={{ width:'100%', aspectRatio:'4/3', borderRadius:14, overflow:'hidden', border:'1px solid #E8ECF0', background:'#F9FAFB', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:18 }}>
-            {imgUrl
-              ? <img src={imgUrl} alt={material.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-              : material.color
-                ? <div style={{ width:'100%', height:'100%', background:material.color }} />
-                : <span style={{ color:'#C4C9D4', fontSize:13 }}>No image</span>
-            }
-          </div>
-
-          {/* Price + breaks */}
-          {(material.price || priceBreaks.length > 0) && (
-            <div style={{ background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, padding:14, marginBottom:18 }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: priceBreaks.length ? 10 : 0 }}>
-                <span style={{ fontSize:11, fontWeight:700, color:'#3730A3', textTransform:'uppercase', letterSpacing:'.05em' }}>Price</span>
-                <span style={{ fontSize:18, fontWeight:800, color:'#2A3042' }}>{material.price ? `$${parseFloat(material.price).toFixed(2)}` : '—'}</span>
-              </div>
-              {priceBreaks.length > 0 && (
-                <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:2 }}>Qty price breaks</div>
-                  {[...priceBreaks].sort((a,b)=>parseFloat(a.qty)-parseFloat(b.qty)).map((b, i) => (
-                    <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 10px', background:'#fff', borderRadius:8, border:'1px solid #E0E7FF' }}>
-                      <span style={{ fontSize:12, color:'#6B7280' }}>≥ {b.qty} units</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#5B8AF0' }}>${parseFloat(b.price).toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* All other fields */}
-          {fieldRows.length > 0 && (
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Details</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 16px' }}>
-                {fieldRows.map(f => (
-                  <div key={f.label}>
-                    <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:2 }}>{f.label}</div>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {fieldRows.length === 0 && !material.price && priceBreaks.length === 0 && (
-            <div style={{ textAlign:'center', color:'#9CA3AF', fontSize:13, padding:'10px 0' }}>No additional details set for this item.</div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding:'12px 20px', borderTop:'1px solid #F3F4F6', flexShrink:0 }}>
-          <button onClick={onClose}
-            style={{ width:'100%', padding:'10px', borderRadius:10, border:'none', background:'#5B8AF0', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Category Tree Picker ──────────────────────────────────────────
 function CategoryTreePicker({ allCats, currentCatId, title, onSelect, onClose }) {
   const [expanded, setExpanded] = React.useState(new Set())
@@ -1323,6 +2007,52 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const [saving, setSaving]       = React.useState(false)
   const [lastSaved, setLastSaved] = React.useState(null)
   const [showFieldMgr, setShowFieldMgr] = React.useState(false)
+  const [showPricebooksHere, setShowPricebooksHere] = React.useState(false)
+  const [pricebookSupplierId, setPricebookSupplierId] = React.useState(null) // which supplier's pricebook to show when clicked
+  const [relevantSuppliers, setRelevantSuppliers] = React.useState([]) // [{id, name}] — suppliers with pricebooks relevant to this view
+  const [showSupplierPicker, setShowSupplierPicker] = React.useState(false)
+
+  // A pricebook is "relevant" here if either:
+  //  (a) it's the preferred supplier of one or more materials actually in this category, or
+  //  (b) the category name itself matches a supplier name (e.g. a "Laminex" subcategory)
+  // Only suppliers that actually have pricebook files uploaded are shown.
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkRelevance() {
+      const catNames = [targetCat?.name, topCat?.name, subCat?.name].filter(Boolean).map(n => n.toLowerCase().trim())
+      const matIds = materials.map(m => m.id)
+
+      const [{ data: allSuppliers }, { data: pricebookRows }] = await Promise.all([
+        supabase.from('suppliers').select('id,name'),
+        supabase.from('supplier_pricebooks').select('supplier_id'),
+      ])
+      const suppliersWithBooks = new Set((pricebookRows || []).map(r => r.supplier_id))
+      if (suppliersWithBooks.size === 0) { if (!cancelled) setRelevantSuppliers([]); return }
+
+      const relevantIds = new Set()
+
+      // (a) preferred suppliers of materials actually shown
+      if (matIds.length > 0) {
+        const { data: prefRows } = await supabase.from('material_suppliers')
+          .select('supplier_id').in('material_id', matIds).eq('is_preferred', true)
+        ;(prefRows || []).forEach(r => { if (suppliersWithBooks.has(r.supplier_id)) relevantIds.add(r.supplier_id) })
+      }
+
+      // (b) category name matches a supplier name
+      ;(allSuppliers || []).forEach(s => {
+        if (catNames.includes((s.name||'').toLowerCase().trim()) && suppliersWithBooks.has(s.id)) {
+          relevantIds.add(s.id)
+        }
+      })
+
+      if (cancelled) return
+      const list = (allSuppliers || []).filter(s => relevantIds.has(s.id))
+      setRelevantSuppliers(list)
+    }
+    checkRelevance()
+    return () => { cancelled = true }
+  }, [targetCat?.id, topCat?.id, subCat?.id, materials])
+  const [showAddModal, setShowAddModal] = React.useState(false)
   const saveTimer = React.useRef()
 
   // All possible native + standard columns
@@ -1484,8 +2214,37 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   const [cols, setCols]           = React.useState([...coreCols, ...customCols])
   const [selectedIds, setSelectedIds] = React.useState(new Set())
   const [detailMaterial, setDetailMaterial] = React.useState(null)
+  const [preferredSuppliers, setPreferredSuppliers] = React.useState({}) // material_id -> supplier name
   React.useEffect(() => { setCols([...coreCols, ...customCols]) }, [coreCols, customCols])
   const { getHeaderProps } = useDragColumns(cols, setCols)
+
+  // Load the preferred supplier name for every material currently in view
+  React.useEffect(() => {
+    const ids = materials.map(m => m.id)
+    if (ids.length === 0) { setPreferredSuppliers({}); return }
+    supabase.from('material_suppliers').select('material_id, suppliers(name)').in('material_id', ids).eq('is_preferred', true)
+      .then(({ data }) => {
+        const map = {}
+        ;(data || []).forEach(row => { if (row.suppliers?.name) map[row.material_id] = row.suppliers.name })
+        setPreferredSuppliers(map)
+      })
+  }, [materials])
+
+  // Refresh the preferred-supplier map when a supplier link changes elsewhere (e.g. the detail modal)
+  React.useEffect(() => {
+    function handler() {
+      const ids = materials.map(m => m.id)
+      if (ids.length === 0) return
+      supabase.from('material_suppliers').select('material_id, suppliers(name)').in('material_id', ids).eq('is_preferred', true)
+        .then(({ data }) => {
+          const map = {}
+          ;(data || []).forEach(row => { if (row.suppliers?.name) map[row.material_id] = row.suppliers.name })
+          setPreferredSuppliers(map)
+        })
+    }
+    window.addEventListener('materials-library-updated', handler)
+    return () => window.removeEventListener('materials-library-updated', handler)
+  }, [materials])
 
   useEffect(() => {
     if (!targetCat?.id) return
@@ -1636,13 +2395,13 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
     setSaving(false)
   }
 
-  async function addRow() {
-    const tmp = { id: 'new_' + Date.now(), name:'', supplier:'', panel_type:'', thickness:'', colour_code:'', finish:'', notes:'', custom_fields:'{}', category_id: targetCat.id }
-    // Insert immediately so we have a real id for image upload
-    const { data, error } = await supabase.from('materials').insert({ name:'New material', category_id: targetCat.id }).select().single()
-    if (error) { toast(error.message,'error'); return }
-    setMaterials(prev => [...prev, data])
-    toast('Row added — click cells to edit')
+  function addRow() {
+    setShowAddModal(true)
+  }
+
+  function handleMaterialCreated(newMaterial) {
+    setMaterials(prev => [...prev, newMaterial])
+    setShowAddModal(false)
   }
 
   async function deleteRow(id) {
@@ -1687,9 +2446,22 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   return (
     <div>
       {showFieldMgr && (
-        <FieldManager catId={targetCat.id} catName={targetCat.name} fields={catFields}
+        <MaterialFieldsModal catId={targetCat.id} catName={targetCat.name}
           onClose={() => setShowFieldMgr(false)}
-          onChanged={updated => setCatFields(updated)} />
+          onChanged={({ visible, customFields }) => {
+            setCatVisibility(new Set(visible))
+            setCatFields(customFields)
+          }} />
+      )}
+
+      {showAddModal && (
+        <AddMaterialModal
+          targetCat={targetCat}
+          cols={cols}
+          allCats={allCats}
+          onClose={() => setShowAddModal(false)}
+          onCreated={handleMaterialCreated}
+        />
       )}
 
       {/* breadcrumb + actions */}
@@ -1712,10 +2484,42 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
             : lastSaved ? <span style={{ fontSize:11, color:'#9CA3AF' }}>Saved {lastSaved.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
             : null}
           <Btn onClick={()=>doSave(materials)} style={{ fontSize:12, background:'#ECFDF5', color:'#065F46', border:'1px solid #6EE7B7' }}>💾 Save</Btn>
+          {relevantSuppliers.length === 1 && (
+            <Btn onClick={() => { setPricebookSupplierId(relevantSuppliers[0].id); setShowPricebooksHere(true) }}
+              style={{ fontSize:12, background:'#FFF7ED', color:'#C2410C', border:'1px solid #FDBA74' }}>
+              📚 View {relevantSuppliers[0].name} pricebook
+            </Btn>
+          )}
+          {relevantSuppliers.length > 1 && (
+            <div style={{ position:'relative' }}>
+              <Btn onClick={() => setShowSupplierPicker(p => !p)} style={{ fontSize:12, background:'#FFF7ED', color:'#C2410C', border:'1px solid #FDBA74' }}>
+                📚 View pricebook ▾
+              </Btn>
+              {showSupplierPicker && (
+                <div style={{ position:'absolute', top:'calc(100% + 4px)', right:0, background:'#fff', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', border:'1px solid #E8ECF0', zIndex:50, minWidth:180, overflow:'hidden' }}>
+                  {relevantSuppliers.map(s => (
+                    <button key={s.id} onClick={() => { setPricebookSupplierId(s.id); setShowPricebooksHere(true); setShowSupplierPicker(false) }}
+                      style={{ width:'100%', padding:'9px 14px', border:'none', background:'none', cursor:'pointer', textAlign:'left', fontSize:13, color:'#2A3042', borderBottom:'1px solid #F3F4F6' }}
+                      onMouseEnter={e=>e.currentTarget.style.background='#FFF7ED'}
+                      onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <Btn onClick={() => setShowFieldMgr(true)} style={{ fontSize:12 }}>⚙ Fields</Btn>
           <Btn onClick={addRow} variant="green">+ Add material</Btn>
         </div>
       </div>
+
+      {showPricebooksHere && (
+        <PricebooksModal
+          onClose={() => { setShowPricebooksHere(false); setPricebookSupplierId(null) }}
+          supplierFilter={relevantSuppliers.find(s => s.id === pricebookSupplierId)?.name || null}
+        />
+      )}
 
       {/* search */}
       <div style={{ position:'relative', marginBottom:12, maxWidth:300 }}>
@@ -2017,16 +2821,42 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                           } />
                       )
                     }
-                    // Price col — wrap with PriceBreaksBtn
+                    // Price col — plain price input (qty breaks now managed per-supplier in the Suppliers tab)
                     if (col.key === 'price') {
                       return (
                         <div key="price" style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box' }}>
-                          <div style={{ flex:1, overflow:'hidden' }}>
-                            <MCell value={val} w={col.w - 26} type="price" placeholder="0.00"
-                              onChange={v => updateMat(m.id, { price: v })} />
-                          </div>
-                          <PriceBreaksBtn material={m}
-                            onUpdate={patch => updateMat(m.id, patch)} />
+                          <MCell value={val} w={col.w} type="price" placeholder="0.00"
+                            onChange={v => updateMat(m.id, { price: v })} />
+                        </div>
+                      )
+                    }
+                    // Supplier col — shows the preferred supplier (read-only here, set from the Suppliers tab)
+                    if (col.key === 'supplier') {
+                      const preferred = preferredSuppliers[m.id]
+                      return (
+                        <div key="supplier" onClick={() => setDetailMaterial(m)}
+                          title="Click to manage suppliers for this product"
+                          style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', padding:'0 10px', cursor:'pointer', gap:5, overflow:'hidden' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'}
+                          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                          {preferred ? (
+                            <>
+                              <span style={{ fontSize:10, color:'#1D9E75', flexShrink:0 }}>★</span>
+                              <span style={{ fontSize:12, color:'#374151', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preferred}</span>
+                            </>
+                          ) : (
+                            <span style={{ fontSize:12, color:'#C4C9D4' }}>+ Add supplier</span>
+                          )}
+                        </div>
+                      )
+                    }
+                    if (col.key === 'name' && m.is_kit) {
+                      return (
+                        <div key="name" style={{ width:col.w, minWidth:col.w, height:36, display:'flex', alignItems:'center', borderRight:'1px solid #E8ECF0', flexShrink:0, boxSizing:'border-box', padding:'0 8px', gap:5, overflow:'hidden' }}>
+                          <span title="Kit — bundle of products" style={{ fontSize:13, flexShrink:0 }}>🧰</span>
+                          <span style={{ fontSize:12, color:'#374151', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }} title={val}>
+                            {val}
+                          </span>
                         </div>
                       )
                     }
@@ -2078,13 +2908,22 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
           onClose={() => setShowMovePicker(false)} />
       )}
 
-      {/* Material detail popout */}
+      {/* Material detail / edit popout — same modal used for creating */}
       {detailMaterial && (
-        <MaterialDetailModal
+        <AddMaterialModal
           material={detailMaterial}
+          targetCat={targetCat}
           cols={cols}
           allCats={allCats}
           onClose={() => setDetailMaterial(null)}
+          onUpdated={updated => {
+            setMaterials(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m))
+            setDetailMaterial(null)
+          }}
+          onDeleted={id => {
+            setMaterials(prev => prev.filter(m => m.id !== id))
+            setDetailMaterial(null)
+          }}
         />
       )}
     </div>
@@ -2094,6 +2933,157 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
 
 
 // ── Main export ───────────────────────────────────────────────────
+// ── View Pricebooks modal — browse every supplier's uploaded pricebooks ──
+function fileIconForPricebook(type) {
+  if (type?.includes('pdf')) return '📄'
+  if (type?.startsWith('image/')) return '🖼'
+  if (type?.includes('sheet') || type?.includes('excel') || type?.includes('csv')) return '📊'
+  if (type?.includes('word') || type?.includes('document')) return '📝'
+  return '📎'
+}
+function formatSizeForPricebook(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB'
+  return (bytes/1048576).toFixed(1) + ' MB'
+}
+
+function PricebookFileViewer({ file, onClose }) {
+  const url = pubUrl(file.storage_path)
+  const isPdf = file.type?.includes('pdf')
+  const isImage = file.type?.startsWith('image/')
+  const isViewable = isPdf || isImage
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth: isViewable ? 900 : 420, height: isViewable ? '88vh' : 'auto', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)', overflow:'hidden' }}>
+        <div style={{ padding:'12px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
+            <span style={{ fontSize:18, flexShrink:0 }}>{fileIconForPricebook(file.type)}</span>
+            <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{file.name}</div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+            <a href={url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize:12, fontWeight:600, color:'#5B8AF0', textDecoration:'none', padding:'6px 12px', borderRadius:8, border:'1px solid #C4D4F8', background:'#F0F4FF' }}>
+              Open in new tab
+            </a>
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22, lineHeight:1 }}>×</button>
+          </div>
+        </div>
+        <div style={{ flex:1, overflow:'auto', background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          {isPdf ? (
+            <iframe src={url} title={file.name} style={{ width:'100%', height:'100%', border:'none' }} />
+          ) : isImage ? (
+            <img src={url} alt={file.name} style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
+          ) : (
+            <div style={{ textAlign:'center', padding:'40px 30px' }}>
+              <div style={{ fontSize:40, marginBottom:12 }}>{fileIconForPricebook(file.type)}</div>
+              <div style={{ fontSize:14, fontWeight:600, color:'#2A3042', marginBottom:6 }}>{file.name}</div>
+              <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:16 }}>This file type can't be previewed in-app — open it in a new tab instead.</div>
+              <a href={url} target="_blank" rel="noopener noreferrer"
+                style={{ display:'inline-block', fontSize:13, fontWeight:700, color:'#fff', background:'#5B8AF0', padding:'9px 18px', borderRadius:9, textDecoration:'none' }}>
+                Open in new tab
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PricebooksModal({ onClose, supplierFilter }) {
+  const [loading, setLoading] = useState(true)
+  const [bySupplier, setBySupplier] = useState([]) // [{ supplier, files: [...] }]
+  const [search, setSearch] = useState('')
+  const [viewerFile, setViewerFile] = useState(null)
+
+  useEffect(() => {
+    let supplierQuery = supabase.from('suppliers').select('id,name').order('name')
+    if (supplierFilter) supplierQuery = supplierQuery.ilike('name', supplierFilter)
+    Promise.all([
+      supplierQuery,
+      supabase.from('supplier_pricebooks').select('*').order('created_at', { ascending: false }),
+    ]).then(([{ data: suppliers }, { data: files }]) => {
+      const grouped = (suppliers || []).map(s => ({
+        supplier: s,
+        files: (files || []).filter(f => f.supplier_id === s.id),
+      })).filter(g => g.files.length > 0)
+      setBySupplier(grouped)
+      setLoading(false)
+    })
+  }, [supplierFilter])
+
+  const filtered = bySupplier
+    .map(g => ({
+      ...g,
+      files: search.trim()
+        ? g.files.filter(f => f.name.toLowerCase().includes(search.toLowerCase()) || g.supplier.name.toLowerCase().includes(search.toLowerCase()))
+        : g.files,
+    }))
+    .filter(g => g.files.length > 0)
+
+  const totalFiles = bySupplier.reduce((sum, g) => sum + g.files.length, 0)
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexShrink:0 }}>
+          <div>
+            <div style={{ fontSize:17, fontWeight:800, color:'#2A3042' }}>📚 {supplierFilter ? `${supplierFilter} Pricebook` : 'Pricebooks'}</div>
+            <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>{totalFiles} file{totalFiles!==1?'s':''}{!supplierFilter ? ` across ${bySupplier.length} supplier${bySupplier.length!==1?'s':''}` : ''}</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:24, lineHeight:1, flexShrink:0 }}>×</button>
+        </div>
+
+        <div style={{ padding:'12px 20px', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
+            placeholder="Search by supplier or file name…"
+            style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+        </div>
+
+        <div style={{ flex:1, overflowY:'auto', padding:'14px 20px' }}>
+          {loading ? (
+            <div className="spinner" style={{ margin:'30px auto' }} />
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'30px 0', color:'#9CA3AF', fontSize:13 }}>
+              {bySupplier.length === 0
+                ? <>No pricebooks uploaded yet — add them from a supplier's <strong>Pricebook</strong> tab in Suppliers.</>
+                : 'No files match your search'}
+            </div>
+          ) : filtered.map(g => (
+            <div key={g.supplier.id} style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>
+                {g.supplier.name}
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {g.files.map(f => (
+                  <div key={f.id} onClick={() => setViewerFile(f)}
+                    style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background:'#F9FAFB', borderRadius:9, border:'1px solid #E8ECF0', cursor:'pointer' }}
+                    onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                    onMouseLeave={e=>e.currentTarget.style.background='#F9FAFB'}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>{fileIconForPricebook(f.type)}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name}</div>
+                      <div style={{ fontSize:11, color:'#9CA3AF' }}>
+                        {formatSizeForPricebook(f.size)}{f.created_at ? ` · ${new Date(f.created_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {viewerFile && <PricebookFileViewer file={viewerFile} onClose={() => setViewerFile(null)} />}
+    </div>
+  )
+}
+
 export default function Materials() {
   const location = useLocation()
   const [stack, setStack]               = useState([])
@@ -2193,6 +3183,7 @@ export default function Materials() {
                 {globalResults.map((m, i) => (
                   <div key={m.id}
                     onClick={() => {
+                      if (m.is_kit) { setGlobalSearch(''); setGlobalResults([]); setShowKits(true); return }
                       const cat = allCats.find(c => c.id === m.category_id)
                       if (cat) {
                         const parent = allCats.find(c => c.id === cat.parent_id)
@@ -2201,17 +3192,21 @@ export default function Materials() {
                         setGlobalSearch(''); setGlobalResults([])
                       }
                     }}
-                    style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottom: i < globalResults.length-1 ? '1px solid #F3F4F6' : 'none', cursor: m.category_id ? 'pointer' : 'default' }}
-                    onMouseEnter={e => { if (m.category_id) e.currentTarget.style.background='#F9FAFB' }}
+                    style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderBottom: i < globalResults.length-1 ? '1px solid #F3F4F6' : 'none', cursor: (m.category_id || m.is_kit) ? 'pointer' : 'default' }}
+                    onMouseEnter={e => { if (m.category_id || m.is_kit) e.currentTarget.style.background='#F9FAFB' }}
                     onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                     <div style={{ width:36, height:36, borderRadius:8, background:m.color||'#E8ECF0', flexShrink:0, overflow:'hidden' }}>
                       {m.storage_path && <img src={`https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${m.storage_path}`} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" />}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{m.name}</div>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                        {m.is_kit && <span title="Kit">🧰</span>}
+                        {m.name}
+                      </div>
                       <div style={{ fontSize:11, color:'#9CA3AF' }}>
                         {[m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null].filter(Boolean).join(' · ')}
                         {m.category_id && <span style={{ marginLeft:6, color:'#C4D4F8' }}>· {allCats.find(c=>c.id===m.category_id)?.name}</span>}
+                        {m.is_kit && !m.category_id && <span style={{ marginLeft:6, color:'#F97316' }}>· Kit</span>}
                       </div>
                     </div>
                     {m.price && <span style={{ fontSize:12, fontWeight:600, color:'#374151' }}>${m.price}</span>}

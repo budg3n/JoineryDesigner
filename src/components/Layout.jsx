@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from 'react'
 import JobProcessesDropdown from '../screens/JobProcesses'
 import NotificationBell from './NotificationBell'
 import RFIBell from './RFIBell'
-import { useTheme } from '../context/ThemeContext'
 import TaskCounter from './TaskCounter'
 import WeekSnapshot from './WeekSnapshot'
 import JobClock from './JobClock'
@@ -26,6 +25,7 @@ const NAV = [
     { label:'Formula Writer', to:'/formula-writer',       icon:<SbIcon><path d="M4 7h4"/><path d="M4 12h4"/><path d="M4 17h4"/><path d="M11 7l2 10"/><path d="M17 7l2 10"/><path d="M10 10h8"/><path d="M11 14h6"/></SbIcon> },
     { label:'Reports',  to:'/reports',             icon:<SbIcon><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></SbIcon>, roles:['Admin','Project Manager'] },
     { label:'Customers', to:'/settings/customers',   icon:<SbIcon><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></SbIcon> },
+    { label:'Suppliers', to:'/settings/suppliers',    icon:<SbIcon><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></SbIcon> },
   ]},
   { section:'Library', items:[
     { label:'Materials',  to:'/materials',  icon:<SbIcon><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></SbIcon> },
@@ -50,13 +50,12 @@ const PAGE_TITLES = {
   '/settings':'Settings','/settings/materials':'Materials library','/settings/materials/library':'Materials',
   '/settings/appliances':'Appliances','/settings/appliances/library':'Appliance library',
   '/reports':'Reports','/spec-builder':'Spec Builder',
-  '/settings/customers':'Customers','/settings/team':'Team',
+  '/settings/customers':'Customers','/settings/suppliers':'Suppliers','/settings/team':'Team',
   '/settings/file-types':'File types',
 }
 
 export default function Layout() {
   const { profile, can, signOut, previewRole, setPreviewRole } = useApp()
-  const { theme, toggleTheme } = useTheme()
   const navigate  = useNavigate()
   const location  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -332,11 +331,6 @@ export default function Layout() {
 
             <TaskCounter />
             <RFIBell />
-            {/* Dark mode toggle */}
-            <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              style={{ width:36, height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card)', color:'var(--text-secondary)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, transition:'all .15s' }}>
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
             <WeekSnapshot />
             <JobClock />
             <NotificationBell />

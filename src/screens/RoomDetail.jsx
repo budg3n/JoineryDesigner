@@ -503,7 +503,7 @@ function RFIResponseInput({ detail, onSave }) {
 }
 
 // ── Room Materials Tab ────────────────────────────────────────────
-function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
+function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
   const [adding, setAdding]         = React.useState(false)
@@ -543,10 +543,17 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
 
   const searchFiltered = filteredMats.filter(jm => {
     if (!search.trim()) return true
-    const q = search.toLowerCase()
     const m = jm.materials
-    return [m.name, m.supplier, m.panel_type, m.colour_code, m.finish].filter(Boolean)
-      .some(v => v.toLowerCase().includes(q))
+    if (!m) return false
+    const haystack = [m.name, m.supplier, m.panel_type, m.colour_code, m.finish]
+      .filter(v => v != null && v !== '')
+      .map(v => String(v).toLowerCase())
+      .join(' ')
+    // Every word in the query must appear somewhere in the combined fields —
+    // so "standard kit" matches "Standard Base Cabinet Hardware Kit" even though
+    // those words aren't adjacent in the name
+    const words = search.trim().toLowerCase().split(/\s+/)
+    return words.every(w => haystack.includes(w))
   })
 
   async function addAll() {
@@ -562,16 +569,18 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
   return (
     <div>
       {/* Header row */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:8, flexWrap:'wrap' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4, gap:8, flexWrap:'wrap' }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
           {roomMats.length > 0 ? `${roomMats.length} material${roomMats.length!==1?'s':''} in this room` : 'No materials assigned yet'}
         </div>
-        {filteredMats.length > 0 && (
-          <button ref={btnRef} onClick={openPicker}
-            style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#5B8AF0', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
-            <span style={{ fontSize:14 }}>+</span> Add material
-          </button>
-        )}
+        <button ref={btnRef} onClick={openPicker}
+          disabled={filteredMats.length === 0}
+          style={{ padding:'6px 14px', borderRadius:8, border:'none', background: filteredMats.length===0 ? '#E8ECF0' : '#5B8AF0', color: filteredMats.length===0 ? '#9CA3AF' : '#fff', fontSize:12, fontWeight:700, cursor: filteredMats.length===0 ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:5 }}>
+          <span style={{ fontSize:14 }}>+</span> Add material
+        </button>
+      </div>
+      <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:8 }}>
+        {jobMats.length} on job · {filteredMats.length} available to add · {jobMats.filter(jm=>jm.materials?.is_kit).length} kits on job
       </div>
 
       {/* Portal dropdown — escapes any parent overflow clipping */}
@@ -617,9 +626,12 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
                     : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
                   }
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:5 }}>
+                      {m.is_kit && <span title="Kit" style={{ fontSize:11, flexShrink:0 }}>🧰</span>}
+                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
+                    </div>
                     <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
-                      {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
+                      {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                   <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
@@ -652,9 +664,12 @@ function RoomMaterialsTab({ roomMats, filteredMats, onAdd, onRemove }) {
                 : <div style={{ width:40,height:40,borderRadius:9,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
               }
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{m.name}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                  {m.is_kit && <span title="Kit">🧰</span>}
+                  {m.name}
+                </div>
                 <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                  {[m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                  {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
                 </div>
               </div>
               <button onClick={() => onRemove(rm.id)}
@@ -922,15 +937,21 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
   ]
 
   useEffect(()=>{
-    supabase.from('order_items').select('*').eq('job_id',jobId).eq('room_id',room.id).order('created_at')
-      .then(({data})=>{
-        const parsed = (data||[]).map(o => {
-          let pb = []
-          try { pb = o.price_breaks ? (typeof o.price_breaks === 'string' ? JSON.parse(o.price_breaks) : o.price_breaks) : [] } catch {}
-          return { ...o, price_breaks: pb }
+    function loadOrders() {
+      supabase.from('order_items').select('*').eq('job_id',jobId).eq('room_id',room.id).order('created_at')
+        .then(({data})=>{
+          const parsed = (data||[]).map(o => {
+            let pb = []
+            try { pb = o.price_breaks ? (typeof o.price_breaks === 'string' ? JSON.parse(o.price_breaks) : o.price_breaks) : [] } catch {}
+            return { ...o, price_breaks: pb }
+          })
+          setOrders(parsed); setLoading(false)
         })
-        setOrders(parsed); setLoading(false)
-      })
+    }
+    loadOrders()
+    // Re-fetch if order items change anywhere else (e.g. the full order sheet)
+    window.addEventListener('order-items-updated', loadOrders)
+    return () => window.removeEventListener('order-items-updated', loadOrders)
   },[room.id,jobId])
 
   const matches = search.trim().length > 0
@@ -1035,6 +1056,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
       qty: qtyVal||'', unit: unitVal||'pcs', notes:'',
       updated_at: new Date().toISOString(),
       ...(priceBreaks.length ? { price_breaks: JSON.stringify(priceBreaks) } : {}),
+      ...(material.is_kit && material.kit_id ? { kit_id: material.kit_id, kit_name: material.name } : {}),
     }
     const { data, error } = await supabase.from('order_items').insert(row).select().single()
     if (error) { toast(error.message, 'error'); return false }
@@ -1067,6 +1089,8 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
       updated_at: new Date().toISOString(),
       // Store breaks so price updates if qty changes later
       ...(priceBreaks.length ? { price_breaks: JSON.stringify(priceBreaks) } : {}),
+      // If this "material" is actually a kit, tag the row so the order sheet expands it
+      ...(selected.is_kit && selected.kit_id ? { kit_id: selected.kit_id, kit_name: selected.name } : {}),
     }
     const {data,error} = await supabase.from('order_items').insert(row).select().single()
     if (error) { toast(error.message,'error'); return }
@@ -1372,7 +1396,14 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
                 {/* top row */}
                 <div style={{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 12px 6px'}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
+                    <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                      <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
+                      {o.kit_name && (
+                        <span style={{fontSize:9,fontWeight:700,padding:'1px 7px',borderRadius:6,background:'#FFF7ED',color:'#C2410C',border:'1px solid #FED7AA',whiteSpace:'nowrap'}}>
+                          🧰 {o.kit_name}
+                        </span>
+                      )}
+                    </div>
                     {spec&&<div style={{fontSize:11,color:'#6B7280',marginTop:2}}>{spec}</div>}
                     {o.supplier&&<div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>{o.supplier}</div>}
                   </div>
@@ -1910,7 +1941,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {/* ── MATERIALS ── */}
           {tab==='materials' && (
             <RoomMaterialsTab
-              roomMats={roomMats} filteredMats={filteredMats}
+              roomMats={roomMats} filteredMats={filteredMats} jobMats={jobMats}
               onAdd={jm=>addMat(jm.materials)} onRemove={removeMat}
             />
           )}

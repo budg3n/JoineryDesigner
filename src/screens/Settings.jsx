@@ -122,6 +122,11 @@ export default function Settings() {
             label="Customers"
             sub="Manage customer database"
             to="/settings/customers" />
+          <NavRow icon={<><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>}
+            iconBg="#FFF7ED" iconColor="#C2410C"
+            label="Suppliers"
+            sub="Manage supplier database and pricing"
+            to="/settings/suppliers" />
         </>}
 
         {/* JOBS */}
