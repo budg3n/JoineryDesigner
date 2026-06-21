@@ -59,6 +59,15 @@ export default function Layout() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Desktop sidebar collapse/pin state — persisted across sessions.
+  // "pinned" = always expanded. When unpinned, the sidebar collapses to icon-only
+  // and temporarily expands on hover (auto-hide behaviour), collapsing again on mouse-leave.
+  const [sidebarPinned, setSidebarPinned] = useState(() => {
+    try { return localStorage.getItem('sidebar_pinned') !== 'false' } catch { return true }
+  })
+  const [sidebarHovering, setSidebarHovering] = useState(false)
+  const sidebarExpanded = sidebarPinned || sidebarHovering
+  useEffect(() => { try { localStorage.setItem('sidebar_pinned', String(sidebarPinned)) } catch {} }, [sidebarPinned])
   const [jobActions, setJobActions]   = useState(null)
   const jobActionsRef = useRef(null)
   const [showProcesses, setShowProcesses] = useState(false)
@@ -111,35 +120,40 @@ export default function Layout() {
     })
   }, [profile?.id, location.pathname])
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ collapsed = false }) => (
     <>
       {/* brand */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'20px 20px 16px', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding: collapsed ? '20px 0 16px' : '20px 20px 16px', justifyContent: collapsed ? 'center' : 'flex-start', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
         <div style={{ width:32, height:32, background:'#5B8AF0', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
         </div>
-        <span style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Joinery Jobs</span>
+        {!collapsed && <span style={{ fontSize:15, fontWeight:800, color:'#fff', whiteSpace:'nowrap' }}>Joinery Jobs</span>}
         {/* close button mobile */}
-        <button onClick={() => setSidebarOpen(false)}
-          style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', display:'flex', padding:4, borderRadius:6 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
+        {!collapsed && (
+          <button onClick={() => setSidebarOpen(false)}
+            className="mobile-only-close"
+            style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', display:'flex', padding:4, borderRadius:6 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        )}
       </div>
 
       {/* nav */}
-      <nav style={{ flex:1, overflowY:'auto', paddingTop:8, paddingBottom:8 }}>
+      <nav style={{ flex:1, overflowY:'auto', overflowX:'hidden', paddingTop:8, paddingBottom:8 }}>
         {NAV.map(group => (
           <div key={group.section}>
-            <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.35)', letterSpacing:'.08em', textTransform:'uppercase', padding:'14px 24px 6px' }}>{group.section}</div>
+            {!collapsed && <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.35)', letterSpacing:'.08em', textTransform:'uppercase', padding:'14px 24px 6px', whiteSpace:'nowrap' }}>{group.section}</div>}
+            {collapsed && <div style={{ height:14 }} />}
             {group.items.filter(item => !item.roles || item.roles.includes(role)).map(item => {
               const isActive = item.exact ? location.pathname === '/' : location.pathname === item.to || location.pathname.startsWith(item.to + '/')
               return (
                 <div key={item.to} onClick={() => navigate(item.to)}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', margin:'1px 8px', borderRadius:10, cursor:'pointer', transition:'background .12s', background: isActive ? 'rgba(91,138,240,0.22)' : 'transparent', color: isActive ? '#fff' : 'rgba(255,255,255,0.75)' }}
+                  title={collapsed ? item.label : ''}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding: collapsed ? '10px 0' : '10px 12px', margin: collapsed ? '1px 8px' : '1px 8px', justifyContent: collapsed ? 'center' : 'flex-start', borderRadius:10, cursor:'pointer', transition:'background .12s', background: isActive ? 'rgba(91,138,240,0.22)' : 'transparent', color: isActive ? '#fff' : 'rgba(255,255,255,0.75)' }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background='rgba(255,255,255,0.08)' }}
                   onMouseLeave={e => { if (!isActive) e.currentTarget.style.background='transparent' }}>
                   <span style={{ color: isActive ? '#5B8AF0' : 'rgba(255,255,255,0.55)', display:'flex', flexShrink:0 }}>{item.icon}</span>
-                  <span style={{ fontSize:13, fontWeight: isActive ? 700 : 500 }}>{item.label}</span>
+                  {!collapsed && <span style={{ fontSize:13, fontWeight: isActive ? 700 : 500, whiteSpace:'nowrap' }}>{item.label}</span>}
                 </div>
               )
             })}
@@ -147,10 +161,23 @@ export default function Layout() {
         ))}
       </nav>
 
+      {/* pin toggle — desktop only, hidden on the mobile slide-out panel */}
+      <button onClick={() => setSidebarPinned(p => !p)}
+        className="sidebar-pin-btn"
+        title={sidebarPinned ? 'Unpin sidebar (auto-hide on mouse-out)' : 'Pin sidebar open'}
+        style={{ display:'flex', alignItems:'center', gap:8, justifyContent: collapsed ? 'center' : 'flex-start', padding: collapsed ? '8px 0' : '8px 16px', margin:'0 8px 4px', borderRadius:8, background:'none', border:'none', cursor:'pointer', color: sidebarPinned ? '#5B8AF0' : 'rgba(255,255,255,0.4)', flexShrink:0 }}
+        onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.08)'}
+        onMouseLeave={e=>e.currentTarget.style.background='none'}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill={sidebarPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+          <path d="M12 17v5"/><path d="M9 10.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V7a1 1 0 011-1 2 2 0 000-4H8a2 2 0 000 4 1 1 0 011 1z"/>
+        </svg>
+        {!collapsed && <span style={{ fontSize:12, fontWeight:600, whiteSpace:'nowrap' }}>{sidebarPinned ? 'Pinned' : 'Pin sidebar'}</span>}
+      </button>
+
       {/* user footer */}
-      <div style={{ padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,0.08)', flexShrink:0 }}>
+      <div style={{ padding: collapsed ? '12px 8px' : '12px 16px', borderTop:'1px solid rgba(255,255,255,0.08)', flexShrink:0 }}>
         {/* Preview role banner */}
-        {previewRole && (
+        {previewRole && !collapsed && (
           <div style={{ marginBottom:8, background:'rgba(251,191,36,0.15)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:8, padding:'5px 10px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:11 }}>👁</span>
@@ -162,28 +189,32 @@ export default function Layout() {
           </div>
         )}
 
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, justifyContent: collapsed ? 'center' : 'flex-start' }}>
           {/* Clickable avatar — shows role menu for Admin */}
           <div
             onClick={() => profile?.role === 'Admin' && setShowRoleMenu(s=>!s)}
-            style={{ position:'relative', width:34, height:34, borderRadius:'50%', background: previewRole ? '#F59E0B' : avatarColor, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff', flexShrink:0, cursor: profile?.role==='Admin' ? 'pointer' : 'default' }}
-            title={profile?.role === 'Admin' ? 'Preview as another role' : ''}>
+            title={collapsed ? (profile?.full_name || profile?.email || '') : (profile?.role === 'Admin' ? 'Preview as another role' : '')}
+            style={{ position:'relative', width:34, height:34, borderRadius:'50%', background: previewRole ? '#F59E0B' : avatarColor, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff', flexShrink:0, cursor: profile?.role==='Admin' ? 'pointer' : 'default' }}>
             {initials(profile?.full_name, profile?.email)}
           </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile?.full_name || profile?.email || '—'}</div>
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)' }}>{previewRole ? previewRole : role}</div>
-          </div>
-          <button onClick={signOut} title="Sign out"
-            style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', padding:4, borderRadius:6, display:'flex' }}
-            onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.9)'}
-            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.4)'}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </button>
+          {!collapsed && (
+            <>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile?.full_name || profile?.email || '—'}</div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)' }}>{previewRole ? previewRole : role}</div>
+              </div>
+              <button onClick={signOut} title="Sign out"
+                style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', padding:4, borderRadius:6, display:'flex' }}
+                onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.9)'}
+                onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.4)'}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Role switcher menu */}
-        {showRoleMenu && profile?.role === 'Admin' && (
+        {showRoleMenu && profile?.role === 'Admin' && !collapsed && (
           <div style={{ marginTop:10, background:'rgba(255,255,255,0.08)', borderRadius:10, overflow:'hidden', border:'1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ padding:'8px 12px 4px', fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'.08em' }}>Preview as</div>
             {['Admin','Project Manager','Setout','Designer','Production Team'].map(r => (
@@ -249,10 +280,18 @@ export default function Layout() {
           </div>
         </aside>
       ) : (
-        /* All other roles — full sidebar */
-        <aside style={{ width:220, flexShrink:0, background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' }}
+        /* All other roles — full sidebar, collapsible with pin/auto-hide */
+        <aside
+          onMouseEnter={() => !sidebarPinned && setSidebarHovering(true)}
+          onMouseLeave={() => setSidebarHovering(false)}
+          style={{
+            width: sidebarExpanded ? 220 : 64, flexShrink:0,
+            background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column',
+            position:'sticky', top:0, height:'100vh', overflowY:'auto', overflowX:'hidden',
+            transition:'width .15s ease',
+          }}
           className="desktop-sidebar">
-          <SidebarContent />
+          <SidebarContent collapsed={!sidebarExpanded} />
         </aside>
       )}
 
