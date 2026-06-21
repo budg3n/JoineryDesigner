@@ -210,6 +210,17 @@ canvas { cursor: crosshair; touch-action: none; }
   [style*="width:180"] { width: 100% !important; }
   [style*="fontSize:28"] { font-size: 22px !important; }
   [style*="fontSize:34"] { font-size: 26px !important; }
+
+  /* Job Overview room list — stack into multiple lines on narrow screens instead of
+     squeezing fixed-width columns (name/status/materials) into one cramped row */
+  .overview-room-row {
+    flex-wrap: wrap !important;
+    row-gap: 8px !important;
+  }
+  .overview-room-row > div[style*="width:160"] { width: auto !important; flex: 1 1 100% !important; order: 1; }
+  .overview-room-row > div[style*="width:170"] { width: auto !important; order: 3; }
+  .overview-room-row > div[style*="minWidth:120"] { flex-basis: 100% !important; order: 4; }
+  .overview-room-row > svg { order: 5; margin-left: auto; }
 }
 
 @media (max-width: 480px) {

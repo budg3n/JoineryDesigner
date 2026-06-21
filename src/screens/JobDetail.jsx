@@ -1531,15 +1531,89 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
 
   React.useEffect(() => { try { localStorage.setItem('room_sort_mode', sortMode) } catch {} }, [sortMode])
 
-  const ROOM_PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
-  const ROOM_PRIORITY_COLORS = { High: '#E24B4A', Medium: '#F97316', Low: '#1D9E75' }
+  // Rooms ordered by their current priority number (1..N), used for the swap/reorder control
+  const priorityOrderedRooms = React.useMemo(() => {
+    return [...rooms].sort((a, b) => (a.priority || 999) - (b.priority || 999))
+  }, [rooms])
 
+  // ── Reorder via up/down arrows, staged locally until Save is pressed ──
+  // pendingOrder is null when there are no unsaved changes; otherwise it's the
+  // working array of room ids in their new (not-yet-persisted) order.
+  const [pendingOrder, setPendingOrder] = React.useState(null)
+  const [savingOrder, setSavingOrder] = React.useState(false)
+  const baseOrderIds = React.useMemo(() => priorityOrderedRooms.map(r => r.id), [priorityOrderedRooms])
+  const workingOrderIds = pendingOrder || baseOrderIds
+  const hasUnsavedOrder = pendingOrder !== null
+
+  function nudgeRoom(roomId, direction) {
+    if (sortMode !== 'priority') setSortMode('priority')
+    setPendingOrder(prev => {
+      const current = prev || baseOrderIds
+      const idx = current.indexOf(roomId)
+      const targetIdx = idx + direction
+      if (idx === -1 || targetIdx < 0 || targetIdx >= current.length) return prev
+      const next = [...current]
+      ;[next[idx], next[targetIdx]] = [next[targetIdx], next[idx]]
+      return next
+    })
+  }
+
+  async function saveRoomOrder() {
+    if (!pendingOrder) return
+    setSavingOrder(true)
+    const updates = pendingOrder.map((id, i) => ({ id, priority: i + 1 }))
+    onRoomsChange(p => p.map(r => {
+      const u = updates.find(x => x.id === r.id)
+      return u ? { ...r, priority: u.priority } : r
+    }))
+    await Promise.all(updates.map(u => supabase.from('rooms').update({ priority: u.priority }).eq('id', u.id)))
+    setSavingOrder(false)
+    setPendingOrder(null)
+    toast('Room order saved ✓')
+  }
+
+  function cancelRoomOrder() {
+    setPendingOrder(null)
+  }
+
+  // Set a room's priority directly from the number dropdown — shifts everything else
+  // between the old and new position by one to keep numbers contiguous 1..N
+  async function setRoomPriority(room, newPriority) {
+    const ordered = priorityOrderedRooms
+    const currentPriority = room.priority || (ordered.findIndex(r => r.id === room.id) + 1)
+    if (newPriority === currentPriority) return
+
+    const updates = []
+    ordered.forEach((r, i) => {
+      const p = r.priority || (i + 1)
+      if (r.id === room.id) {
+        updates.push({ id: r.id, priority: newPriority })
+      } else if (newPriority < currentPriority && p >= newPriority && p < currentPriority) {
+        updates.push({ id: r.id, priority: p + 1 })
+      } else if (newPriority > currentPriority && p <= newPriority && p > currentPriority) {
+        updates.push({ id: r.id, priority: p - 1 })
+      }
+    })
+
+    await Promise.all(updates.map(u => supabase.from('rooms').update({ priority: u.priority }).eq('id', u.id)))
+    onRoomsChange(p => p.map(r => {
+      const u = updates.find(x => x.id === r.id)
+      return u ? { ...r, priority: u.priority } : r
+    }))
+  }
+
+  // Default view is alphabetical. Switching to Priority sort shows rooms in build-order;
+  // if there's an unsaved reorder in progress, that staged order takes precedence so the
+  // list reflects exactly what will be saved.
   const sortedRooms = React.useMemo(() => {
+    if (hasUnsavedOrder) {
+      return workingOrderIds.map(id => rooms.find(r => r.id === id)).filter(Boolean)
+    }
     const list = [...rooms]
     if (sortMode === 'priority') {
       list.sort((a, b) => {
-        const pa = ROOM_PRIORITY_ORDER[a.priority] ?? 1
-        const pb = ROOM_PRIORITY_ORDER[b.priority] ?? 1
+        const pa = a.priority || 999
+        const pb = b.priority || 999
         if (pa !== pb) return pa - pb
         return (a.name || '').localeCompare(b.name || '')
       })
@@ -1547,7 +1621,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     }
     return list
-  }, [rooms, sortMode])
+  }, [rooms, sortMode, hasUnsavedOrder, workingOrderIds])
 
   // Re-open the requested room whenever autoOpenRoomId changes (e.g. clicked from Overview tab),
   // not just on first mount — autoOpenRoomId may have a "_<timestamp>" suffix appended so that
@@ -1596,7 +1670,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
-      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: 'Medium',
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: rooms.length + 1,
     }).select().single()
     if (error) { toast(error.message, 'error'); return }
     onRoomsChange(p => [...p, data])
@@ -1645,6 +1719,25 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
         </div>
       </div>
 
+      {/* Unsaved reorder banner */}
+      {hasUnsavedOrder && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'#FFF7ED', border:'1px solid #FDBA74', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:'#C2410C' }}>
+            Build order changed — not saved yet
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={cancelRoomOrder} disabled={savingOrder}
+              style={{ fontSize:12, fontWeight:600, padding:'6px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={saveRoomOrder} disabled={savingOrder}
+              style={{ fontSize:12, fontWeight:700, padding:'6px 16px', borderRadius:8, border:'none', background:'#1D9E75', color:'#fff', cursor:'pointer' }}>
+              {savingOrder ? 'Saving…' : 'Save order'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* add form */}
       {adding && (
         <div style={{ background:'#fff', borderRadius:12, border:'1px solid #C4D4F8', padding:14, marginBottom:12 }}>
@@ -1687,13 +1780,18 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const emoji = room.icon || defaultEmoji
           const roomStatus = room.status || 'Pending'
           const statusObj = roomStatuses.find(s => s.label === roomStatus) || roomStatuses[0]
-          const roomPriority = room.priority || 'Medium'
-          const priorityColor = ROOM_PRIORITY_COLORS[roomPriority] || '#9CA3AF'
+          const workingIdx = workingOrderIds.indexOf(room.id)
+          const roomPriority = workingIdx + 1
           return (
-            <div key={room.id} style={{ borderRadius:12, border:`1px solid ${isOpen?'#C4D4F8':'#E8ECF0'}`, overflow:'hidden', background:'#fff' }}>
+            <div key={room.id}
+              style={{
+                borderRadius:12,
+                border: '1px solid #E8ECF0',
+                overflow:'hidden', background:'#fff',
+              }}>
               {/* room header row */}
               <div onClick={() => setExpandedId(isOpen ? null : room.id)}
-                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', cursor:'pointer',
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'12px 14px', cursor:'pointer',
                   background: isOpen ? '#F8F9FF' : '#fff',
                   borderBottom: isOpen ? '1px solid #E8ECF0' : 'none' }}
                 onMouseEnter={e=>{ if(!isOpen) e.currentTarget.style.background='#F9FAFB' }}
@@ -1710,18 +1808,25 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
                 </div>
-                {/* Priority selector — click to cycle High → Medium → Low */}
-                <button onClick={e => {
-                    e.stopPropagation()
-                    const order = ['High','Medium','Low']
-                    const next = order[(order.indexOf(roomPriority)+1)%3]
-                    supabase.from('rooms').update({ priority: next }).eq('id', room.id)
-                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, priority: next} : r))
-                  }}
-                  title="Click to change priority"
-                  style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, border:'none', background: priorityColor, color:'#fff', cursor:'pointer', flexShrink:0 }}>
-                  {roomPriority}
-                </button>
+                {/* Priority — numeric build order, 1..N where N = total rooms. Arrows stage
+                    a reorder locally; nothing is written until Save order is pressed. */}
+                <div onClick={e => e.stopPropagation()}
+                  style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
+                  <button onClick={() => nudgeRoom(room.id, -1)} disabled={workingIdx <= 0}
+                    title="Move up in build order"
+                    style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx<=0 ? 'default' : 'pointer', color: workingIdx<=0 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <span title="Build priority order"
+                    style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:7, border: hasUnsavedOrder ? '1px solid #FDBA74' : '1px solid #C4D4F8', background: hasUnsavedOrder ? '#FFF7ED' : '#F0F4FF', color: hasUnsavedOrder ? '#C2410C' : '#3730A3', minWidth:20, textAlign:'center' }}>
+                    {roomPriority}
+                  </span>
+                  <button onClick={() => nudgeRoom(room.id, 1)} disabled={workingIdx >= workingOrderIds.length - 1}
+                    title="Move down in build order"
+                    style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx>=workingOrderIds.length-1 ? 'default' : 'pointer', color: workingIdx>=workingOrderIds.length-1 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
                 {/* Room status dropdown */}
                 <select
                   value={roomStatus}
@@ -1800,7 +1905,7 @@ function RoomsPanel({ rooms, jobId, toast, onAddRoom, onOpenRoom, onRoomsChange 
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
     const { data, error } = await supabase.from('rooms').insert({
-      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: 'Medium',
+      job_id: jobId, name, type: newType, sort_order: rooms.length, tasks: '[]', priority: rooms.length + 1,
     }).select().single()
     if (error) { toast(error.message, 'error'); return }
     onAddRoom(data)
@@ -3040,21 +3145,72 @@ const OVERVIEW_STATUS_COLORS = {
   'Complete':               '#1D9E75',
 }
 
-function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom }) {
+function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom, onRoomsChange, toast }) {
   const [roomOrderStats, setRoomOrderStats] = React.useState({}) // room_id -> { total, ordered, toOrder }
   const [loading, setLoading] = React.useState(true)
   const [roomTaskCounts, setRoomTaskCounts] = React.useState({})
+  const [sortMode, setSortMode] = React.useState(() => { try { return localStorage.getItem('room_sort_mode') || 'alpha' } catch { return 'alpha' } })
 
-  // Mirror the same sort preference used on the Rooms tab — alphabetical by default
-  const OVERVIEW_PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
+  React.useEffect(() => {
+    function syncSortMode() { try { setSortMode(localStorage.getItem('room_sort_mode') || 'alpha') } catch {} }
+    window.addEventListener('focus', syncSortMode)
+    return () => window.removeEventListener('focus', syncSortMode)
+  }, [])
+
+  const priorityOrderedRooms = React.useMemo(() => {
+    return [...rooms].sort((a, b) => (a.priority || 999) - (b.priority || 999))
+  }, [rooms])
+
+  // ── Reorder via up/down arrows, staged locally until Save is pressed ──
+  const [pendingOrder, setPendingOrder] = React.useState(null)
+  const [savingOrder, setSavingOrder] = React.useState(false)
+  const baseOrderIds = React.useMemo(() => priorityOrderedRooms.map(r => r.id), [priorityOrderedRooms])
+  const workingOrderIds = pendingOrder || baseOrderIds
+  const hasUnsavedOrder = pendingOrder !== null
+
+  function nudgeRoom(roomId, direction) {
+    if (sortMode !== 'priority') { setSortMode('priority'); try { localStorage.setItem('room_sort_mode','priority') } catch {} }
+    setPendingOrder(prev => {
+      const current = prev || baseOrderIds
+      const idx = current.indexOf(roomId)
+      const targetIdx = idx + direction
+      if (idx === -1 || targetIdx < 0 || targetIdx >= current.length) return prev
+      const next = [...current]
+      ;[next[idx], next[targetIdx]] = [next[targetIdx], next[idx]]
+      return next
+    })
+  }
+
+  async function saveRoomOrder() {
+    if (!pendingOrder) return
+    setSavingOrder(true)
+    const updates = pendingOrder.map((id, i) => ({ id, priority: i + 1 }))
+    onRoomsChange(p => p.map(r => {
+      const u = updates.find(x => x.id === r.id)
+      return u ? { ...r, priority: u.priority } : r
+    }))
+    await Promise.all(updates.map(u => supabase.from('rooms').update({ priority: u.priority }).eq('id', u.id)))
+    setSavingOrder(false)
+    setPendingOrder(null)
+    toast?.('Room order saved ✓')
+  }
+
+  function cancelRoomOrder() {
+    setPendingOrder(null)
+  }
+
+  // Mirror the same sort preference used on the Rooms tab — alphabetical by default.
+  // If there's an unsaved reorder staged, that takes precedence so the list reflects
+  // exactly what will be saved.
   const sortedRooms = React.useMemo(() => {
-    let sortMode = 'alpha'
-    try { sortMode = localStorage.getItem('room_sort_mode') || 'alpha' } catch {}
+    if (hasUnsavedOrder) {
+      return workingOrderIds.map(id => rooms.find(r => r.id === id)).filter(Boolean)
+    }
     const list = [...rooms]
     if (sortMode === 'priority') {
       list.sort((a, b) => {
-        const pa = OVERVIEW_PRIORITY_ORDER[a.priority] ?? 1
-        const pb = OVERVIEW_PRIORITY_ORDER[b.priority] ?? 1
+        const pa = a.priority || 999
+        const pb = b.priority || 999
         if (pa !== pb) return pa - pb
         return (a.name || '').localeCompare(b.name || '')
       })
@@ -3062,7 +3218,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     }
     return list
-  }, [rooms])
+  }, [rooms, sortMode, hasUnsavedOrder, workingOrderIds])
 
   React.useEffect(() => {
     if (!jobId) return
@@ -3155,6 +3311,48 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
       )}
 
       {/* Room cards */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Rooms</div>
+        {totalRooms > 1 && (
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:10, color:'#9CA3AF' }}>Use ▲▼ to reorder</span>
+            <div style={{ display:'flex', background:'#F3F4F6', borderRadius:8, padding:2 }}>
+              <button onClick={() => { setSortMode('alpha'); try { localStorage.setItem('room_sort_mode','alpha') } catch {} }}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, border:'none', cursor:'pointer',
+                  background: sortMode==='alpha' ? '#fff' : 'transparent', color: sortMode==='alpha' ? '#2A3042' : '#9CA3AF',
+                  boxShadow: sortMode==='alpha' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                A–Z
+              </button>
+              <button onClick={() => { setSortMode('priority'); try { localStorage.setItem('room_sort_mode','priority') } catch {} }}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, border:'none', cursor:'pointer',
+                  background: sortMode==='priority' ? '#fff' : 'transparent', color: sortMode==='priority' ? '#2A3042' : '#9CA3AF',
+                  boxShadow: sortMode==='priority' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                Priority
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Unsaved reorder banner */}
+      {hasUnsavedOrder && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'#FFF7ED', border:'1px solid #FDBA74', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:'#C2410C' }}>
+            Build order changed — not saved yet
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={cancelRoomOrder} disabled={savingOrder}
+              style={{ fontSize:12, fontWeight:600, padding:'6px 14px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={saveRoomOrder} disabled={savingOrder}
+              style={{ fontSize:12, fontWeight:700, padding:'6px 16px', borderRadius:8, border:'none', background:'#1D9E75', color:'#fff', cursor:'pointer' }}>
+              {savingOrder ? 'Saving…' : 'Save order'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {totalRooms === 0 ? (
         <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'40px 20px', textAlign:'center' }}>
           <div style={{ fontSize:32, marginBottom:8 }}>🏠</div>
@@ -3166,7 +3364,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
           </button>
         </div>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:12 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {sortedRooms.map(room => {
             const status = room.status || 'Pending'
             const color = OVERVIEW_STATUS_COLORS[status] || '#9CA3AF'
@@ -3174,54 +3372,90 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
             const orderedCount = stats.ordered + stats.received
             const allOrdered = stats.total > 0 && stats.toOrder === 0
             const taskCount = roomTaskCounts[room.id] || 0
-            const roomPriority = room.priority || 'Medium'
-            const priorityColor = { High:'#E24B4A', Medium:'#F97316', Low:'#1D9E75' }[roomPriority] || '#9CA3AF'
+            const workingIdx = workingOrderIds.indexOf(room.id)
+            const roomPriority = workingIdx + 1
 
             return (
               <div key={room.id}
+                className="overview-room-row"
                 onClick={() => onOpenRoom(room)}
-                style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:14, cursor:'pointer', transition:'all .12s' }}
+                style={{
+                  display:'flex', alignItems:'center', gap:12,
+                  background:'#fff', borderRadius:12,
+                  border: '1px solid #E8ECF0',
+                  padding:'10px 14px', cursor:'pointer',
+                  transition:'all .12s',
+                }}
                 onMouseEnter={e=>{ e.currentTarget.style.boxShadow='0 4px 14px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor='#C4D4F8' }}
                 onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor='#E8ECF0' }}>
 
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-                  <div style={{ width:36, height:36, borderRadius:9, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, flexShrink:0 }}>
-                    {roomEmoji(room)}
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
-                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>
-                  </div>
-                  <span title={`Priority: ${roomPriority}`} style={{ width:8, height:8, borderRadius:'50%', background:priorityColor, flexShrink:0 }} />
+                {/* Reorder arrows — stage a move locally; nothing saves until Save order is pressed.
+                    Stacked vertically on the left, matching the up/down direction they control. */}
+                <div onClick={e => e.stopPropagation()}
+                  style={{ display:'flex', flexDirection:'column', gap:1, flexShrink:0 }}>
+                  <button onClick={() => nudgeRoom(room.id, -1)} disabled={workingIdx <= 0}
+                    title="Move up in build order"
+                    style={{ width:22, height:18, display:'flex', alignItems:'center', justifyContent:'center', background: workingIdx<=0 ? 'none' : '#F0F4FF', borderRadius:5, border:'none', cursor: workingIdx<=0 ? 'default' : 'pointer', color: workingIdx<=0 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button onClick={() => nudgeRoom(room.id, 1)} disabled={workingIdx >= workingOrderIds.length - 1}
+                    title="Move down in build order"
+                    style={{ width:22, height:18, display:'flex', alignItems:'center', justifyContent:'center', background: workingIdx>=workingOrderIds.length-1 ? 'none' : '#F0F4FF', borderRadius:5, border:'none', cursor: workingIdx>=workingOrderIds.length-1 ? 'default' : 'pointer', color: workingIdx>=workingOrderIds.length-1 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
                 </div>
 
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
-                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:`${color}18`, color, border:`1px solid ${color}40` }}>
+                {/* Priority number */}
+                <span title={`Build priority: ${roomPriority}`}
+                  style={{ width:24, height:24, borderRadius:7, background: hasUnsavedOrder ? '#FFF7ED' : '#F0F4FF', border: hasUnsavedOrder ? '1px solid #FDBA74' : '1px solid #C4D4F8', color: hasUnsavedOrder ? '#C2410C' : '#3730A3', fontSize:11, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  {roomPriority}
+                </span>
+
+                {/* Icon */}
+                <div style={{ width:36, height:36, borderRadius:9, background:'#F0F4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, flexShrink:0 }}>
+                  {roomEmoji(room)}
+                </div>
+
+                {/* Name + type */}
+                <div style={{ minWidth:0, width:160, flexShrink:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>
+                </div>
+
+                {/* Status + task badges */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, width:170 }}>
+                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:`${color}18`, color, border:`1px solid ${color}40`, whiteSpace:'nowrap' }}>
                     {status}
                   </span>
                   {taskCount > 0 && (
-                    <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE68A' }}>
+                    <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE68A', whiteSpace:'nowrap' }}>
                       {taskCount} task{taskCount!==1?'s':''}
                     </span>
                   )}
                 </div>
 
                 {/* Materials ordered indicator */}
-                {stats.total > 0 ? (
-                  <div>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                      <span style={{ fontSize:11, color:'#6B7280' }}>Materials</span>
-                      <span style={{ fontSize:11, fontWeight:700, color: allOrdered ? '#1D9E75' : '#E24B4A' }}>
-                        {orderedCount}/{stats.total} {allOrdered ? '✓' : ''}
-                      </span>
+                <div style={{ flex:1, minWidth:120 }}>
+                  {stats.total > 0 ? (
+                    <div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                        <span style={{ fontSize:11, color:'#6B7280' }}>Materials</span>
+                        <span style={{ fontSize:11, fontWeight:700, color: allOrdered ? '#1D9E75' : '#E24B4A' }}>
+                          {orderedCount}/{stats.total} {allOrdered ? '✓' : ''}
+                        </span>
+                      </div>
+                      <div style={{ height:6, borderRadius:4, background:'#F3F4F6', overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${(orderedCount/stats.total)*100}%`, background: allOrdered ? '#1D9E75' : '#F97316', transition:'width .2s' }} />
+                      </div>
                     </div>
-                    <div style={{ height:6, borderRadius:4, background:'#F3F4F6', overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${(orderedCount/stats.total)*100}%`, background: allOrdered ? '#1D9E75' : '#F97316', transition:'width .2s' }} />
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize:11, color:'#C4C9D4', fontStyle:'italic' }}>No materials ordered yet</div>
-                )}
+                  ) : (
+                    <div style={{ fontSize:11, color:'#C4C9D4', fontStyle:'italic' }}>No materials ordered yet</div>
+                  )}
+                </div>
+
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="2" style={{ flexShrink:0 }}>
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
               </div>
             )
           })}
@@ -3918,7 +4152,8 @@ export default function JobDetail() {
       {jobTab === 'overview' && (
         <JobOverviewTab jobId={id} rooms={rooms} unorderedCount={unorderedCount}
           onOpenRoomsTab={() => setJobTab('rooms')}
-          onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }} />
+          onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }}
+          onRoomsChange={setRooms} toast={toast} />
       )}
 
       {/* DETAILS */}
