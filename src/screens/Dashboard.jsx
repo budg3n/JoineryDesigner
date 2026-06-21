@@ -379,13 +379,19 @@ export default function Dashboard() {
   const [unorderedCounts, setUnorderedCounts] = useState({})
   const [jobRooms, setJobRooms] = useState({}) // jobId -> rooms[]
 
-  // Build filter tabs from dynamic statuses
-  const TABS = jobStatuses.map(s => ({
-    key:       s.label.toLowerCase().replace(/\s+/g,'-'),
-    label:     s.label === 'Complete' ? 'Done' : s.label,
-    f:         j => j.status === s.label,
-    hideCount: s.label === 'Complete',
-  }))
+  // Build filter tabs from dynamic statuses.
+  // "Active" is the default landing tab and excludes Complete jobs entirely — completed
+  // jobs only show up under the dedicated "Completed" tab. Status tabs other than
+  // Complete still appear individually so people can filter by Pending / In progress / etc.
+  const TABS = [
+    { key:'active', label:'Active', f: j => j.status !== 'Complete' },
+    ...jobStatuses.filter(s => s.label !== 'Complete').map(s => ({
+      key:   s.label.toLowerCase().replace(/\s+/g,'-'),
+      label: s.label,
+      f:     j => j.status === s.label,
+    })),
+    { key:'completed', label:'Completed', f: j => j.status === 'Complete' },
+  ]
 
   const loadJobs = useCallback(async () => {
     if (profile === undefined) return
