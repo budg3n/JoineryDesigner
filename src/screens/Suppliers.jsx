@@ -72,6 +72,136 @@ function SupplierForm({ supplier, onSave, onCancel }) {
   )
 }
 
+// ── Multi-page PDF viewer using PDF.js ───────────────────────────────
+// Mobile Safari/Chrome render PDFs inside an <iframe> using the OS's native PDF
+// plugin, which on iOS only shows page 1 and doesn't scroll through the rest.
+// Rendering every page to its own <canvas> via PDF.js sidesteps that entirely —
+// it's just images stacked in a scrollable div, so it behaves identically on
+// mobile and desktop.
+let _pdfjsLoadPromise = null
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib)
+  if (_pdfjsLoadPromise) return _pdfjsLoadPromise
+  _pdfjsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      resolve(window.pdfjsLib)
+    }
+    script.onerror = () => reject(new Error('Failed to load PDF viewer'))
+    document.head.appendChild(script)
+  })
+  return _pdfjsLoadPromise
+}
+
+function PdfMultiPageViewer({ url }) {
+  const [status, setStatus] = useState('loading') // loading | ready | error
+  const [numPages, setNumPages] = useState(0)
+  const [pagesRendered, setPagesRendered] = useState(0)
+  const [errorDetail, setErrorDetail] = useState('')
+  const containerRef = useRef()
+  const renderedRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    renderedRef.current = false
+    setStatus('loading')
+    setPagesRendered(0)
+    setErrorDetail('')
+
+    async function run() {
+      const pdfjsLib = await loadPdfJs()
+      // Fetch the whole file ourselves first — avoids any range-request/streaming
+      // quirks with Supabase storage that can cause later pages to silently fail
+      // on some mobile browsers when pdf.js tries to stream directly from the URL.
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Couldn't download PDF (${res.status})`)
+      const arrayBuffer = await res.arrayBuffer()
+      if (cancelled) return
+
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+      if (cancelled || renderedRef.current) return
+      renderedRef.current = true
+      setNumPages(pdf.numPages)
+      const container = containerRef.current
+      if (!container) return
+      container.innerHTML = ''
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        if (cancelled) return
+        try {
+          const page = await pdf.getPage(pageNum)
+          const containerWidth = container.clientWidth || 700
+          const baseViewport = page.getViewport({ scale: 1 })
+          const dpr = Math.min(window.devicePixelRatio || 1, 2) // cap DPR so huge pricebooks don't blow memory on mobile
+          const scale = (containerWidth / baseViewport.width) * dpr
+          const viewport = page.getViewport({ scale })
+
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.ceil(viewport.width)
+          canvas.height = Math.ceil(viewport.height)
+          canvas.style.width = '100%'
+          canvas.style.height = 'auto'
+          canvas.style.display = 'block'
+          canvas.style.marginBottom = '12px'
+          canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)'
+          canvas.style.borderRadius = '4px'
+          canvas.style.background = '#fff'
+          container.appendChild(canvas)
+
+          const ctx = canvas.getContext('2d')
+          await page.render({ canvasContext: ctx, viewport }).promise
+          if (!cancelled) setPagesRendered(pageNum)
+        } catch (pageErr) {
+          console.error(`PDF page ${pageNum} render error:`, pageErr)
+          // Keep going — show whatever pages did render rather than aborting the whole document
+        }
+      }
+      if (!cancelled) setStatus('ready')
+    }
+
+    run().catch(err => {
+      console.error('PDF render error:', err)
+      if (!cancelled) {
+        setErrorDetail(err?.message || '')
+        setStatus('error')
+      }
+    })
+
+    return () => { cancelled = true }
+  }, [url])
+
+  if (status === 'error') {
+    return (
+      <div style={{ textAlign:'center', padding:'40px 30px' }}>
+        <div style={{ fontSize:40, marginBottom:12 }}>📄</div>
+        <div style={{ fontSize:13, color:'#9CA3AF', marginBottom:4 }}>Couldn't load this PDF for preview — try opening it in a new tab instead.</div>
+        {errorDetail && <div style={{ fontSize:11, color:'#C4C9D4' }}>{errorDetail}</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ width:'100%', height:'100%', overflowY:'auto', padding:16, boxSizing:'border-box' }}>
+      {status === 'loading' && (
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'60px 0', gap:10 }}>
+          <div className="spinner" />
+          <div style={{ fontSize:12, color:'#9CA3AF' }}>
+            {numPages > 0 ? `Rendering page ${pagesRendered} of ${numPages}…` : 'Loading PDF…'}
+          </div>
+        </div>
+      )}
+      <div ref={containerRef} style={{ maxWidth:760, margin:'0 auto' }} />
+      {status === 'ready' && numPages > 1 && (
+        <div style={{ textAlign:'center', fontSize:11, color:'#9CA3AF', paddingTop:4, paddingBottom:8 }}>
+          {numPages} pages
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Popout viewer for a pricebook file ───────────────────────────────
 function PricebookViewerModal({ file, onClose }) {
   const url = pubUrl(file.storage_path)
@@ -97,9 +227,9 @@ function PricebookViewerModal({ file, onClose }) {
           </div>
         </div>
 
-        <div style={{ flex:1, overflow:'auto', background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <div style={{ flex:1, overflow:'hidden', background:'#F3F4F6', display:'flex', alignItems: isPdf ? 'stretch' : 'center', justifyContent: isPdf ? 'stretch' : 'center' }}>
           {isPdf ? (
-            <iframe src={url} title={file.name} style={{ width:'100%', height:'100%', border:'none' }} />
+            <PdfMultiPageViewer url={url} />
           ) : isImage ? (
             <img src={url} alt={file.name} style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
           ) : (
