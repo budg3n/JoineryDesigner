@@ -3779,9 +3779,10 @@ export default function JobDetail() {
       supabase.from('rooms').select('*').eq('job_id', id).order('sort_order'),
       supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
       supabase.from('job_feedback').select('*').eq('job_id', id).order('created_at',{ascending:false}),
-      Promise.resolve({ data: [] }), // notifications handled separately
-    ]).then(([{data:roomData},{data:procData},{data:fbData},{data:notifData}]) => {
+      supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id', id).order('created_at'),
+    ]).then(([{data:roomData},{data:procData},{data:fbData},{data:rfiData}]) => {
       setRooms(roomData||[])
+      setJobLevelRfis(rfiData||[])
       // Auto-open room if navigated from dashboard — just switch to rooms tab,
       // InlineRoomsPanel picks up autoOpenRoomId as its initial expandedId
       if (autoOpenRoomId) setJobTab('rooms')
@@ -3802,7 +3803,6 @@ export default function JobDetail() {
       .then(({data})=>setTimeHistory(data||[]))
     // Unordered items count
     supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
-    supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id',id).order('created_at').then(({data})=>setJobLevelRfis(data||[]))
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
