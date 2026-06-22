@@ -1820,89 +1820,79 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                 }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
-                  {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
+                  {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>}
                 </div>
-                {/* Task & RFI status icons */}
-                <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
-                  {taskIconColor && (
-                    <span title={taskIconTitle}
-                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30` }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-                      {allTasksDone ? '✓' : open}
+
+                {/* Right-side controls — fixed layout so every row aligns regardless of content.
+                    Task badge · Priority arrows · Status dropdown */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+
+                  {/* Task status — fixed 40px wide so rows stay aligned when some have tasks and some don't */}
+                  <div style={{ width:40, display:'flex', justifyContent:'center' }}>
+                    {taskIconColor ? (
+                      <span title={taskIconTitle}
+                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'3px 6px', borderRadius:6, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                        {allTasksDone ? '✓' : open}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Priority arrows + number — fixed width */}
+                  <div onClick={e => e.stopPropagation()}
+                    style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
+                    <button onClick={() => nudgeRoom(room.id, -1)} disabled={workingIdx <= 0}
+                      title="Move up in build order"
+                      style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx<=0 ? 'default' : 'pointer', color: workingIdx<=0 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
+                    </button>
+                    <span title="Build priority order"
+                      style={{ fontSize:11, fontWeight:700, padding:'3px 0', borderRadius:7, border: hasUnsavedOrder ? '1px solid #FDBA74' : '1px solid #C4D4F8', background: hasUnsavedOrder ? '#FFF7ED' : '#F0F4FF', color: hasUnsavedOrder ? '#C2410C' : '#3730A3', width:24, textAlign:'center', display:'inline-block' }}>
+                      {roomPriority}
                     </span>
-                  )}
-                  {rfiIconColor && (
-                    <span title={rfiIconTitle}
-                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30` }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                      {openRfis.length === 0 ? '✓' : openRfis.length}
-                    </span>
-                  )}
+                    <button onClick={() => nudgeRoom(room.id, 1)} disabled={workingIdx >= workingOrderIds.length - 1}
+                      title="Move down in build order"
+                      style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx>=workingOrderIds.length-1 ? 'default' : 'pointer', color: workingIdx>=workingOrderIds.length-1 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                  </div>
+
+                  {/* Status dropdown — fixed width */}
+                  <select
+                    value={roomStatus}
+                    onClick={e => e.stopPropagation()}
+                    onChange={async e => {
+                      e.stopPropagation()
+                      const newStatus = e.target.value
+                      if (newStatus === roomStatus) return
+                      if (!confirm(`Change "${room.name}" status from "${roomStatus}" to "${newStatus}"?`)) {
+                        e.target.value = roomStatus
+                        return
+                      }
+                      const now = new Date().toISOString()
+                      await supabase.from('rooms').update({ status: newStatus, status_changed_at: now, status_changed_from: roomStatus }).eq('id', room.id)
+                      onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus, status_changed_at: now, status_changed_from: roomStatus} : r))
+                    }}
+                    style={{
+                      padding:'3px 6px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}22`,
+                      background: `${statusObj?.color||'#9CA3AF'}18`,
+                      color: statusObj?.color||'#6B7280',
+                      fontSize:11, fontWeight:700, cursor:'pointer', outline:'none',
+                      width:120, flexShrink:0,
+                    }}>
+                    {roomStatuses.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
+                  </select>
+
+                  {/* Delete + chevron */}
+                  <button onClick={e=>deleteRoom(e,room.id)}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 2px', flexShrink:0 }}
+                    onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
+                    onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
+                    style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', flexShrink:0 }}>
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
                 </div>
-                {/* Priority — numeric build order, 1..N where N = total rooms. Arrows stage
-                    a reorder locally; nothing is written until Save order is pressed. */}
-                <div onClick={e => e.stopPropagation()}
-                  style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
-                  <button onClick={() => nudgeRoom(room.id, -1)} disabled={workingIdx <= 0}
-                    title="Move up in build order"
-                    style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx<=0 ? 'default' : 'pointer', color: workingIdx<=0 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
-                  </button>
-                  <span title="Build priority order"
-                    style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:7, border: hasUnsavedOrder ? '1px solid #FDBA74' : '1px solid #C4D4F8', background: hasUnsavedOrder ? '#FFF7ED' : '#F0F4FF', color: hasUnsavedOrder ? '#C2410C' : '#3730A3', minWidth:20, textAlign:'center' }}>
-                    {roomPriority}
-                  </span>
-                  <button onClick={() => nudgeRoom(room.id, 1)} disabled={workingIdx >= workingOrderIds.length - 1}
-                    title="Move down in build order"
-                    style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx>=workingOrderIds.length-1 ? 'default' : 'pointer', color: workingIdx>=workingOrderIds.length-1 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                </div>
-                {/* Room status dropdown */}
-                <select
-                  value={roomStatus}
-                  onClick={e => e.stopPropagation()}
-                  onChange={async e => {
-                    e.stopPropagation()
-                    const newStatus = e.target.value
-                    if (newStatus === roomStatus) return
-                    if (!confirm(`Change "${room.name}" status from "${roomStatus}" to "${newStatus}"?`)) {
-                      // Reset the select visually
-                      e.target.value = roomStatus
-                      return
-                    }
-                    const now = new Date().toISOString()
-                    await supabase.from('rooms').update({
-                      status: newStatus,
-                      status_changed_at: now,
-                      status_changed_from: roomStatus,
-                    }).eq('id', room.id)
-                    onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus, status_changed_at: now, status_changed_from: roomStatus} : r))
-                  }}
-                  style={{
-                    padding:'3px 8px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}22`,
-                    background: `${statusObj?.color||'#9CA3AF'}18`,
-                    color: statusObj?.color||'#6B7280',
-                    fontSize:11, fontWeight:700, cursor:'pointer', outline:'none',
-                    flexShrink:0, maxWidth:140,
-                  }}>
-                  {roomStatuses.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
-                </select>
-                {/* Timestamp */}
-                {room.status_changed_at && (
-                  <span style={{ fontSize:9, color:'#9CA3AF', whiteSpace:'nowrap', flexShrink:0 }}
-                    title={`Changed from "${room.status_changed_from||'Pending'}" on ${new Date(room.status_changed_at).toLocaleString('en-NZ')}`}>
-                    {new Date(room.status_changed_at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}
-                  </span>
-                )}
-                <button onClick={e=>deleteRoom(e,room.id)}
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 4px', marginRight:4 }}
-                  onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
-                  onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
-                  style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', flexShrink:0 }}>
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
               </div>
 
               {/* inline room detail */}
@@ -3453,7 +3443,6 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
             const taskIconColor = tasks.length === 0 ? null : overdueTasks.length > 0 ? '#E24B4A' : openTasks.length > 0 ? '#F97316' : '#1D9E75'
             const openRfis = rfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
             const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY_OV)
-            const rfiIconColor = rfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
             const workingIdx = workingOrderIds.indexOf(room.id)
             const roomPriority = workingIdx + 1
 
@@ -3514,13 +3503,6 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
                       style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                       {openTasks.length === 0 ? '✓' : openTasks.length}
-                    </span>
-                  )}
-                  {rfiIconColor && (
-                    <span title={openRfis.length === 0 ? 'All RFIs resolved' : overdueRfis.length > 0 ? `${overdueRfis.length} RFI overdue` : `${openRfis.length} RFI open`}
-                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30`, whiteSpace:'nowrap' }}>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                      {openRfis.length === 0 ? '✓' : openRfis.length}
                     </span>
                   )}
                 </div>
