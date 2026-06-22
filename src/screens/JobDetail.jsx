@@ -1621,7 +1621,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     }
     return list
-  }, [rooms, sortMode, hasUnsavedOrder, workingOrderIds])
+  }, [rooms, sortMode, hasUnsavedOrder, workingOrderIds, rfis])
 
   // Re-open the requested room whenever autoOpenRoomId changes (e.g. clicked from Overview tab),
   // not just on first mount — autoOpenRoomId may have a "_<timestamp>" suffix appended so that
