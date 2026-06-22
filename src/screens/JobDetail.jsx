@@ -1522,7 +1522,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [] }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1776,6 +1776,20 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const isOpen = expandedId === room.id
           const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
           const open = tasks.filter(t=>!t.done).length
+          const TODAY = new Date(); TODAY.setHours(0,0,0,0)
+          const overdueTasks = tasks.filter(t => !t.done && t.date && new Date(t.date) < TODAY).length
+          const allTasksDone = tasks.length > 0 && open === 0
+
+          // Task icon: red if overdue, orange if open, green if all done, grey if no tasks
+          const taskIconColor = tasks.length === 0 ? null : overdueTasks > 0 ? '#E24B4A' : open > 0 ? '#F97316' : '#1D9E75'
+          const taskIconTitle = tasks.length === 0 ? 'No tasks' : overdueTasks > 0 ? `${overdueTasks} overdue task${overdueTasks!==1?'s':''}` : open > 0 ? `${open} task${open!==1?'s':''} open` : `All ${tasks.length} tasks done`
+
+          // RFIs are job-level — show a composite RFI status across all job RFIs
+          const openRfis = rfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
+          const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY)
+          const rfiIconColor = rfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
+          const rfiIconTitle = rfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${rfis.length} RFIs resolved`
+
           const defaultEmoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
           const emoji = room.icon || defaultEmoji
           const roomStatus = room.status || 'Pending'
@@ -1807,6 +1821,23 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}{open>0?` · ${open} task${open!==1?'s':''} open`:''}</div>}
+                </div>
+                {/* Task & RFI status icons */}
+                <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                  {taskIconColor && (
+                    <span title={taskIconTitle}
+                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30` }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                      {allTasksDone ? '✓' : open}
+                    </span>
+                  )}
+                  {rfiIconColor && (
+                    <span title={rfiIconTitle}
+                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30` }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {openRfis.length === 0 ? '✓' : openRfis.length}
+                    </span>
+                  )}
                 </div>
                 {/* Priority — numeric build order, 1..N where N = total rooms. Arrows stage
                     a reorder locally; nothing is written until Save order is pressed. */}
@@ -1877,6 +1908,49 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
               {/* inline room detail */}
               {isOpen && (
                 <div style={{ borderTop:'1px solid #E8ECF0' }}>
+                  {/* ── Task & RFI quick-summary panel at top of expanded room ── */}
+                  {(tasks.length > 0 || rfis.length > 0) && (
+                    <div style={{ display:'flex', gap:12, padding:'10px 14px', background:'#F8F9FF', borderBottom:'1px solid #E8ECF0', flexWrap:'wrap' }}>
+                      {tasks.length > 0 && (
+                        <div style={{ display:'flex', alignItems:'center', gap:6, flex:1, minWidth:160 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={taskIconColor||'#9CA3AF'} strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                          <span style={{ fontSize:12, fontWeight:700, color:taskIconColor||'#9CA3AF' }}>
+                            {allTasksDone ? `All ${tasks.length} tasks done` : overdueTasks > 0 ? `${overdueTasks} task${overdueTasks!==1?'s':''} overdue` : `${open} of ${tasks.length} task${tasks.length!==1?'s':''} open`}
+                          </span>
+                          {!allTasksDone && (
+                            <div style={{ display:'flex', flexDirection:'column', gap:2, flex:1 }}>
+                              {tasks.filter(t=>!t.done).slice(0,3).map((t,i) => (
+                                <div key={i} style={{ fontSize:11, color: (t.date && new Date(t.date) < TODAY) ? '#E24B4A' : '#6B7280', display:'flex', alignItems:'center', gap:4 }}>
+                                  <span style={{ width:4, height:4, borderRadius:'50%', background: (t.date && new Date(t.date) < TODAY) ? '#E24B4A' : '#9CA3AF', flexShrink:0 }} />
+                                  <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.text}</span>
+                                  {t.date && <span style={{ flexShrink:0, color: (new Date(t.date) < TODAY) ? '#E24B4A' : '#9CA3AF' }}>· {new Date(t.date).toLocaleDateString('en-NZ',{day:'numeric',month:'short'})}</span>}
+                                </div>
+                              ))}
+                              {open > 3 && <div style={{ fontSize:10, color:'#9CA3AF' }}>+{open-3} more</div>}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {rfis.length > 0 && (
+                        <div style={{ display:'flex', alignItems:'flex-start', gap:6, flex:1, minWidth:160 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={rfiIconColor||'#9CA3AF'} strokeWidth="2.5" style={{ marginTop:1, flexShrink:0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, color:rfiIconColor||'#9CA3AF', marginBottom:2 }}>
+                              {openRfis.length === 0 ? `All ${rfis.length} RFIs resolved` : overdueRfis.length > 0 ? `${overdueRfis.length} RFI${overdueRfis.length!==1?'s':''} overdue` : `${openRfis.length} open RFI${openRfis.length!==1?'s':''}`}
+                            </div>
+                            {openRfis.slice(0,2).map(r => (
+                              <div key={r.id} style={{ fontSize:11, color: (r.due_date && new Date(r.due_date) < TODAY) ? '#E24B4A' : '#6B7280', display:'flex', alignItems:'center', gap:4 }}>
+                                <span style={{ width:4, height:4, borderRadius:'50%', background: (r.due_date && new Date(r.due_date) < TODAY) ? '#E24B4A' : '#9CA3AF', flexShrink:0 }} />
+                                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.title}</span>
+                                <span style={{ flexShrink:0, fontSize:10, color:'#9CA3AF', padding:'1px 5px', borderRadius:5, background:'#F3F4F6' }}>{r.status}</span>
+                              </div>
+                            ))}
+                            {openRfis.length > 2 && <div style={{ fontSize:10, color:'#9CA3AF' }}>+{openRfis.length-2} more</div>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <RoomDetail
                     room={room} jobId={jobId} jobMats={jobMats} allAppliances={allAppliances}
                     inline={true}
@@ -3145,7 +3219,7 @@ const OVERVIEW_STATUS_COLORS = {
   'Complete':               '#1D9E75',
 }
 
-function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom, onRoomsChange, toast }) {
+function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom, onRoomsChange, toast, rfis = [] }) {
   const [roomOrderStats, setRoomOrderStats] = React.useState({}) // room_id -> { total, ordered, toOrder }
   const [loading, setLoading] = React.useState(true)
   const [roomTaskCounts, setRoomTaskCounts] = React.useState({})
@@ -3372,6 +3446,14 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
             const orderedCount = stats.ordered + stats.received
             const allOrdered = stats.total > 0 && stats.toOrder === 0
             const taskCount = roomTaskCounts[room.id] || 0
+            const tasks = room.tasks ? (typeof room.tasks==='string' ? JSON.parse(room.tasks) : room.tasks) : []
+            const TODAY_OV = new Date(); TODAY_OV.setHours(0,0,0,0)
+            const openTasks = tasks.filter(t => !t.done)
+            const overdueTasks = openTasks.filter(t => t.date && new Date(t.date) < TODAY_OV)
+            const taskIconColor = tasks.length === 0 ? null : overdueTasks.length > 0 ? '#E24B4A' : openTasks.length > 0 ? '#F97316' : '#1D9E75'
+            const openRfis = rfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
+            const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY_OV)
+            const rfiIconColor = rfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
             const workingIdx = workingOrderIds.indexOf(room.id)
             const roomPriority = workingIdx + 1
 
@@ -3423,13 +3505,22 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
                 </div>
 
                 {/* Status + task badges */}
-                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, width:170 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, width:190 }}>
                   <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:`${color}18`, color, border:`1px solid ${color}40`, whiteSpace:'nowrap' }}>
                     {status}
                   </span>
-                  {taskCount > 0 && (
-                    <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:7, background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE68A', whiteSpace:'nowrap' }}>
-                      {taskCount} task{taskCount!==1?'s':''}
+                  {taskIconColor && (
+                    <span title={openTasks.length === 0 ? 'All tasks done' : overdueTasks.length > 0 ? `${overdueTasks.length} overdue` : `${openTasks.length} open`}
+                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                      {openTasks.length === 0 ? '✓' : openTasks.length}
+                    </span>
+                  )}
+                  {rfiIconColor && (
+                    <span title={openRfis.length === 0 ? 'All RFIs resolved' : overdueRfis.length > 0 ? `${overdueRfis.length} RFI overdue` : `${openRfis.length} RFI open`}
+                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30`, whiteSpace:'nowrap' }}>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {openRfis.length === 0 ? '✓' : openRfis.length}
                     </span>
                   )}
                 </div>
@@ -4153,7 +4244,7 @@ export default function JobDetail() {
         <JobOverviewTab jobId={id} rooms={rooms} unorderedCount={unorderedCount}
           onOpenRoomsTab={() => setJobTab('rooms')}
           onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }}
-          onRoomsChange={setRooms} toast={toast} />
+          onRoomsChange={setRooms} toast={toast} rfis={rfis} />
       )}
 
       {/* DETAILS */}
@@ -4356,7 +4447,7 @@ export default function JobDetail() {
         rooms={rooms} jobId={id} toast={toast}
         jobMats={jobMats} allAppliances={allAppliances}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
-        autoOpenRoomId={autoOpenRoomId} />}
+        autoOpenRoomId={autoOpenRoomId} rfis={rfis} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
