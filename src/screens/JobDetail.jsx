@@ -1602,7 +1602,23 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
     }))
   }
 
-  // Default view is alphabetical. Switching to Priority sort shows rooms in build-order;
+  // Pre-compute RFI status per room — runs directly in render scope (not inside a memo)
+  // so it always reflects the latest rfis prop, even before sortedRooms recomputes.
+  const TODAY_ROOMS = React.useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d }, [])
+  const roomRfiStatus = React.useMemo(() => {
+    const map = {}
+    rooms.forEach(room => {
+      const roomRfis = rfis.filter(r => r.room_id === room.id)
+      const openRfis = roomRfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
+      const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY_ROOMS)
+      map[room.id] = {
+        roomRfis, openRfis, overdueRfis,
+        color: roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75',
+        title: roomRfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`,
+      }
+    })
+    return map
+  }, [rooms, rfis, TODAY_ROOMS])
   // if there's an unsaved reorder in progress, that staged order takes precedence so the
   // list reflects exactly what will be saved.
   const sortedRooms = React.useMemo(() => {
@@ -1784,12 +1800,8 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const taskIconColor = tasks.length === 0 ? null : overdueTasks > 0 ? '#E24B4A' : open > 0 ? '#F97316' : '#1D9E75'
           const taskIconTitle = tasks.length === 0 ? 'No tasks' : overdueTasks > 0 ? `${overdueTasks} overdue task${overdueTasks!==1?'s':''}` : open > 0 ? `${open} task${open!==1?'s':''} open` : `All ${tasks.length} tasks done`
 
-          // RFIs filtered to this specific room
-          const roomRfis = rfis.filter(r => r.room_id === room.id)
-          const openRfis = roomRfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
-          const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY)
-          const rfiIconColor = roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
-          const rfiIconTitle = roomRfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`
+          // RFI status — from pre-computed lookup so it's always in sync with latest rfis prop
+          const { roomRfis = [], openRfis = [], overdueRfis = [], color: rfiIconColor = null, title: rfiIconTitle = '' } = roomRfiStatus[room.id] || {}
 
           const defaultEmoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
           const emoji = room.icon || defaultEmoji
