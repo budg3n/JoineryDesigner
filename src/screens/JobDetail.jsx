@@ -1784,11 +1784,12 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
           const taskIconColor = tasks.length === 0 ? null : overdueTasks > 0 ? '#E24B4A' : open > 0 ? '#F97316' : '#1D9E75'
           const taskIconTitle = tasks.length === 0 ? 'No tasks' : overdueTasks > 0 ? `${overdueTasks} overdue task${overdueTasks!==1?'s':''}` : open > 0 ? `${open} task${open!==1?'s':''} open` : `All ${tasks.length} tasks done`
 
-          // RFIs are job-level — show a composite RFI status across all job RFIs
-          const openRfis = rfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
+          // RFIs filtered to this specific room
+          const roomRfis = rfis.filter(r => r.room_id === room.id)
+          const openRfis = roomRfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
           const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY)
-          const rfiIconColor = rfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
-          const rfiIconTitle = rfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${rfis.length} RFIs resolved`
+          const rfiIconColor = roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75'
+          const rfiIconTitle = roomRfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`
 
           const defaultEmoji = room.type==='Kitchen'?'🍳':room.type==='Laundry'?'🫧':room.type==='Bathroom'||room.type==='Ensuite'?'🚿':room.type==='Bedroom'?'🛏':room.type==='Living'?'🛋':room.type==='Office'?'💼':'🏠'
           const emoji = room.icon || defaultEmoji
@@ -1834,6 +1835,17 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                         style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'3px 6px', borderRadius:6, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                         {allTasksDone ? '✓' : open}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* RFI status — fixed 40px wide, only shows if this room has RFIs assigned */}
+                  <div style={{ width:40, display:'flex', justifyContent:'center' }}>
+                    {rfiIconColor ? (
+                      <span title={rfiIconTitle}
+                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'3px 6px', borderRadius:6, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30`, whiteSpace:'nowrap' }}>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        {openRfis.length === 0 ? '✓' : openRfis.length}
                       </span>
                     ) : null}
                   </div>
@@ -1899,7 +1911,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
               {isOpen && (
                 <div style={{ borderTop:'1px solid #E8ECF0' }}>
                   {/* ── Task & RFI quick-summary panel at top of expanded room ── */}
-                  {(tasks.length > 0 || rfis.length > 0) && (
+                  {(tasks.length > 0 || roomRfis.length > 0) && (
                     <div style={{ display:'flex', gap:12, padding:'10px 14px', background:'#F8F9FF', borderBottom:'1px solid #E8ECF0', flexWrap:'wrap' }}>
                       {tasks.length > 0 && (
                         <div style={{ display:'flex', alignItems:'center', gap:6, flex:1, minWidth:160 }}>
@@ -1921,12 +1933,12 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                           )}
                         </div>
                       )}
-                      {rfis.length > 0 && (
+                      {roomRfis.length > 0 && (
                         <div style={{ display:'flex', alignItems:'flex-start', gap:6, flex:1, minWidth:160 }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={rfiIconColor||'#9CA3AF'} strokeWidth="2.5" style={{ marginTop:1, flexShrink:0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                           <div>
                             <div style={{ fontSize:12, fontWeight:700, color:rfiIconColor||'#9CA3AF', marginBottom:2 }}>
-                              {openRfis.length === 0 ? `All ${rfis.length} RFIs resolved` : overdueRfis.length > 0 ? `${overdueRfis.length} RFI${overdueRfis.length!==1?'s':''} overdue` : `${openRfis.length} open RFI${openRfis.length!==1?'s':''}`}
+                              {openRfis.length === 0 ? `All ${roomRfis.length} RFIs resolved` : overdueRfis.length > 0 ? `${overdueRfis.length} RFI${overdueRfis.length!==1?'s':''} overdue` : `${openRfis.length} open RFI${openRfis.length!==1?'s':''}`}
                             </div>
                             {openRfis.slice(0,2).map(r => (
                               <div key={r.id} style={{ fontSize:11, color: (r.due_date && new Date(r.due_date) < TODAY) ? '#E24B4A' : '#6B7280', display:'flex', alignItems:'center', gap:4 }}>
@@ -2735,7 +2747,7 @@ const _STATUS = {
 }
 const _PRI = { 'Low':'#9CA3AF', 'Normal':'#6B7280', 'High':'#D97706', 'Urgent':'#DC2626' }
 
-function JobRFITab({ jobId, profile, profiles }) {
+function JobRFITab({ jobId, profile, profiles, rooms = [] }) {
   const toast = useToast()
   const [rfis, setRfis]         = useState([])
   const [contacts, setContacts] = useState([])
@@ -2748,7 +2760,7 @@ function JobRFITab({ jobId, profile, profiles }) {
   useEffect(() => {
     if (!jobId) { setLoading(false); return }
     Promise.all([
-      supabase.from('job_rfis').select('*').eq('job_id', jobId).order('created_at', { ascending:true }),
+      supabase.from('job_rfis').select('*,room_id').eq('job_id', jobId).order('created_at', { ascending:true }),
       supabase.from('job_contacts').select('*').eq('job_id', jobId).order('created_at'),
     ]).then(([{ data: rfiData, error: rfiErr }, { data: contactData }]) => {
       if (rfiErr) console.error('RFI load error:', rfiErr.message, rfiErr.hint || '', rfiErr.details || '')
@@ -2770,7 +2782,7 @@ function JobRFITab({ jobId, profile, profiles }) {
 
   function openNew() {
     const next = rfis.length ? Math.max(...rfis.map(r => r.number||0))+1 : 1
-    setForm({ title:'', description:'', type:'internal', status:'Open', priority:'Normal', assigned_to:'', due_date:'', number:next })
+    setForm({ title:'', description:'', type:'internal', status:'Open', priority:'Normal', assigned_to:'', due_date:'', room_id: null, number:next })
   }
 
   const APP_URL = window.location.origin
@@ -2833,6 +2845,7 @@ Thank you.`)
         ? String(form.assigned_to).replace('contact_', '')
         : null,
       due_date: form.due_date || null,
+      room_id: form.room_id || null,
       updated_at: new Date().toISOString(),
     }
     // Only include number if it has a value
@@ -3062,6 +3075,15 @@ Thank you.`)
                 <div>
                   <label style={_lbl}>Due date</label>
                   <input type="date" value={form.due_date||''} onChange={e => setForm(f => ({...f,due_date:e.target.value}))} style={{..._inp,color:'#374151'}}/>
+                </div>
+                <div style={{ gridColumn:'span 2' }}>
+                  <label style={_lbl}>Room (optional)</label>
+                  <select value={form.room_id||''} onChange={e => setForm(f => ({...f, room_id: e.target.value || null}))} style={{..._inp, cursor:'pointer'}}>
+                    <option value="">— No specific room</option>
+                    {[...rooms].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -3692,7 +3714,7 @@ export default function JobDetail() {
   // to a tab that shows them, so status changes made in the RFI tab are reflected.
   React.useEffect(() => {
     if (jobTab === 'overview' || jobTab === 'rooms') {
-      supabase.from('job_rfis').select('id,title,status,due_date,number').eq('job_id',id).order('created_at')
+      supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id',id).order('created_at')
         .then(({data}) => setJobLevelRfis(data||[]))
     }
   }, [jobTab, id])
@@ -3780,7 +3802,7 @@ export default function JobDetail() {
       .then(({data})=>setTimeHistory(data||[]))
     // Unordered items count
     supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
-    supabase.from('job_rfis').select('id,title,status,due_date,number').eq('job_id',id).order('created_at').then(({data})=>setJobLevelRfis(data||[]))
+    supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id',id).order('created_at').then(({data})=>setJobLevelRfis(data||[]))
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
@@ -4311,7 +4333,7 @@ export default function JobDetail() {
       {/* RFI */}
       {jobTab === 'rfi' && (
         <div style={{ background:'#F9FAFB', borderRadius:12, padding:16, minHeight:200 }}>
-          <JobRFITab jobId={id} profile={profile} profiles={allJobProfiles} />
+          <JobRFITab jobId={id} profile={profile} profiles={allJobProfiles} rooms={rooms} />
         </div>
       )}
 
