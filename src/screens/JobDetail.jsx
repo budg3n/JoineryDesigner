@@ -3699,12 +3699,21 @@ export default function JobDetail() {
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
+  const [jobLevelRfis, setJobLevelRfis] = useState([]) // rfis loaded at job level for overview/room icons
   const [showProcesses, setShowProcesses] = useState(false)
   const [startupOpenKey, setStartupOpenKey] = useState(0)
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [dirty, setDirty] = useState(false)
   const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'overview')
+  // Refresh the lightweight RFI list (used for room-row icons) whenever switching
+  // to a tab that shows them, so status changes made in the RFI tab are reflected.
+  React.useEffect(() => {
+    if (jobTab === 'overview' || jobTab === 'rooms') {
+      supabase.from('job_rfis').select('id,title,status,due_date,number').eq('job_id',id).order('created_at')
+        .then(({data}) => setJobLevelRfis(data||[]))
+    }
+  }, [jobTab, id])
   const [autoOpenRoomId, setAutoOpenRoomId] = useState(() => new URLSearchParams(location.search).get('room') || null)
   // Persist edits to sessionStorage — survives page reload
   const _jobRef = React.useRef(job)
@@ -3789,6 +3798,7 @@ export default function JobDetail() {
       .then(({data})=>setTimeHistory(data||[]))
     // Unordered items count
     supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
+    supabase.from('job_rfis').select('id,title,status,due_date,number').eq('job_id',id).order('created_at').then(({data})=>setJobLevelRfis(data||[]))
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
@@ -4244,7 +4254,7 @@ export default function JobDetail() {
         <JobOverviewTab jobId={id} rooms={rooms} unorderedCount={unorderedCount}
           onOpenRoomsTab={() => setJobTab('rooms')}
           onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }}
-          onRoomsChange={setRooms} toast={toast} rfis={rfis} />
+          onRoomsChange={setRooms} toast={toast} rfis={jobLevelRfis} />
       )}
 
       {/* DETAILS */}
@@ -4447,7 +4457,7 @@ export default function JobDetail() {
         rooms={rooms} jobId={id} toast={toast}
         jobMats={jobMats} allAppliances={allAppliances}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
-        autoOpenRoomId={autoOpenRoomId} rfis={rfis} />}
+        autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
