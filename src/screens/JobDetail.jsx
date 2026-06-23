@@ -1523,7 +1523,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [] }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [], variations = {} }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1795,104 +1795,97 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
               }}>
               {/* room header row */}
               <div onClick={() => setExpandedId(isOpen ? null : room.id)}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'12px 14px', cursor:'pointer',
-                  background: isOpen ? '#F8F9FF' : '#fff',
-                  borderBottom: isOpen ? '1px solid #E8ECF0' : 'none' }}
+                className="room-row-header"
+                style={{ background: isOpen ? '#F8F9FF' : '#fff', borderBottom: isOpen ? '1px solid #E8ECF0' : 'none' }}
                 onMouseEnter={e=>{ if(!isOpen) e.currentTarget.style.background='#F9FAFB' }}
                 onMouseLeave={e=>{ if(!isOpen) e.currentTarget.style.background=isOpen?'#F8F9FF':'#fff' }}>
+
+                {/* Icon — always on left */}
                 <RoomIconBtn emoji={emoji} onPick={async icon => {
                   const { error } = await supabase.from('rooms').update({ icon }).eq('id', room.id)
-                  if (error) {
-                    toast(error.message.includes('column') ? 'Run SQL: alter table rooms add column if not exists icon text;' : error.message, 'error')
-                    return
-                  }
+                  if (error) { toast(error.message, 'error'); return }
                   onRoomsChange(p => p.map(r => r.id===room.id ? {...r, icon} : r))
                 }} />
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042' }}>{room.name}</div>
+
+                {/* Name + type — grows to fill, shrinks on mobile to allow controls to wrap */}
+                <div className="room-row-name" style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{room.name}</div>
                   {!isOpen && <div style={{ fontSize:11, color:'#9CA3AF' }}>{room.type}</div>}
                 </div>
 
-                {/* Right-side controls — fixed layout so every row aligns regardless of content.
-                    Task badge · Priority arrows · Status dropdown */}
-                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                {/* All controls — flex-wrap on mobile so they drop to second line */}
+                <div className="room-row-controls" style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0, flexWrap:'nowrap' }}
+                  onClick={e => e.stopPropagation()}>
 
-                  {/* Task status — fixed 40px wide so rows stay aligned when some have tasks and some don't */}
-                  <div style={{ width:40, display:'flex', justifyContent:'center' }}>
-                    {taskIconColor ? (
+                  {/* Status badges */}
+                  <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                    {taskIconColor && (
                       <span title={taskIconTitle}
-                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'3px 6px', borderRadius:6, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
+                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:5, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                         {allTasksDone ? '✓' : open}
                       </span>
-                    ) : null}
-                  </div>
-
-                  {/* RFI status — fixed 40px wide, only shows if this room has RFIs assigned */}
-                  <div style={{ width:40, display:'flex', justifyContent:'center' }}>
-                    {rfiIconColor ? (
+                    )}
+                    {rfiIconColor && (
                       <span title={rfiIconTitle}
-                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'3px 6px', borderRadius:6, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30`, whiteSpace:'nowrap' }}>
+                        style={{ display:'flex', alignItems:'center', gap:2, fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:5, background:`${rfiIconColor}18`, color:rfiIconColor, border:`1px solid ${rfiIconColor}30`, whiteSpace:'nowrap' }}>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                         {openRfis.length === 0 ? '✓' : openRfis.length}
                       </span>
-                    ) : null}
+                    )}
+                    {(variations[room.id] || 0) > 0 && (
+                      <span title={`${variations[room.id]} variation${variations[room.id]!==1?'s':''}`}
+                        style={{ fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:5, background:'#E24B4A', color:'#fff' }}>
+                        VO
+                      </span>
+                    )}
                   </div>
 
-                  {/* Priority arrows + number — fixed width */}
-                  <div onClick={e => e.stopPropagation()}
-                    style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
+                  {/* Priority nudge arrows + number */}
+                  <div style={{ display:'flex', alignItems:'center', gap:1, flexShrink:0 }}>
                     <button onClick={() => nudgeRoom(room.id, -1)} disabled={workingIdx <= 0}
-                      title="Move up in build order"
-                      style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx<=0 ? 'default' : 'pointer', color: workingIdx<=0 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
+                      title="Move up"
+                      style={{ width:18, height:18, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx<=0?'default':'pointer', color: workingIdx<=0?'#E8ECF0':'#5B8AF0', padding:0 }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="18 15 12 9 6 15"/></svg>
                     </button>
-                    <span title="Build priority order"
-                      style={{ fontSize:11, fontWeight:700, padding:'3px 0', borderRadius:7, border: hasUnsavedOrder ? '1px solid #FDBA74' : '1px solid #C4D4F8', background: hasUnsavedOrder ? '#FFF7ED' : '#F0F4FF', color: hasUnsavedOrder ? '#C2410C' : '#3730A3', width:24, textAlign:'center', display:'inline-block' }}>
+                    <span style={{ fontSize:10, fontWeight:700, padding:'2px 0', borderRadius:5, border: hasUnsavedOrder?'1px solid #FDBA74':'1px solid #C4D4F8', background: hasUnsavedOrder?'#FFF7ED':'#F0F4FF', color: hasUnsavedOrder?'#C2410C':'#3730A3', width:20, textAlign:'center', display:'inline-block' }}>
                       {roomPriority}
                     </span>
                     <button onClick={() => nudgeRoom(room.id, 1)} disabled={workingIdx >= workingOrderIds.length - 1}
-                      title="Move down in build order"
-                      style={{ width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx>=workingOrderIds.length-1 ? 'default' : 'pointer', color: workingIdx>=workingOrderIds.length-1 ? '#E8ECF0' : '#5B8AF0', padding:0 }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
+                      title="Move down"
+                      style={{ width:18, height:18, display:'flex', alignItems:'center', justifyContent:'center', background:'none', border:'none', cursor: workingIdx>=workingOrderIds.length-1?'default':'pointer', color: workingIdx>=workingOrderIds.length-1?'#E8ECF0':'#5B8AF0', padding:0 }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                   </div>
 
-                  {/* Status dropdown — fixed width */}
-                  <select
-                    value={roomStatus}
-                    onClick={e => e.stopPropagation()}
+                  {/* Status dropdown */}
+                  <select value={roomStatus}
                     onChange={async e => {
-                      e.stopPropagation()
                       const newStatus = e.target.value
                       if (newStatus === roomStatus) return
-                      if (!confirm(`Change "${room.name}" status from "${roomStatus}" to "${newStatus}"?`)) {
-                        e.target.value = roomStatus
-                        return
-                      }
+                      if (!confirm(`Change "${room.name}" status to "${newStatus}"?`)) { e.target.value = roomStatus; return }
                       const now = new Date().toISOString()
                       await supabase.from('rooms').update({ status: newStatus, status_changed_at: now, status_changed_from: roomStatus }).eq('id', room.id)
                       onRoomsChange(p => p.map(r => r.id===room.id ? {...r, status: newStatus, status_changed_at: now, status_changed_from: roomStatus} : r))
                     }}
-                    style={{
-                      padding:'3px 6px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}22`,
-                      background: `${statusObj?.color||'#9CA3AF'}18`,
-                      color: statusObj?.color||'#6B7280',
-                      fontSize:11, fontWeight:700, cursor:'pointer', outline:'none',
-                      width:120, flexShrink:0,
-                    }}>
+                    style={{ padding:'3px 4px', borderRadius:7, border:`1px solid ${statusObj?.color||'#E8ECF0'}33`, background:`${statusObj?.color||'#9CA3AF'}18`, color:statusObj?.color||'#6B7280', fontSize:11, fontWeight:700, cursor:'pointer', outline:'none', width:108, flexShrink:0 }}>
                     {roomStatuses.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
                   </select>
 
-                  {/* Delete + chevron */}
+                  {/* Delete */}
                   <button onClick={e=>deleteRoom(e,room.id)}
                     style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, padding:'0 2px', flexShrink:0 }}
-                    onMouseEnter={e=>{e.stopPropagation();e.currentTarget.style.color='#E24B4A'}}
+                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
                     onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
-                    style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', flexShrink:0 }}>
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
+
+                  {/* Expand chevron */}
+                  <div onClick={e => { e.stopPropagation(); setExpandedId(isOpen ? null : room.id) }}
+                    style={{ flexShrink:0, padding:'0 2px', cursor:'pointer' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"
+                      style={{ transform: isOpen?'rotate(90deg)':'rotate(0)', transition:'transform .15s', display:'block' }}>
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                  </div>
                 </div>
               </div>
 
@@ -3232,7 +3225,7 @@ const OVERVIEW_STATUS_COLORS = {
   'Complete':               '#1D9E75',
 }
 
-function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom, onRoomsChange, toast, rfis = [] }) {
+function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRoom, onRoomsChange, toast, rfis = [], variations = {} }) {
   const [roomOrderStats, setRoomOrderStats] = React.useState({}) // room_id -> { total, ordered, toOrder }
   const [loading, setLoading] = React.useState(true)
   const [roomTaskCounts, setRoomTaskCounts] = React.useState({})
@@ -3489,6 +3482,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
             const overdueTasks = openTasks.filter(t => t.date && new Date(t.date) < TODAY_OV)
             const taskIconColor = tasks.length === 0 ? null : overdueTasks.length > 0 ? '#E24B4A' : openTasks.length > 0 ? '#F97316' : '#1D9E75'
             const rfi = roomRfiStatus[room.id] || {}
+            const voCount = variations[room.id] || 0
             const workingIdx = workingOrderIds.indexOf(room.id)
             const roomPriority = workingIdx + 1
 
@@ -3556,6 +3550,12 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
                       style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfi.color}18`, color:rfi.color, border:`1px solid ${rfi.color}30`, whiteSpace:'nowrap' }}>
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       {rfi.openRfis?.length === 0 ? '✓' : rfi.openRfis?.length}
+                    </span>
+                  )}
+                  {voCount > 0 && (
+                    <span title={`${voCount} variation${voCount!==1?'s':''}`}
+                      style={{ fontSize:10, fontWeight:800, padding:'3px 7px', borderRadius:7, background:'#E24B4A', color:'#fff', whiteSpace:'nowrap' }}>
+                      VO
                     </span>
                   )}
                 </div>
@@ -3736,6 +3736,7 @@ export default function JobDetail() {
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
   const [jobLevelRfis, setJobLevelRfis] = useState([]) // rfis loaded at job level for overview/room icons
+  const [jobLevelVariations, setJobLevelVariations] = useState({}) // room_id -> count
   const [showProcesses, setShowProcesses] = useState(false)
   const [startupOpenKey, setStartupOpenKey] = useState(0)
   const [allNotes, setAllNotes] = useState([])
@@ -3748,6 +3749,12 @@ export default function JobDetail() {
     if (jobTab === 'overview' || jobTab === 'rooms') {
       supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id',id).order('created_at')
         .then(({data}) => setJobLevelRfis(data||[]))
+      supabase.from('room_variations').select('room_id').eq('job_id', id)
+        .then(({data}) => {
+          const voMap = {}
+          ;(data||[]).forEach(v => { voMap[v.room_id] = (voMap[v.room_id] || 0) + 1 })
+          setJobLevelVariations(voMap)
+        })
     }
   }, [jobTab, id])
   const [autoOpenRoomId, setAutoOpenRoomId] = useState(() => new URLSearchParams(location.search).get('room') || null)
@@ -3806,14 +3813,19 @@ export default function JobDetail() {
     setApprovals(approvs||[])
     // Load rooms + rfis together before clearing the loading gate so InlineRoomsPanel
     // always mounts with real data — no race condition, no delayed prop updates.
-    const [{ data:roomData }, { data:rfiData }, { data:procData }] = await Promise.all([
+    const [{ data:roomData }, { data:rfiData }, { data:procData }, { data:varData }] = await Promise.all([
       supabase.from('rooms').select('*').eq('job_id', id).order('sort_order'),
       supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id', id).order('created_at'),
       supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
+      supabase.from('room_variations').select('room_id').eq('job_id', id),
     ])
     setRooms(roomData||[])
     setJobLevelRfis(rfiData||[])
     setProcesses(procData||[])
+    // Build a room_id -> count map for VO badges
+    const voMap = {}
+    ;(varData||[]).forEach(v => { voMap[v.room_id] = (voMap[v.room_id] || 0) + 1 })
+    setJobLevelVariations(voMap)
     if (autoOpenRoomId) setJobTab('rooms')
     setLoading(false)
     // Load processes
@@ -4285,7 +4297,8 @@ export default function JobDetail() {
         <JobOverviewTab jobId={id} rooms={rooms} unorderedCount={unorderedCount}
           onOpenRoomsTab={() => setJobTab('rooms')}
           onOpenRoom={(room) => { setAutoOpenRoomId(`${room.id}_${Date.now()}`); setJobTab('rooms') }}
-          onRoomsChange={setRooms} toast={toast} rfis={jobLevelRfis} />
+          onRoomsChange={setRooms} toast={toast} rfis={jobLevelRfis}
+          variations={jobLevelVariations} />
       )}
 
       {/* DETAILS */}
@@ -4489,7 +4502,7 @@ export default function JobDetail() {
         jobMats={jobMats} allAppliances={allAppliances}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
         autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis}
-        roomStatuses={roomStatuses} />}
+        roomStatuses={roomStatuses} variations={jobLevelVariations} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>

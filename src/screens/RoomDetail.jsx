@@ -490,6 +490,206 @@ function RoomRFITab({ room, jobId, profile }) {
   )
 }
 
+// ── Room Variations Tab ──────────────────────────────────────────────
+// Variations are changes to the original order scope — each one records
+// what changed, its cost impact, and whether it's been approved.
+const VO_STATUSES = ['Pending', 'Approved', 'Rejected']
+const VO_STATUS_STYLE = {
+  'Pending':  { bg:'#FFF7ED', color:'#C2410C', border:'#FDBA74' },
+  'Approved': { bg:'#F0FDF4', color:'#166534', border:'#86EFAC' },
+  'Rejected': { bg:'#FEF2F2', color:'#DC2626', border:'#FCA5A5' },
+}
+
+function RoomVariationsTab({ room, jobId, onVariationsChange }) {
+  const [variations, setVariations] = React.useState([])
+  const [loading, setLoading] = React.useState(true)
+  const [form, setForm] = React.useState(null)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!room?.id) return
+    supabase.from('room_variations').select('*').eq('room_id', room.id).order('created_at', { ascending: false })
+      .then(({ data }) => { setVariations(data || []); setLoading(false) })
+  }, [room?.id])
+
+  function openNew() {
+    setForm({ title: '', description: '', cost_impact: '', status: 'Pending' })
+  }
+
+  async function save() {
+    if (!form.title.trim()) return
+    setSaving(true)
+    const payload = {
+      room_id: room.id,
+      job_id: jobId,
+      title: form.title.trim(),
+      description: form.description || '',
+      cost_impact: form.cost_impact ? parseFloat(form.cost_impact) : null,
+      status: form.status || 'Pending',
+      updated_at: new Date().toISOString(),
+    }
+    if (form.id) {
+      const { data, error } = await supabase.from('room_variations').update(payload).eq('id', form.id).select().single()
+      if (!error) {
+        const updated = variations.map(v => v.id === form.id ? data : v)
+        setVariations(updated)
+        onVariationsChange?.(updated)
+      }
+    } else {
+      const { data, error } = await supabase.from('room_variations').insert(payload).select().single()
+      if (!error) {
+        const updated = [data, ...variations]
+        setVariations(updated)
+        onVariationsChange?.(updated)
+      }
+    }
+    setSaving(false)
+    setForm(null)
+  }
+
+  async function del(id) {
+    if (!confirm('Delete this variation?')) return
+    await supabase.from('room_variations').delete().eq('id', id)
+    const updated = variations.filter(v => v.id !== id)
+    setVariations(updated)
+    onVariationsChange?.(updated)
+  }
+
+  async function setStatus(id, status) {
+    await supabase.from('room_variations').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
+    const updated = variations.map(v => v.id === id ? { ...v, status } : v)
+    setVariations(updated)
+    onVariationsChange?.(updated)
+  }
+
+  const totalCost = variations.filter(v => v.status === 'Approved' && v.cost_impact).reduce((s, v) => s + Number(v.cost_impact), 0)
+
+  return (
+    <div style={{ padding: '0 0 16px' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
+            Variations
+            {variations.length > 0 && <span style={{ fontSize:11, color:'#9CA3AF', fontWeight:500 }}> ({variations.length})</span>}
+          </div>
+          {totalCost !== 0 && (
+            <div style={{ fontSize:11, color:'#1D9E75', fontWeight:600, marginTop:2 }}>
+              Approved cost impact: ${totalCost.toLocaleString('en-NZ', { minimumFractionDigits:2, maximumFractionDigits:2 })}
+            </div>
+          )}
+        </div>
+        <button onClick={openNew}
+          style={{ fontSize:12, fontWeight:700, padding:'6px 14px', borderRadius:8, border:'none', background:'#E24B4A', color:'#fff', cursor:'pointer' }}>
+          + Add VO
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:'center', padding:'24px 0' }}><div className="spinner" /></div>
+      ) : variations.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'32px 0', color:'#9CA3AF' }}>
+          <div style={{ fontSize:24, marginBottom:8 }}>📋</div>
+          <div style={{ fontSize:13, fontWeight:600, color:'#374151' }}>No variations yet</div>
+          <div style={{ fontSize:12, marginTop:4 }}>Record any changes to the original scope</div>
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {variations.map(vo => {
+            const ss = VO_STATUS_STYLE[vo.status] || VO_STATUS_STYLE.Pending
+            return (
+              <div key={vo.id} style={{ background:'#fff', borderRadius:10, border:`1px solid #E8ECF0`, padding:'12px 14px' }}>
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4, flexWrap:'wrap' }}>
+                      <span style={{ fontSize:10, fontWeight:800, padding:'2px 8px', borderRadius:6, background:'#E24B4A', color:'#fff', letterSpacing:'.03em' }}>VO</span>
+                      <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, background:ss.bg, color:ss.color, border:`1px solid ${ss.border}` }}>{vo.status}</span>
+                      {vo.cost_impact != null && (
+                        <span style={{ fontSize:11, fontWeight:600, color: vo.cost_impact >= 0 ? '#1D9E75' : '#E24B4A' }}>
+                          {vo.cost_impact >= 0 ? '+' : ''}${Number(vo.cost_impact).toLocaleString('en-NZ', { minimumFractionDigits:2 })}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{vo.title}</div>
+                    {vo.description && <div style={{ fontSize:12, color:'#6B7280', marginTop:3, lineHeight:1.5 }}>{vo.description}</div>}
+                    {/* Quick status change */}
+                    <div style={{ display:'flex', gap:4, marginTop:8 }}>
+                      {VO_STATUSES.map(s => (
+                        <button key={s} onClick={() => setStatus(vo.id, s)}
+                          style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20, cursor:'pointer',
+                            border:`1px solid ${s===vo.status ? VO_STATUS_STYLE[s].border : '#E8ECF0'}`,
+                            background: s===vo.status ? VO_STATUS_STYLE[s].bg : '#fff',
+                            color: s===vo.status ? VO_STATUS_STYLE[s].color : '#9CA3AF' }}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                    <button onClick={() => setForm({ ...vo, cost_impact: vo.cost_impact ?? '' })}
+                      style={{ padding:'3px 10px', borderRadius:7, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:12, cursor:'pointer' }}>Edit</button>
+                    <button onClick={() => del(vo.id)}
+                      style={{ padding:'3px 8px', borderRadius:7, border:'1px solid #FCA5A5', background:'#FEF2F2', color:'#DC2626', fontSize:12, cursor:'pointer' }}>✕</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit modal */}
+      {form && (
+        <div style={{ position:'fixed', inset:0, zIndex:700, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={e => e.target===e.currentTarget && setForm(null)}>
+          <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:480, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ padding:'14px 18px', borderBottom:'1px solid #F3F4F6', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+              <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>{form.id ? 'Edit Variation' : 'New Variation'}</div>
+              <button onClick={() => setForm(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:22 }}>×</button>
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:18, display:'flex', flexDirection:'column', gap:12 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Title *</label>
+                <input autoFocus value={form.title} onChange={e => setForm(f => ({...f, title:e.target.value}))}
+                  placeholder="Brief description of the change…"
+                  style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Description</label>
+                <textarea value={form.description} onChange={e => setForm(f => ({...f, description:e.target.value}))} rows={3}
+                  placeholder="Detail what changed from the original scope…"
+                  style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' }} />
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Cost impact ($)</label>
+                  <input type="number" value={form.cost_impact} onChange={e => setForm(f => ({...f, cost_impact:e.target.value}))}
+                    placeholder="0.00 (use - for reductions)"
+                    style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Status</label>
+                  <select value={form.status} onChange={e => setForm(f => ({...f, status:e.target.value}))}
+                    style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', background:'#fff', boxSizing:'border-box', cursor:'pointer' }}>
+                    {VO_STATUSES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding:'10px 18px', borderTop:'1px solid #F3F4F6', display:'flex', gap:8, justifyContent:'flex-end', flexShrink:0 }}>
+              <button onClick={() => setForm(null)}
+                style={{ padding:'8px 16px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, cursor:'pointer' }}>Cancel</button>
+              <button onClick={save} disabled={saving || !form.title.trim()}
+                style={{ padding:'8px 20px', borderRadius:9, border:'none', background: form.title.trim() ? '#E24B4A' : '#E8ECF0', color: form.title.trim() ? '#fff' : '#9CA3AF', fontSize:13, fontWeight:700, cursor: form.title.trim() ? 'pointer' : 'default' }}>
+                {saving ? 'Saving…' : 'Save variation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RFIResponseInput({ detail, onSave }) {
   const [val, setVal] = useState(detail.response || '')
   const [saving, setSaving] = useState(false)
@@ -1723,16 +1923,26 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
 
   const specGroups = KITCHEN_SPEC_FIELDS.reduce((acc,f)=>{ (acc[f.group]=acc[f.group]||[]).push(f); return acc },{})
 
+  const [variationCount, setVariationCount] = React.useState(0)
+
+  // Load variation count for badge display
+  React.useEffect(() => {
+    if (!room?.id) return
+    supabase.from('room_variations').select('id', { count:'exact', head:true }).eq('room_id', room.id)
+      .then(({ count }) => setVariationCount(count || 0))
+  }, [room?.id])
+
   const TABS = [
-    { key:'overview',  label:'Overview' },
-    { key:'specs',     label:'Specs' },
-    { key:'tasks',     label:`Tasks${tasks.filter(t=>!t.done).length>0?` (${tasks.filter(t=>!t.done).length})`:''}` },
-    { key:'materials', label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
-    { key:'appliances',label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
-    { key:'files',     label:'📁 Files' },
-    { key:'orders',    label:'📋 Orders' },
-    { key:'rfi',       label:'🗒 RFI' },
-    { key:'onsite',    label:'📸 On-Site' },
+    { key:'overview',   label:'Overview' },
+    { key:'specs',      label:'Specs' },
+    { key:'tasks',      label:`Tasks${tasks.filter(t=>!t.done).length>0?` (${tasks.filter(t=>!t.done).length})`:''}` },
+    { key:'materials',  label:`Materials${roomMats.length>0?` (${roomMats.length})`:''}` },
+    { key:'appliances', label:`Appliances${roomApps.length>0?` (${roomApps.length})`:''}` },
+    { key:'files',      label:'📁 Files' },
+    { key:'orders',     label:'📋 Orders' },
+    { key:'variations', label: variationCount > 0 ? `🔴 VO (${variationCount})` : '📝 Variations' },
+    { key:'rfi',        label:'🗒 RFI' },
+    { key:'onsite',     label:'📸 On-Site' },
   ]
 
   const filteredApps = allAppliances.filter(a =>
@@ -1863,6 +2073,15 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
                   <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>Specs</div>
                   <div style={{ fontSize:22, fontWeight:800, color:'#2A3042' }}>{Object.keys(specs).filter(k=>specs[k]).length}</div>
                   <div style={{ fontSize:11, color:'#9CA3AF' }}>dimensions set</div>
+                </div>
+                <div onClick={()=>setTab('variations')} style={{ background: variationCount>0?'#FEF2F2':'#fff', borderRadius:12, border:`1px solid ${variationCount>0?'#FCA5A5':'#E8ECF0'}`, padding:'14px 16px', cursor:'pointer' }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor='#FCA5A5'} onMouseLeave={e=>e.currentTarget.style.borderColor=variationCount>0?'#FCA5A5':'#E8ECF0'}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Variations</div>
+                    {variationCount > 0 && <span style={{ fontSize:10, fontWeight:800, padding:'1px 6px', borderRadius:5, background:'#E24B4A', color:'#fff' }}>VO</span>}
+                  </div>
+                  <div style={{ fontSize:22, fontWeight:800, color: variationCount>0?'#E24B4A':'#2A3042' }}>{variationCount}</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF' }}>recorded</div>
                 </div>
               </div>
             </div>
@@ -2034,6 +2253,12 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats} roomMats={roomMats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
+          )}
+
+        {/* ── VARIATIONS ── */}
+          {tab==='variations' && (
+            <RoomVariationsTab room={room} jobId={jobId}
+              onVariationsChange={updated => setVariationCount(updated.length)} />
           )}
 
         {/* ── RFI ── */}

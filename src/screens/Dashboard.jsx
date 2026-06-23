@@ -259,7 +259,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [] }) {
+function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [], variationCount = 0 }) {
   const navigate  = useNavigate()
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
@@ -339,12 +339,18 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
             <JobTimeStatus job={job} activeEntries={activeEntries} procEntries={procEntries} procStatuses={procStatuses} accent={accent} />
           </div>
 
-          {/* Row 7: to-order tag — always takes space */}
-          <div style={{ minHeight:28, marginTop:2 }}>
+          {/* Row 7: to-order tag + VO badge — always takes space */}
+          <div style={{ minHeight:28, marginTop:2, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
             {unorderedCount > 0 && (
               <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 8px', background:'#FEF9C3', border:'1px solid #FDE68A', borderRadius:8 }}>
                 <span style={{ fontSize:12, lineHeight:1 }}>📦</span>
                 <span style={{ fontSize:11, fontWeight:600, color:'#854D0E' }}>{unorderedCount} to order</span>
+              </div>
+            )}
+            {variationCount > 0 && (
+              <div style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 8px', background:'#FEF2F2', border:'1px solid #FCA5A5', borderRadius:8 }}>
+                <span style={{ fontSize:11, fontWeight:800, color:'#E24B4A' }}>VO</span>
+                <span style={{ fontSize:11, fontWeight:600, color:'#E24B4A' }}>{variationCount} variation{variationCount!==1?'s':''}</span>
               </div>
             )}
           </div>
@@ -378,6 +384,7 @@ export default function Dashboard() {
   const [jobProcessStatus, setJobProcessStatus] = useState({})
   const [unorderedCounts, setUnorderedCounts] = useState({})
   const [jobRooms, setJobRooms] = useState({}) // jobId -> rooms[]
+  const [jobVariations, setJobVariations] = useState({}) // jobId -> count
 
   // Build filter tabs from dynamic statuses.
   // "Active" is the default landing tab and excludes Complete jobs entirely — completed
@@ -439,7 +446,8 @@ export default function Dashboard() {
         .neq('status','Complete').order('sort_order'),
       supabase.from('order_items').select('job_id').eq('status','To order'),
       supabase.from('rooms').select('id,job_id,name,type,icon,status,sort_order').order('sort_order'),
-    ]).then(([{data:ae1},{data:ae2},{data:jp},{data:oi},{data:roomData}]) => {
+      supabase.from('room_variations').select('job_id'),
+    ]).then(([{data:ae1},{data:ae2},{data:jp},{data:oi},{data:roomData},{data:varData}]) => {
       setActiveEntries(ae1 || [])
       const pMap = {}
       ;(ae2||[]).forEach(e => { if (!pMap[e.job_id]) pMap[e.job_id]=[]; pMap[e.job_id].push(e) })
@@ -453,6 +461,9 @@ export default function Dashboard() {
       const rMap = {}
       ;(roomData||[]).forEach(r => { if (!rMap[r.job_id]) rMap[r.job_id]=[]; rMap[r.job_id].push(r) })
       setJobRooms(rMap)
+      const vMap = {}
+      ;(varData||[]).forEach(v => { vMap[v.job_id]=(vMap[v.job_id]||0)+1 })
+      setJobVariations(vMap)
     })
   }
 
@@ -573,7 +584,7 @@ export default function Dashboard() {
             </div>
           )}
           {filtered.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers} rooms={jobRooms[job.id]||[]}
+            <JobCard key={job.id} job={job} index={i} onClick={() => navigate(`/job/${job.id}`)} activeEntries={activeEntries} procEntries={jobProcessData[job.id]||[]} procStatuses={jobProcessStatus[job.id]||[]} unorderedCount={unorderedCounts[job.id]||0} allCustomers={allCustomers} rooms={jobRooms[job.id]||[]} variationCount={jobVariations[job.id]||0}
               statusColor={(jobStatuses.find(s=>s.label===job.status)||{}).color} />
           ))}
           {can('createJob') && tab !== 'done' && (
