@@ -340,6 +340,18 @@ function RoomRFITab({ room, jobId, profile }) {
                 </div>
                 <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{rfi.title}</div>
                 {rfi.description && <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{rfi.description}</div>}
+                {rfi.external_reply && (
+                  <div style={{ marginTop:6, padding:'6px 10px', background:'#F0FDF4', borderRadius:8, border:'1px solid #86EFAC' }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#065F46', marginBottom:2 }}>✓ External reply{rfi.external_reply_name ? ` from ${rfi.external_reply_name}` : ''}</div>
+                    <div style={{ fontSize:12, color:'#166534', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{rfi.external_reply}</div>
+                  </div>
+                )}
+                {rfi.response && (
+                  <div style={{ marginTop:6, padding:'6px 10px', background:'#F8FAFF', borderRadius:8, border:'1px solid #C4D4F8' }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#3730A3', marginBottom:2 }}>Internal response</div>
+                    <div style={{ fontSize:12, color:'#374151', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{rfi.response}</div>
+                  </div>
+                )}
               </div>
               <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
                 <span style={{ fontSize:10, fontWeight:700, color:ps.color }}>{rfi.priority}</span>

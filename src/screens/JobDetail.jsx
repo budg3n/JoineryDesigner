@@ -10,6 +10,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase, BUCKET, pubUrl } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import { useJobStatuses } from '../hooks/useJobStatuses'
+import { useRoomStatuses } from '../hooks/useRoomStatuses'
 import { cachedQuery } from '../hooks/useCache'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
@@ -1522,7 +1523,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [] }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [] }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1531,20 +1532,22 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
 
   React.useEffect(() => { try { localStorage.setItem('room_sort_mode', sortMode) } catch {} }, [sortMode])
 
-  // Rooms ordered by their current priority number (1..N), used for the swap/reorder control
-  const priorityOrderedRooms = React.useMemo(() => {
-    return [...rooms].sort((a, b) => (a.priority || 999) - (b.priority || 999))
-  }, [rooms])
+  // All computed from rooms prop directly — no memos, always fresh
+  const priorityOrderedRooms = [...rooms].sort((a, b) => (a.priority || 999) - (b.priority || 999))
+  const baseOrderIds = priorityOrderedRooms.map(r => r.id)
 
   // ── Reorder via up/down arrows, staged locally until Save is pressed ──
   // pendingOrder is null when there are no unsaved changes; otherwise it's the
   // working array of room ids in their new (not-yet-persisted) order.
   const [pendingOrder, setPendingOrder] = React.useState(null)
   const [savingOrder, setSavingOrder] = React.useState(false)
-  const baseOrderIds = React.useMemo(() => priorityOrderedRooms.map(r => r.id), [priorityOrderedRooms])
+
   const workingOrderIds = pendingOrder || baseOrderIds
   const hasUnsavedOrder = pendingOrder !== null
 
+  // Hide Nested and Complete rooms by default
+  const [showHidden, setShowHidden] = React.useState(() => { try { return localStorage.getItem("rooms_show_hidden") !== "false" } catch { return true } })
+  const HIDDEN_STATUSES = ['Nested', 'Complete']
   function nudgeRoom(roomId, direction) {
     if (sortMode !== 'priority') setSortMode('priority')
     setPendingOrder(prev => {
@@ -1602,42 +1605,38 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
     }))
   }
 
-  // Pre-compute RFI status per room — runs directly in render scope (not inside a memo)
-  // so it always reflects the latest rfis prop, even before sortedRooms recomputes.
-  const TODAY_ROOMS = React.useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d }, [])
-  const roomRfiStatus = React.useMemo(() => {
-    const map = {}
-    rooms.forEach(room => {
-      const roomRfis = rfis.filter(r => r.room_id === room.id)
-      const openRfis = roomRfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
-      const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY_ROOMS)
-      map[room.id] = {
-        roomRfis, openRfis, overdueRfis,
-        color: roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75',
-        title: roomRfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`,
-      }
-    })
-    return map
-  }, [rooms, rfis, TODAY_ROOMS])
-  // if there's an unsaved reorder in progress, that staged order takes precedence so the
-  // list reflects exactly what will be saved.
-  const sortedRooms = React.useMemo(() => {
-    if (hasUnsavedOrder) {
-      return workingOrderIds.map(id => rooms.find(r => r.id === id)).filter(Boolean)
+  // Compute RFI status per room directly in render (no memo) — this guarantees it
+  // always reflects the current rfis prop on every render, with no caching that
+  // could cause stale values when rfis arrives after the initial render.
+  const _today = new Date(); _today.setHours(0,0,0,0)
+  const roomRfiStatus = {}
+  rooms.forEach(room => {
+    const roomRfis = rfis.filter(r => r.room_id === room.id)
+    const openRfis = roomRfis.filter(r => r.status === 'Open' || r.status === 'In Review')
+    const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < _today)
+    roomRfiStatus[room.id] = {
+      roomRfis, openRfis, overdueRfis,
+      color: roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75',
+      title: roomRfis.length === 0 ? 'No RFIs' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`,
     }
-    const list = [...rooms]
+  })
+  // Compute sortedRooms directly (no memo) so it always reflects current props
+  let sortedRooms
+  if (hasUnsavedOrder) {
+    sortedRooms = workingOrderIds.map(id => rooms.find(r => r.id === id)).filter(Boolean)
+  } else {
+    sortedRooms = [...rooms]
     if (sortMode === 'priority') {
-      list.sort((a, b) => {
+      sortedRooms.sort((a, b) => {
         const pa = a.priority || 999
         const pb = b.priority || 999
         if (pa !== pb) return pa - pb
         return (a.name || '').localeCompare(b.name || '')
       })
     } else {
-      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      sortedRooms.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     }
-    return list
-  }, [rooms, sortMode, hasUnsavedOrder, workingOrderIds, rfis])
+  }
 
   // Re-open the requested room whenever autoOpenRoomId changes (e.g. clicked from Overview tab),
   // not just on first mount — autoOpenRoomId may have a "_<timestamp>" suffix appended so that
@@ -1645,43 +1644,6 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
   React.useEffect(() => {
     if (autoOpenRoomId) setExpandedId(autoOpenRoomId.split('_')[0])
   }, [autoOpenRoomId])
-
-  const DEFAULT_ROOM_STATUSES = [
-    { label:'Pending',                color:'#9CA3AF' },
-    { label:'In progress',            color:'#5B8AF0' },
-    { label:'Submitted for approval', color:'#F97316' },
-    { label:'Review',                 color:'#EF9F27' },
-    { label:'On hold',                color:'#E24B4A' },
-    { label:'Nested',                 color:'#8B5CF6' },
-    { label:'Complete',               color:'#1D9E75' },
-  ]
-  const [roomStatuses, setRoomStatuses] = React.useState(DEFAULT_ROOM_STATUSES)
-
-  React.useEffect(() => {
-    supabase.from('app_settings').select('value').eq('key','room_statuses').maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) {
-          try {
-            const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value
-            if (Array.isArray(v) && v.length) setRoomStatuses(v)
-          } catch {}
-        }
-      })
-    // Re-load when settings change
-    const handler = () => {
-      supabase.from('app_settings').select('value').eq('key','room_statuses').maybeSingle()
-        .then(({ data }) => {
-          if (data?.value) {
-            try {
-              const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value
-              if (Array.isArray(v) && v.length) setRoomStatuses(v)
-            } catch {}
-          }
-        })
-    }
-    window.addEventListener('room-statuses-updated', handler)
-    return () => window.removeEventListener('room-statuses-updated', handler)
-  }, [])
 
   async function addRoom() {
     const name = newType === 'Other' ? (newName.trim() || 'Other') : newType
@@ -1787,8 +1749,23 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
       )}
 
       {/* room list with inline expansion */}
+      {sortedRooms.filter(r => HIDDEN_STATUSES.includes(r.status || '')).length > 0 && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', marginBottom:6 }}>
+          <button onClick={() => setShowHidden(s => { const next = !s; try { localStorage.setItem('rooms_show_hidden', String(next)) } catch {} return next })}
+            style={{ fontSize:11, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {showHidden
+                ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
+            </svg>
+            {showHidden
+              ? `Hide completed (${sortedRooms.filter(r => HIDDEN_STATUSES.includes(r.status || '')).length})`
+              : `Show completed (${sortedRooms.filter(r => HIDDEN_STATUSES.includes(r.status || '')).length})`}
+          </button>
+        </div>
+      )}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {sortedRooms.map(room => {
+        {(showHidden ? sortedRooms : sortedRooms.filter(r => !HIDDEN_STATUSES.includes(r.status || ''))).map(room => {
           const isOpen = expandedId === room.id
           const tasks = room.tasks ? (typeof room.tasks==='string'?JSON.parse(room.tasks):room.tasks) : []
           const open = tasks.filter(t=>!t.done).length
@@ -2948,14 +2925,26 @@ Thank you.`)
                         background:rfi.type==='internal'?'#EEF2FF':'#FFF7ED', color:rfi.type==='internal'?'#3730A3':'#C2410C' }}>{rfi.type}</span>
                     </div>
                     <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>{rfi.title}</div>
-                    {rfi.description && <div style={{ fontSize:12, color:'#6B7280', marginTop:2 }}>{rfi.description}</div>}
+                    {rfi.description && <div style={{ fontSize:12, color:'#6B7280', marginTop:2, lineHeight:1.5 }}>{rfi.description}</div>}
                     <div style={{ display:'flex', gap:10, marginTop:4, flexWrap:'wrap' }}>
                       {rfi.assigned_to && pName(rfi.assigned_to) && <span style={{ fontSize:11, color:'#9CA3AF' }}>→ {pName(rfi.assigned_to)}</span>}
                       {rfi.due_date && <span style={{ fontSize:11, color:'#9CA3AF' }}>Due {fmtDate(rfi.due_date)}</span>}
                     </div>
-                    {rfi.response && (
-                      <div style={{ marginTop:6, padding:'6px 10px', background:'#F0FDF4', borderRadius:8, border:'1px solid #86EFAC', fontSize:12, color:'#374151' }}>
-                        <span style={{ fontWeight:700, color:'#166534', marginRight:6 }}>Response:</span>{rfi.response}
+                    {rfi.response ? (
+                      <div style={{ marginTop:8, padding:'8px 12px', background:'#F8FAFF', borderRadius:8, border:'1px solid #C4D4F8' }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:'#3730A3', marginBottom:3, textTransform:'uppercase', letterSpacing:'.05em' }}>Internal response</div>
+                        <div style={{ fontSize:12, color:'#374151', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{rfi.response}</div>
+                        {rfi.responded_at && <div style={{ fontSize:10, color:'#9CA3AF', marginTop:4 }}>Answered {fmtDate(rfi.responded_at)}</div>}
+                      </div>
+                    ) : (rfi.status === 'Open' || rfi.status === 'In Review') ? (
+                      <div style={{ marginTop:8, padding:'6px 10px', background:'#FFF7ED', borderRadius:8, border:'1px solid #FDBA74', fontSize:11, color:'#C2410C', fontWeight:600 }}>
+                        Awaiting response
+                      </div>
+                    ) : null}
+                    {rfi.external_reply && (
+                      <div style={{ marginTop:6, padding:'8px 12px', background:'#F0FDF4', borderRadius:8, border:'1px solid #86EFAC' }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:'#065F46', marginBottom:3, textTransform:'uppercase', letterSpacing:'.05em' }}>✓ External reply</div>
+                        <div style={{ fontSize:12, color:'#166534', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{rfi.external_reply}</div>
                       </div>
                     )}
                   </div>
@@ -3347,6 +3336,23 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
   }, [rooms])
 
   const totalRooms = rooms.length
+  const HIDDEN_STATUSES = ['Nested', 'Complete']
+  const [showHidden, setShowHidden] = React.useState(() => { try { return localStorage.getItem('rooms_show_hidden') !== 'false' } catch { return true } })
+
+  // Per-room RFI status — computed directly (no memo) so always fresh
+  const _tod = new Date(); _tod.setHours(0,0,0,0)
+  const roomRfiStatus = {}
+  rooms.forEach(room => {
+    const roomRfis = rfis.filter(r => r.room_id === room.id)
+    const openRfis = roomRfis.filter(r => r.status === 'Open' || r.status === 'In Review')
+    const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < _tod)
+    roomRfiStatus[room.id] = {
+      roomRfis, openRfis, overdueRfis,
+      color: roomRfis.length === 0 ? null : overdueRfis.length > 0 ? '#E24B4A' : openRfis.length > 0 ? '#F97316' : '#1D9E75',
+      title: roomRfis.length === 0 ? '' : overdueRfis.length > 0 ? `${overdueRfis.length} overdue RFI${overdueRfis.length!==1?'s':''}` : openRfis.length > 0 ? `${openRfis.length} open RFI${openRfis.length!==1?'s':''}` : `All ${roomRfis.length} RFIs resolved`,
+    }
+  })
+
   const statusCounts = {}
   rooms.forEach(r => {
     const s = r.status || 'Pending'
@@ -3413,7 +3419,14 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
         <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em' }}>Rooms</div>
         {totalRooms > 1 && (
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:10, color:'#9CA3AF' }}>Use ▲▼ to reorder</span>
+            {rooms.some(r => HIDDEN_STATUSES.includes(r.status || '')) && (
+              <button onClick={() => setShowHidden(s => { const n=!s; try{localStorage.setItem('rooms_show_hidden',String(n))}catch{}; return n })}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer' }}>
+                {showHidden
+                  ? `Hide completed (${rooms.filter(r => HIDDEN_STATUSES.includes(r.status||'')).length})`
+                  : `Show completed (${rooms.filter(r => HIDDEN_STATUSES.includes(r.status||'')).length})`}
+              </button>
+            )}
             <div style={{ display:'flex', background:'#F3F4F6', borderRadius:8, padding:2 }}>
               <button onClick={() => { setSortMode('alpha'); try { localStorage.setItem('room_sort_mode','alpha') } catch {} }}
                 style={{ fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, border:'none', cursor:'pointer',
@@ -3463,7 +3476,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
         </div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {sortedRooms.map(room => {
+          {(showHidden ? sortedRooms : sortedRooms.filter(r => !HIDDEN_STATUSES.includes(r.status || ''))).map(room => {
             const status = room.status || 'Pending'
             const color = OVERVIEW_STATUS_COLORS[status] || '#9CA3AF'
             const stats = roomOrderStats[room.id] || { total:0, ordered:0, toOrder:0, received:0 }
@@ -3475,8 +3488,7 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
             const openTasks = tasks.filter(t => !t.done)
             const overdueTasks = openTasks.filter(t => t.date && new Date(t.date) < TODAY_OV)
             const taskIconColor = tasks.length === 0 ? null : overdueTasks.length > 0 ? '#E24B4A' : openTasks.length > 0 ? '#F97316' : '#1D9E75'
-            const openRfis = rfis.filter(r => r.status !== 'Closed' && r.status !== 'Resolved')
-            const overdueRfis = openRfis.filter(r => r.due_date && new Date(r.due_date) < TODAY_OV)
+            const rfi = roomRfiStatus[room.id] || {}
             const workingIdx = workingOrderIds.indexOf(room.id)
             const roomPriority = workingIdx + 1
 
@@ -3537,6 +3549,13 @@ function JobOverviewTab({ jobId, rooms, unorderedCount, onOpenRoomsTab, onOpenRo
                       style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${taskIconColor}18`, color:taskIconColor, border:`1px solid ${taskIconColor}30`, whiteSpace:'nowrap' }}>
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                       {openTasks.length === 0 ? '✓' : openTasks.length}
+                    </span>
+                  )}
+                  {rfi.color && (
+                    <span title={rfi.title}
+                      style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, padding:'3px 7px', borderRadius:7, background:`${rfi.color}18`, color:rfi.color, border:`1px solid ${rfi.color}30`, whiteSpace:'nowrap' }}>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {rfi.openRfis?.length === 0 ? '✓' : rfi.openRfis?.length}
                     </span>
                   )}
                 </div>
@@ -3712,6 +3731,7 @@ export default function JobDetail() {
   const [specs, setSpecs]             = useState([])
   const [activeSpecId, setActiveSpecId] = useState(null)
   const jobStatuses = useJobStatuses()
+  const roomStatuses = useRoomStatuses()
   const [rightTab, setRightTab]       = useState('rooms')
   const [activeEntries, setActiveEntries] = useState({}) // processId->entry — shared across panels
   const [unorderedCount, setUnorderedCount] = useState(0)
@@ -3784,23 +3804,18 @@ export default function JobDetail() {
     setStartupNote(allNotes.find(n => n.is_startup) || null)
     setFileTypes(fTypes||[])
     setApprovals(approvs||[])
-    setLoading(false)
-    // Load rooms
-    // Load secondary data in parallel — don't block main job render
-    Promise.all([
+    // Load rooms + rfis together before clearing the loading gate so InlineRoomsPanel
+    // always mounts with real data — no race condition, no delayed prop updates.
+    const [{ data:roomData }, { data:rfiData }, { data:procData }] = await Promise.all([
       supabase.from('rooms').select('*').eq('job_id', id).order('sort_order'),
-      supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
-      supabase.from('job_feedback').select('*').eq('job_id', id).order('created_at',{ascending:false}),
       supabase.from('job_rfis').select('id,title,status,due_date,number,room_id').eq('job_id', id).order('created_at'),
-    ]).then(([{data:roomData},{data:procData},{data:fbData},{data:rfiData}]) => {
-      setRooms(roomData||[])
-      setJobLevelRfis(rfiData||[])
-      // Auto-open room if navigated from dashboard — just switch to rooms tab,
-      // InlineRoomsPanel picks up autoOpenRoomId as its initial expandedId
-      if (autoOpenRoomId) setJobTab('rooms')
-      setProcesses(procData||[])
-      setFeedback(fbData||[])
-    })
+      supabase.from('job_processes').select('id,name,status,color,assigned_to,due_date,sort_order,allocated_hours,time_logged,profiles(id,full_name,email)').eq('job_id', id).order('sort_order'),
+    ])
+    setRooms(roomData||[])
+    setJobLevelRfis(rfiData||[])
+    setProcesses(procData||[])
+    if (autoOpenRoomId) setJobTab('rooms')
+    setLoading(false)
     // Load processes
     // processes loaded in parallel above
     // Load feedback
@@ -4473,7 +4488,8 @@ export default function JobDetail() {
         rooms={rooms} jobId={id} toast={toast}
         jobMats={jobMats} allAppliances={allAppliances}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
-        autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis} />}
+        autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis}
+        roomStatuses={roomStatuses} />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
