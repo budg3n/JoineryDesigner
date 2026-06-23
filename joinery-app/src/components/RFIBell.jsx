@@ -111,9 +111,9 @@ export default function RFIBell() {
       {/* Dropdown panel */}
       {open && (
         <div style={{
-          position:'fixed', top:54, right:8, width:360, maxWidth:'calc(100vw - 16px)', maxHeight:520,
+          position:'absolute', top:'calc(100% + 6px)', right:0, width:360, maxHeight:520,
           background:'#fff', borderRadius:14, boxShadow:'0 8px 40px rgba(0,0,0,0.15)',
-          border:'1px solid #E8ECF0', zIndex:600, display:'flex', flexDirection:'column',
+          border:'1px solid #E8ECF0', zIndex:500, display:'flex', flexDirection:'column',
           overflow:'hidden',
         }}>
           {/* Header */}

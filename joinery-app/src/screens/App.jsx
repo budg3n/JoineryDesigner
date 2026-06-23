@@ -1,0 +1,66 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { usePageRestore, useRestoreOnLoad } from './hooks/usePageRestore'
+import { useApp } from './context/AppContext'
+import Layout from './components/Layout'
+import Login from './screens/Login'
+import Dashboard from './screens/Dashboard'
+import JobDetail from './screens/JobDetail'
+import Sketch from './screens/Sketch'
+import Calendar from './screens/Calendar'
+import Settings from './screens/Settings'
+import Materials from './screens/Materials'
+import Customers from './screens/Customers'
+import Team from './screens/Team'
+import Appliances from './screens/Appliances'
+import Notes from './screens/Notes'
+import FileTypes from './screens/FileTypes'
+import OrderSheet from './screens/OrderSheet'
+import ProcessTemplates from './screens/ProcessTemplates'
+import CopyFormat from './screens/CopyFormat'
+import FormulaWriter from './screens/FormulaWriter'
+
+function RequireAuth({ children }) {
+  const { user, loading } = useApp()
+  if (loading) return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#2A3042" }}>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+        <div className="spinner" />
+        <p style={{ fontSize:13, color:"rgba(255,255,255,0.4)", margin:0 }}>Loading…</p>
+      </div>
+    </div>
+  )
+  return user ? children : <Navigate to="/login" replace />
+}
+
+export default function AppInner() {
+  useRestoreOnLoad()
+  usePageRestore()
+  return null
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
+        <Route index element={<Dashboard />} />
+        <Route path="job/:id" element={<JobDetail />} />
+        <Route path="job/:id/sketch" element={<Sketch />} />
+        <Route path="job/:id/sketch/:attId" element={<Sketch />} />
+        <Route path="calendar" element={<Calendar />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="settings/materials" element={<Materials />} />
+        <Route path="settings/customers" element={<Customers />} />
+        <Route path="settings/team" element={<Team />} />
+        <Route path="settings/appliances" element={<Appliances />} />
+        <Route path="notes" element={<Notes />} />
+        <Route path="notes/:noteId" element={<Notes />} />
+        <Route path="settings/file-types" element={<FileTypes />} />
+        <Route path="settings/processes" element={<ProcessTemplates />} />
+        <Route path="settings/copy-format" element={<CopyFormat />} />
+        <Route path="formula-writer" element={<FormulaWriter />} />
+        <Route path="job/:id/orders" element={<OrderSheet />} />
+      </Route>
+    </Routes>
+  )
+}
