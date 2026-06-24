@@ -161,17 +161,20 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
 
   // ── Suppliers & per-supplier pricing ───────────────────────────────
   const [allSuppliers, setAllSuppliers] = useState([])
-  const [matSuppliers, setMatSuppliers] = useState([]) // [{id, supplier_id, supplier, price, sku, lead_time, is_preferred}]
+  const [supplierSearch, setSupplierSearch] = useState(material?.supplier || '')
+  const [supplierDropOpen, setSupplierDropOpen] = useState(false)
+  const [quickCreateSupplier, setQuickCreateSupplier] = useState('')
+  const [matSuppliers, setMatSuppliers] = useState([])
   const [suppliersLoading, setSuppliersLoading] = useState(false)
   const [addingSupplierId, setAddingSupplierId] = useState('')
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [savingNewSupplier, setSavingNewSupplier] = useState(false)
 
+  // Load suppliers on mount so the supplier field in Details tab works immediately
   useEffect(() => {
-    if (modalTab !== 'suppliers' || allSuppliers.length > 0) return
-    supabase.from('suppliers').select('*').order('name').then(({ data }) => setAllSuppliers(data || []))
-  }, [modalTab])
+    supabase.from('suppliers').select('id,name').order('name').then(({ data }) => setAllSuppliers(data || []))
+  }, [])
 
   useEffect(() => {
     if (!material?.id) return
@@ -308,7 +311,6 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
 
   function handleLibrarySelect(img) {
     setImgLibPath(img.path)
-    setImgFile(null) // clear any file upload
     setImgPreview(pubUrl(img.path))
     setShowLib(false)
   }
@@ -327,12 +329,14 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
       is_kit: isKit,
     }
     if (!isEditing) payload.category_id = targetCat.id
-    // Native columns — always write them (including empty string to allow clearing)
-    ;['supplier','panel_type','thickness','colour_code','finish','notes'].forEach(k => {
+    // Native columns — always write them. Numeric fields get null instead of empty string.
+    ;['supplier','panel_type','colour_code','finish','notes'].forEach(k => {
       payload[k] = form[k] ?? ''
     })
+    // thickness may be numeric in DB — send null if empty
+    payload.thickness = form.thickness !== '' && form.thickness != null ? form.thickness : null
     // Kit price is derived from its components, not manually entered
-    payload.price = isKit ? (kitTotalPrice || null) : (form.price ?? '')
+    payload.price = isKit ? (kitTotalPrice || null) : (form.price !== '' && form.price != null ? parseFloat(form.price) || null : null)
 
     let data, error
     if (isEditing) {
@@ -399,6 +403,62 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   function inputFor(col) {
     const val = getVal(col)
     const common = { style:{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' } }
+
+    // Supplier field — searchable dropdown with quick-create
+    if (col.key === 'supplier' || col.settingKey === 'supplier') {
+      const filtered = allSuppliers.filter(s =>
+        !supplierSearch || s.name.toLowerCase().includes(supplierSearch.toLowerCase())
+      )
+      const exactMatch = allSuppliers.some(s => s.name.toLowerCase() === supplierSearch.toLowerCase())
+      return (
+        <div style={{ position:'relative' }}>
+          <input
+            value={supplierSearch}
+            onChange={e => { setSupplierSearch(e.target.value); setVal(col, e.target.value); setSupplierDropOpen(true) }}
+            onFocus={() => setSupplierDropOpen(true)}
+            onBlur={() => setTimeout(() => setSupplierDropOpen(false), 150)}
+            placeholder="Search or create supplier…"
+            {...common}
+          />
+          {supplierDropOpen && (
+            <div style={{ position:'absolute', top:'100%', left:0, right:0, marginTop:3, background:'#fff', border:'1px solid #E8ECF0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:100, maxHeight:200, overflowY:'auto' }}>
+              {filtered.map(s => (
+                <div key={s.id}
+                  onMouseDown={() => { setVal(col, s.name); setSupplierSearch(s.name); setSupplierDropOpen(false) }}
+                  style={{ padding:'9px 12px', cursor:'pointer', fontSize:13, color:'#2A3042', borderBottom:'1px solid #F9FAFB' }}
+                  onMouseEnter={e => e.currentTarget.style.background='#F0F4FF'}
+                  onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                  {s.name}
+                </div>
+              ))}
+              {supplierSearch.trim() && !exactMatch && (
+                <div
+                  onMouseDown={async () => {
+                    const name = supplierSearch.trim()
+                    const { data, error } = await supabase.from('suppliers').insert({ name }).select('id,name').single()
+                    if (error) return
+                    setAllSuppliers(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)))
+                    setVal(col, data.name)
+                    setSupplierSearch(data.name)
+                    setSupplierDropOpen(false)
+                  }}
+                  style={{ padding:'9px 12px', cursor:'pointer', fontSize:13, color:'#1D9E75', fontWeight:600, borderTop: filtered.length ? '1px solid #E8ECF0' : 'none' }}
+                  onMouseEnter={e => e.currentTarget.style.background='#F0FDF4'}
+                  onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                  + Create "{supplierSearch.trim()}"
+                </div>
+              )}
+              {filtered.length === 0 && !supplierSearch.trim() && (
+                <div style={{ padding:'10px 12px', fontSize:12, color:'#9CA3AF', textAlign:'center' }}>
+                  No suppliers yet — type a name to create one
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     if (col.type === 'select' && col.options?.length) {
       return (
         <select value={val} onChange={e=>setVal(col, e.target.value)} {...common}>
@@ -2876,9 +2936,10 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                         </div>
                       )
                     }
-                    // Supplier col — shows the preferred supplier (read-only here, set from the Suppliers tab)
+                    // Supplier col — shows the preferred supplier from material_suppliers,
+                    // falling back to the plain supplier text field on the material itself
                     if (col.key === 'supplier') {
-                      const preferred = preferredSuppliers[m.id]
+                      const preferred = preferredSuppliers[m.id] || m.supplier
                       return (
                         <div key="supplier" onClick={() => setDetailMaterial(m)}
                           title="Click to manage suppliers for this product"
@@ -2887,7 +2948,7 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
                           onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                           {preferred ? (
                             <>
-                              <span style={{ fontSize:10, color:'#1D9E75', flexShrink:0 }}>★</span>
+                              {preferredSuppliers[m.id] && <span style={{ fontSize:10, color:'#1D9E75', flexShrink:0 }}>★</span>}
                               <span style={{ fontSize:12, color:'#374151', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preferred}</span>
                             </>
                           ) : (
