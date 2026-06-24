@@ -105,10 +105,10 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   } : { name:'' })
   const [cf, setCf]       = useState(() => { const { price_breaks, ...rest } = initialCf; return rest })
   const [priceBreaks, setPriceBreaks] = useState(() => Array.isArray(initialCf.price_breaks) ? initialCf.price_breaks : [])
-  const [imgFile, setImgFile] = useState(null)
-  const [imgPreview, setImgPreview] = useState(() => material?.storage_path ? `https://awwfqwxbqquknigvsoox.supabase.co/storage/v1/object/public/job-files/${material.storage_path}` : null)
+  const [imgPreview, setImgPreview] = useState(() => material?.storage_path ? pubUrl(material.storage_path) : null)
+  const [imgLibPath, setImgLibPath] = useState(() => material?.storage_path || null)
+  const [showLib, setShowLib] = useState(false)
   const [saving, setSaving] = useState(false)
-  const fileRef = useRef()
   const [modalTab, setModalTab] = useState('details') // 'details' | 'suppliers'
 
   // ── Kit mode ──────────────────────────────────────────────────────
@@ -306,11 +306,11 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
     return form[col.key] || ''
   }
 
-  function handleImagePick(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImgFile(file)
-    setImgPreview(URL.createObjectURL(file))
+  function handleLibrarySelect(img) {
+    setImgLibPath(img.path)
+    setImgFile(null) // clear any file upload
+    setImgPreview(pubUrl(img.path))
+    setShowLib(false)
   }
 
   async function save() {
@@ -342,16 +342,11 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
     }
     if (error) { toast(error.message, 'error'); setSaving(false); return }
 
-    // Upload image if a new one was picked
-    if (imgFile && data) {
-      const ext = imgFile.name.split('.').pop()
-      const path = `materials/${data.id}.${ext}`
-      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, imgFile, { upsert: true })
-      if (!upErr) {
-        await supabase.from('materials').update({ storage_path: path }).eq('id', data.id)
-        data.storage_path = path
-      }
-    } else if (isEditing && material.storage_path) {
+    // Image: use library path if selected, otherwise keep existing
+    if (imgLibPath && data) {
+      await supabase.from('materials').update({ storage_path: imgLibPath }).eq('id', data.id)
+      data.storage_path = imgLibPath
+    } else if (isEditing && material.storage_path && !imgLibPath) {
       data.storage_path = material.storage_path
     }
 
@@ -605,22 +600,31 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
         <div style={{ flex:1, overflowY:'auto', padding:20 }}>
           {/* Image + Name row */}
           <div style={{ display:'flex', gap:14, marginBottom:18 }}>
-            <input ref={fileRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display:'none' }} />
-            <div onClick={()=>fileRef.current?.click()}
-              style={{ width:84, height:84, borderRadius:12, overflow:'hidden', border:'1.5px dashed #C4D4F8', background:'#F8FAFF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer' }}>
-              {imgPreview
-                ? <img src={imgPreview} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                : <span style={{ fontSize:22, color:'#C4D4F8' }}>📷</span>
-              }
+            <div style={{ display:'flex', flexDirection:'column', gap:5, alignItems:'center', flexShrink:0 }}>
+              <div onClick={() => setShowLib(true)}
+                style={{ width:84, height:84, borderRadius:12, overflow:'hidden', border:'1.5px dashed #C4D4F8', background:'#F8FAFF', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative' }}
+                title="Click to pick from image library">
+                {imgPreview
+                  ? <img src={imgPreview} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  : <span style={{ fontSize:22, color:'#C4D4F8' }}>📷</span>
+                }
+              </div>
+              {imgPreview && (
+                <button type="button" onClick={() => { setImgPreview(null); setImgFile(null); setImgLibPath(null) }}
+                  style={{ fontSize:10, color:'#9CA3AF', background:'none', border:'none', cursor:'pointer', padding:0 }}>
+                  Remove
+                </button>
+              )}
             </div>
             <div style={{ flex:1 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Name *</label>
               <input autoFocus value={form.name||''} onChange={e=>setForm(p=>({...p,name:e.target.value}))}
                 placeholder="e.g. Laminex 18mm Borders Oak Organic"
                 style={{ width:'100%', padding:'9px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:14, fontWeight:600, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
-              <div style={{ fontSize:11, color:'#9CA3AF' }}>Tap the photo box to upload an image</div>
+              <div style={{ fontSize:11, color:'#9CA3AF' }}>Tap the photo to pick from the image library</div>
             </div>
           </div>
+          {showLib && <ImageLibrary onSelect={handleLibrarySelect} onClose={() => setShowLib(false)} />}
 
           {/* Kit toggle */}
           <div onClick={() => setIsKit(v => !v)}
