@@ -170,6 +170,7 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [savingNewSupplier, setSavingNewSupplier] = useState(false)
+  const saveTimer = useRef(null) // debounce price break saves
 
   // Load suppliers on mount so the supplier field in Details tab works immediately
   useEffect(() => {
@@ -177,14 +178,36 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   }, [])
 
   useEffect(() => {
-    if (!material?.id) return
+    if (!material?.id || modalTab !== 'suppliers') return
+    if (matSuppliers.length > 0) return // already loaded
     setSuppliersLoading(true)
-    supabase.from('material_suppliers').select('*, suppliers(*)').eq('material_id', material.id).order('is_preferred', { ascending: false })
-      .then(({ data }) => {
-        setMatSuppliers(data || [])
+
+    // Read price_breaks from custom_fields on the material object
+    function readPriceBreaks(mat) {
+      try {
+        const cf = mat?.custom_fields
+          ? (typeof mat.custom_fields === 'object' ? mat.custom_fields : JSON.parse(mat.custom_fields))
+          : {}
+        return Array.isArray(cf?.price_breaks) ? cf.price_breaks : []
+      } catch { return [] }
+    }
+
+    supabase.from('material_suppliers')
+      .select('id,supplier_id,price,sku,lead_time,is_preferred,suppliers(id,name)')
+      .eq('material_id', material.id)
+      .order('is_preferred', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) { console.error('material_suppliers load:', error); setSuppliersLoading(false); return }
+        const breaks = readPriceBreaks(material)
+        const hydrated = (data || []).map(ms => ({
+          ...ms,
+          price_breaks: ms.is_preferred ? breaks : [],
+        }))
+        setMatSuppliers(hydrated)
         setSuppliersLoading(false)
       })
-  }, [material?.id])
+      .catch(err => { console.error('material_suppliers catch:', err); setSuppliersLoading(false) })
+  }, [material?.id, modalTab])
 
   async function addSupplierLink(supplierId) {
     if (!supplierId) return
@@ -201,9 +224,8 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
       .insert({ material_id: material.id, supplier_id: supplierId, is_preferred: isFirst })
       .select('*, suppliers(*)').single()
     if (error) { toast(error.message, 'error'); return }
-    setMatSuppliers(p => [...p, data])
+    setMatSuppliers(p => [...p, { ...data, price_breaks: [] }])
     setAddingSupplierId('')
-    if (isFirst) syncPreferredPrice(data)
     window.dispatchEvent(new CustomEvent('materials-library-updated'))
   }
 
@@ -222,54 +244,65 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
     await addSupplierLink(newSupplier.id)
   }
 
-  async function updateSupplierLink(id, patch) {
+  // Simple update — just merges into local state, no DB call
+  function updateSupplierLinkLocal(id, patch) {
     setMatSuppliers(p => p.map(ms => ms.id === id ? { ...ms, ...patch } : ms))
-    if (String(id).startsWith('_local_')) return // not saved yet, just keep in local state
-    await supabase.from('material_suppliers').update(patch).eq('id', id)
-    if ('price' in patch || 'price_breaks' in patch) {
-      const link = matSuppliers.find(ms => ms.id === id)
-      if (link?.is_preferred) syncPreferredPrice({ ...link, ...patch })
-    }
   }
+
+  // Explicit save for a supplier link — called by the Save button
+  async function saveSupplierLink(ms) {
+    if (!material?.id) { toast('Save the product first', 'error'); return }
+    setSupplierSaving(ms.id)
+
+    // 1. Save standard columns to material_suppliers (price, sku, lead_time)
+    if (!String(ms.id).startsWith('_local_')) {
+      const { error } = await supabase.from('material_suppliers')
+        .update({ price: ms.price || null, sku: ms.sku || '', lead_time: ms.lead_time || '' })
+        .eq('id', ms.id)
+      if (error) { toast(error.message, 'error'); setSupplierSaving(null); return }
+    }
+
+    // 2. Save price_breaks to materials.custom_fields and price to materials.price
+    const { data: current, error: fetchErr } = await supabase.from('materials')
+      .select('custom_fields').eq('id', material.id).single()
+    if (fetchErr) { toast(fetchErr.message, 'error'); setSupplierSaving(null); return }
+
+    let curCf = {}
+    try { curCf = current?.custom_fields
+      ? (typeof current.custom_fields === 'object' ? current.custom_fields : JSON.parse(current.custom_fields))
+      : {} } catch {}
+
+    const breaks = Array.isArray(ms.price_breaks)
+      ? ms.price_breaks.filter(b => b.qty !== '' || b.price !== '') // keep anything touched
+      : []
+    curCf.price_breaks = breaks
+
+    const matPatch = { custom_fields: JSON.stringify(curCf) }
+    if (ms.price && ms.price !== '') matPatch.price = ms.price
+
+    const { error: matErr } = await supabase.from('materials').update(matPatch).eq('id', material.id)
+    if (matErr) { toast(matErr.message, 'error'); setSupplierSaving(null); return }
+
+    // Update local form price
+    if (ms.price && ms.price !== '') setForm(p => ({ ...p, price: ms.price }))
+
+    setSupplierSaving(null)
+    toast('Supplier info saved ✓')
+    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+  }
+
+  const [supplierSaving, setSupplierSaving] = useState(null)
 
   async function setPreferredSupplier(id) {
     const updated = matSuppliers.map(ms => ({ ...ms, is_preferred: ms.id === id }))
     setMatSuppliers(updated)
-    // Persist all the flag changes (only real rows)
     for (const ms of updated) {
       if (!String(ms.id).startsWith('_local_')) {
         await supabase.from('material_suppliers').update({ is_preferred: ms.id === id }).eq('id', ms.id)
       }
     }
     const preferred = updated.find(ms => ms.id === id)
-    if (preferred) syncPreferredPrice(preferred)
-    window.dispatchEvent(new CustomEvent('materials-library-updated'))
-  }
-
-  // Whenever the preferred supplier (or its price/breaks) changes, mirror it onto
-  // the material's main `price` field and `custom_fields.price_breaks` so order sheets /
-  // pickers always show the right numbers — they read price_breaks from custom_fields
-  async function syncPreferredPrice(link) {
-    const updates = {}
-    if (link?.price !== undefined && link.price !== '') {
-      setForm(p => ({ ...p, price: link.price }))
-      updates.price = link.price
-    }
-    if (!material?.id) return
-    const validBreaks = Array.isArray(link?.price_breaks)
-      ? link.price_breaks.filter(b => b.qty !== '' && b.price !== '')
-      : []
-    if (Object.keys(updates).length) {
-      await supabase.from('materials').update(updates).eq('id', material.id)
-    }
-    // Merge price_breaks into custom_fields (preserving any other custom field values)
-    const { data: current } = await supabase.from('materials').select('custom_fields').eq('id', material.id).single()
-    let curCf = {}
-    try { curCf = current?.custom_fields ? (typeof current.custom_fields === 'object' ? current.custom_fields : JSON.parse(current.custom_fields)) : {} } catch {}
-    curCf.price_breaks = validBreaks
-    await supabase.from('materials').update({ custom_fields: JSON.stringify(curCf) }).eq('id', material.id)
-    setCf(p => ({ ...p, price_breaks: undefined }))
-    window.dispatchEvent(new CustomEvent('materials-library-updated'))
+    if (preferred) await saveSupplierLink(preferred)
   }
 
   async function removeSupplierLink(ms) {
@@ -594,20 +627,20 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                           <div style={{ position:'relative' }}>
                             <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9CA3AF' }}>$</span>
                             <input type="number" step="0.01" value={ms.price || ''}
-                              onChange={e => updateSupplierLink(ms.id, { price: e.target.value })}
+                              onChange={e => updateSupplierLinkLocal(ms.id, { price: e.target.value })}
                               placeholder="0.00"
                               style={{ width:'100%', padding:'6px 8px 6px 18px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                           </div>
                         </div>
                         <div>
                           <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Supplier SKU</label>
-                          <input value={ms.sku || ''} onChange={e => updateSupplierLink(ms.id, { sku: e.target.value })}
+                          <input value={ms.sku || ''} onChange={e => updateSupplierLinkLocal(ms.id, { sku: e.target.value })}
                             placeholder="SKU"
                             style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                         </div>
                         <div>
                           <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Lead time</label>
-                          <input value={ms.lead_time || ''} onChange={e => updateSupplierLink(ms.id, { lead_time: e.target.value })}
+                          <input value={ms.lead_time || ''} onChange={e => updateSupplierLinkLocal(ms.id, { lead_time: e.target.value })}
                             placeholder="e.g. 5 days"
                             style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                         </div>
@@ -624,26 +657,36 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                             <input type="number" placeholder="Qty" value={b.qty}
                               onChange={e => {
                                 const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,qty:e.target.value} : x)
-                                updateSupplierLink(ms.id, { price_breaks: updated })
+                                updateSupplierLinkLocal(ms.id, { price_breaks: updated })
                               }}
                               style={{ width:64, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
                             <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>units → $</span>
                             <input type="number" step="0.01" placeholder="0.00" value={b.price}
                               onChange={e => {
                                 const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,price:e.target.value} : x)
-                                updateSupplierLink(ms.id, { price_breaks: updated })
+                                updateSupplierLinkLocal(ms.id, { price_breaks: updated })
                               }}
                               style={{ flex:1, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
                             <button onClick={() => {
                                 const updated = (ms.price_breaks || []).filter((_,j) => j!==bi)
-                                updateSupplierLink(ms.id, { price_breaks: updated })
+                                updateSupplierLinkLocal(ms.id, { price_breaks: updated })
                               }}
                               style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, flexShrink:0 }}>×</button>
                           </div>
                         ))}
-                        <button onClick={() => updateSupplierLink(ms.id, { price_breaks: [...(ms.price_breaks || []), { qty:'', price:'' }] })}
-                          style={{ width:'100%', padding:'5px', borderRadius:7, border:'1px dashed #C7D2FE', background:'none', color:'#5B8AF0', fontSize:10, fontWeight:600, cursor:'pointer', marginTop:2 }}>
-                          + Add price break
+                        <button onClick={() => updateSupplierLinkLocal(ms.id, { price_breaks: [...(ms.price_breaks||[]), {qty:'',price:''}] })}
+                          style={{ fontSize:11, color:'#5B8AF0', background:'none', border:'none', cursor:'pointer', padding:0, fontWeight:600 }}>
+                          + Add qty break
+                        </button>
+                      </div>
+
+                      {/* Explicit save button — no auto-save so nothing gets lost */}
+                      <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid rgba(0,0,0,0.06)', display:'flex', justifyContent:'flex-end' }}>
+                        <button onClick={() => saveSupplierLink(ms)} disabled={supplierSaving === ms.id}
+                          style={{ fontSize:12, fontWeight:700, padding:'7px 18px', borderRadius:9, border:'none', background: supplierSaving===ms.id ? '#E8ECF0' : '#1D9E75', color: supplierSaving===ms.id ? '#9CA3AF' : '#fff', cursor: supplierSaving===ms.id ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                          {supplierSaving === ms.id
+                            ? <><span className="spinner" style={{ width:12, height:12 }} />Saving…</>
+                            : '✓ Save supplier info'}
                         </button>
                       </div>
                     </div>
@@ -788,22 +831,25 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
             </div>
           )}
 
-          {/* Price — qty breaks now managed per-supplier in the Suppliers tab */}
+          {/* Pricing — link to Suppliers tab rather than a confusing inline box */}
           {!isKit && (
-          <div style={{ background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, padding:14 }}>
-            <label style={{ fontSize:11, fontWeight:700, color:'#3730A3', display:'block', marginBottom:4 }}>Price</label>
-            <div style={{ position:'relative', maxWidth:160, marginBottom: isEditing ? 8 : 0 }}>
-              <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#9CA3AF' }}>$</span>
-              <input type="number" step="0.01" value={form.price||''} onChange={e=>setForm(p=>({...p,price:e.target.value}))}
-                placeholder="0.00"
-                style={{ width:'100%', padding:'8px 10px 8px 22px', border:'1px solid #DDE3EC', borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', background:'#fff' }} />
-            </div>
-            {isEditing && (
-              <div style={{ fontSize:11, color:'#9CA3AF', lineHeight:1.5 }}>
-                Set per-supplier pricing and qty breaks in the <strong>Suppliers</strong> tab — the preferred supplier's price will override this field automatically.
+            <button
+              onClick={() => setModalTab('suppliers')}
+              style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', padding:'12px 14px', background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:12, cursor:'pointer', textAlign:'left' }}
+              onMouseEnter={e => e.currentTarget.style.background='#EEF2FF'}
+              onMouseLeave={e => e.currentTarget.style.background='#F8FAFF'}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#3730A3' }}>
+                  {form.price ? `$${parseFloat(form.price).toFixed(2)}` : 'No price set'}
+                </div>
+                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                  {isEditing ? 'Tap to manage supplier pricing & qty breaks' : 'Set pricing in the Suppliers tab after saving'}
+                </div>
               </div>
-            )}
-          </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2" style={{ flexShrink:0 }}>
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
           )}
         </div>
         )}

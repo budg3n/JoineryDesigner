@@ -1466,20 +1466,90 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
   }) : []
 
   const toOrder = orders.filter(o=>o.status==='To order').length
+  const [syncing, setSyncing] = useState(false)
+  const syncedCount = React.useRef(0)
+
+  async function resyncFromLibrary() {
+    const syncable = orders.filter(o => o.material_id)
+    if (syncable.length === 0) { toast('No linked materials to resync', 'error'); return }
+    if (!confirm(`Resync ${syncable.length} item${syncable.length!==1?'s':''} from the library?\n\nThis will update: name, supplier, price, price breaks, SKU, panel type, thickness, colour and finish.\n\nQty, unit, notes and status will not change.`)) return
+    setSyncing(true)
+    syncedCount.current = 0
+    try {
+      // Fetch all linked materials in one query
+      const matIds = [...new Set(syncable.map(o => o.material_id))]
+      const { data: freshMats, error } = await supabase.from('materials').select('*').in('id', matIds)
+      if (error) { toast(error.message, 'error'); setSyncing(false); return }
+      const matMap = {}
+      ;(freshMats||[]).forEach(m => { matMap[m.id] = m })
+
+      const updatedOrders = [...orders]
+      for (const o of syncable) {
+        const mat = matMap[o.material_id]
+        if (!mat) continue
+        const cf = mat.custom_fields
+          ? (typeof mat.custom_fields === 'object' ? mat.custom_fields : (() => { try { return JSON.parse(mat.custom_fields) } catch { return {} } })())
+          : {}
+        const priceBreaks = getPriceBreaks(mat)
+        const basePrice = mat.price ? String(mat.price) : ''
+        const effPrice = priceBreaks.length && o.qty
+          ? getEffectivePrice(basePrice, priceBreaks, parseFloat(o.qty))
+          : (parseFloat(basePrice) || 0)
+
+        const patch = {
+          item:        mat.name || o.item,
+          supplier:    mat.supplier || cf.supplier || '',
+          panel_type:  mat.panel_type || '',
+          thickness:   mat.thickness ? String(mat.thickness) : '',
+          colour:      mat.colour_code || cf.colour || '',
+          finish:      mat.finish || '',
+          sku:         mat.sku || cf.sku || '',
+          price:       effPrice ? String(effPrice) : basePrice,
+          price_breaks: priceBreaks.length ? JSON.stringify(priceBreaks) : null,
+          updated_at:  new Date().toISOString(),
+        }
+        const { error: upErr } = await supabase.from('order_items').update(patch).eq('id', o.id)
+        if (!upErr) {
+          const idx = updatedOrders.findIndex(x => x.id === o.id)
+          if (idx !== -1) updatedOrders[idx] = { ...updatedOrders[idx], ...patch, price_breaks: priceBreaks }
+          syncedCount.current++
+        }
+      }
+      setOrders(updatedOrders)
+      toast(`Resynced ${syncedCount.current} item${syncedCount.current!==1?'s':''} ✓`)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <div>
       {/* header */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>Items to order</span>
           {toOrder>0&&<span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:10,background:'#FEF9C3',color:'#854D0E'}}>{toOrder} to order</span>}
         </div>
-        <button onClick={onOpenFull}
-          style={{fontSize:11,fontWeight:600,padding:'5px 12px',borderRadius:8,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          Full order sheet
-        </button>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          {orders.some(o=>o.material_id) && (
+            <button onClick={resyncFromLibrary} disabled={syncing}
+              title="Update order items with the latest pricing, name and specs from the materials library"
+              style={{fontSize:11,fontWeight:600,padding:'5px 12px',borderRadius:8,border:'1px solid #E8ECF0',background:'#fff',color:syncing?'#9CA3AF':'#6B7280',cursor:syncing?'default':'pointer',display:'flex',alignItems:'center',gap:5}}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                style={{animation:syncing?'spin 1s linear infinite':undefined}}>
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+              </svg>
+              {syncing ? 'Syncing…' : 'Resync from library'}
+            </button>
+          )}
+          <button onClick={onOpenFull}
+            style={{fontSize:11,fontWeight:600,padding:'5px 12px',borderRadius:8,border:'1px solid #C4D4F8',background:'#EEF2FF',color:'#3730A3',cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Full order sheet
+          </button>
+        </div>
       </div>
 
       {/* search + add */}
