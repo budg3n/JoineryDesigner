@@ -25,6 +25,31 @@ import DropZone from '../components/DropZone'
 import StatusBadge from '../components/StatusBadge'
 import { enrichMaterialNames } from '../lib/materialName'
 
+// ── Category grouping helpers ─────────────────────────────────────
+function getCategoryLabel(categoryId, allCats) {
+  if (!categoryId || !allCats?.length) return 'Other'
+  const cat = allCats.find(c => c.id === categoryId)
+  if (!cat) return 'Other'
+  const chain = []
+  let cur = cat
+  while (cur) { chain.unshift(cur); cur = cur.parent_id ? allCats.find(c => c.id === cur.parent_id) : null }
+  const root = chain[0]?.name || 'Other'
+  const sub  = chain[1]?.name
+  return sub ? `${root} › ${sub}` : root
+}
+function groupByCategory(rows, allCats) {
+  const groups = {}
+  for (const jm of rows) {
+    const m = jm.materials || jm
+    const label = getCategoryLabel(m.category_id, allCats)
+    if (!groups[label]) groups[label] = []
+    groups[label].push(jm)
+  }
+  return Object.entries(groups)
+    .sort(([a], [b]) => { if (a==='Other') return 1; if (b==='Other') return -1; return a.localeCompare(b) })
+    .map(([groupName, items]) => ({ groupName, items }))
+}
+
 // ── Room icon picker ──────────────────────────────────────────────
 const ROOM_ICONS = [
   { label:'Kitchen',    icons:['🍳','🥘','🍽','🫕','☕','🧑‍🍳'] },
@@ -1523,7 +1548,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [], variations = {} }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, allCats = [], onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [], variations = {} }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1937,6 +1962,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, onRooms
                   )}
                   <RoomDetail
                     room={room} jobId={jobId} jobMats={jobMats} allAppliances={allAppliances}
+                    allCats={allCats}
                     inline={true}
                     onClose={() => setExpandedId(null)}
                     onSave={saved => onRoomsChange(p=>p.map(r=>r.id===saved.id?saved:r))}
@@ -3701,6 +3727,7 @@ export default function JobDetail() {
   const [atts, setAtts]     = useState([])
   const [materials, setMaterials] = useState([])
   const [jobMats, setJobMats]     = useState([])
+  const [allCats, setAllCats]     = useState([]) // all material_categories for root-group lookup
   const [allMats, setAllMats]     = useState([])
   const [panelMaterials, setPanelMaterials] = useState([])
   const [loading, setLoading]     = useState(true)
@@ -3777,11 +3804,11 @@ export default function JobDetail() {
   const loadAll = useCallback(async () => {
     // Only fetch what we need to render the page immediately
     // allMats (materials library) is fetched lazily when picker is opened
-    const [{ data: j }, { data: a }, { data: jm }, { data: panelMats }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
+    const [{ data: j }, { data: a }, { data: jm }, { data: catData }, { data: ja }, { data: appLib }, { data: jNotes }, { data: fTypes }, { data: approvs }] = await Promise.all([
       supabase.from('jobs').select('*,customers(id,first_name,last_name,company)').eq('id', id).single(),
       supabase.from('attachments').select('id,name,size,type,storage_path,created_at,file_type_id').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
-      Promise.resolve({ data: [] }), // materials loaded lazily on tab open
+      supabase.from('material_categories').select('id,name,parent_id').order('name'),
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
       Promise.resolve({ data: [] }), // appliances loaded lazily on tab open
       supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
@@ -3789,6 +3816,7 @@ export default function JobDetail() {
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
     ])
     setJob(j); setAtts(a||[])
+    setAllCats(catData||[])
     // Enrich material names using auto-name settings from Materials screen
     const rawJm = jm || []
     const enriched = await Promise.all(rawJm.map(async row => {
@@ -3802,7 +3830,7 @@ export default function JobDetail() {
       ? (typeof j.kitchen_specs === 'string' ? JSON.parse(j.kitchen_specs) : j.kitchen_specs)
       : {}
     const panelCats = []
-    setPanelMaterials((panelMats||[]).filter(m => m.panel_type || m.category_id))
+    setPanelMaterials([]) // materials loaded lazily on tab open
     setTasks(j?.tasks ? JSON.parse(j.tasks) : [])
     setJobAppliances(ja||[])
     setAllAppliances(appLib||[])
@@ -4499,7 +4527,7 @@ export default function JobDetail() {
       {/* ROOMS */}
       {jobTab === 'rooms' && <InlineRoomsPanel
         rooms={rooms} jobId={id} toast={toast}
-        jobMats={jobMats} allAppliances={allAppliances}
+        jobMats={jobMats} allAppliances={allAppliances} allCats={allCats}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
         autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis}
         roomStatuses={roomStatuses} variations={jobLevelVariations} />}
@@ -4508,25 +4536,36 @@ export default function JobDetail() {
       {jobTab === 'materials' && <div>
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12 }}>Materials</div>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {jobMats.map(jm => {
-              const m = jm.materials; if (!m) return null
-              return (
-                <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
-                  {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" loading="lazy" /> : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0 }} />}
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
-                      {m.is_kit && <span title="Kit" style={{ fontSize:11 }}>🧰</span>}
-                      {m.name}
-                    </div>
-                    <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
+          {jobMats.length > 0 && (
+            <div style={{ marginBottom:14, display:'flex', flexDirection:'column', gap:14 }}>
+              {groupByCategory(jobMats, allCats).map(({ groupName, items }) => (
+                <div key={groupName}>
+                  <div style={{ fontSize:11, fontWeight:800, color:'#6B7280', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:6, paddingBottom:4, borderBottom:'1px solid #E8ECF0' }}>
+                    {groupName} <span style={{ fontWeight:500 }}>({items.length})</span>
                   </div>
-                  <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4 }}
-                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                  <div className="flex flex-wrap gap-2">
+                    {items.map(jm => {
+                      const m = jm.materials; if (!m) return null
+                      return (
+                        <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
+                          {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" loading="lazy" /> : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0 }} />}
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                              {m.is_kit && <span title="Kit" style={{ fontSize:11 }}>🧰</span>}
+                              {m.name}
+                            </div>
+                            <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
+                          </div>
+                          <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4 }}
+                            onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          )}
           <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
           {matPickerOpen && <div style={{ marginTop:10 }}>
             <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:4 }}>
@@ -4544,23 +4583,32 @@ export default function JobDetail() {
                   .join(' ')
                 return words.every(w => haystack.includes(w))
               })
-              return results.length === 0 ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches</div>
-                : <div style={{ maxHeight:220, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
-                    {results.map(m => (
-                      <div key={m.id} onClick={() => { addMat(m.id); setMatSearch(''); setMatPickerOpen(false) }}
-                        style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', background:'#fff' }}
-                        onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-                        {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" /> : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />}
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
-                            {m.is_kit && <span title="Kit">🧰</span>}
-                            {m.name}
-                          </div>
-                          <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
-                        </div>
+              if (results.length === 0) return <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches</div>
+              return (
+                <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
+                  {groupByCategory(results, allCats).map(({ groupName, items }) => (
+                    <div key={groupName}>
+                      <div style={{ padding:'5px 12px 3px', fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', background:'#F9FAFB', borderBottom:'1px solid #F3F4F6', position:'sticky', top:0 }}>
+                        {groupName}
                       </div>
-                    ))}
-                  </div>
+                      {items.map(m => (
+                        <div key={m.id} onClick={() => { addMat(m.id); setMatSearch(''); setMatPickerOpen(false) }}
+                          style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', background:'#fff' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+                          {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" /> : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />}
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                              {m.is_kit && <span title="Kit">🧰</span>}
+                              {m.name}
+                            </div>
+                            <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )
             })()}
           </div>}
         </div>

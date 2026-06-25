@@ -715,7 +715,66 @@ function RFIResponseInput({ detail, onSave }) {
 }
 
 // ── Room Materials Tab ────────────────────────────────────────────
-function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove }) {
+// Walk up parent_id chain to find the root (top-level) category.
+function getRootCat(categoryId, allCats) {
+  if (!categoryId || !allCats?.length) return null
+  let cat = allCats.find(c => c.id === categoryId)
+  if (!cat) return null
+  while (cat.parent_id) {
+    const parent = allCats.find(c => c.id === cat.parent_id)
+    if (!parent) break
+    cat = parent
+  }
+  return cat
+}
+
+// Get the category label shown as "Root > Sub" (second level below root, or just root if flat).
+// e.g. Hardware > Fit Hardware > Anzio → "Hardware > Fit Hardware"
+// e.g. Boards > MDF → "Boards > MDF"
+// e.g. Hardware (single level) → "Hardware"
+function getCategoryLabel(categoryId, allCats) {
+  if (!categoryId || !allCats?.length) return 'Other'
+  const cat = allCats.find(c => c.id === categoryId)
+  if (!cat) return 'Other'
+
+  // Build ancestor chain from leaf → root
+  const chain = []
+  let cur = cat
+  while (cur) {
+    chain.unshift(cur)
+    cur = cur.parent_id ? allCats.find(c => c.id === cur.parent_id) : null
+  }
+  // chain[0] = root, chain[1] = second level, chain[chain.length-1] = leaf
+  const root = chain[0]?.name || 'Other'
+  const sub  = chain[1]?.name
+  return sub ? `${root} › ${sub}` : root
+}
+
+// Group an array of jobMat rows by two-level category label.
+// Returns groups sorted: root first alphabetically, then sub alphabetically within root, 'Other' last.
+function groupByCategory(jobMatRows, allCats) {
+  const groups = {}
+  for (const jm of jobMatRows) {
+    const m = jm.materials || jm
+    const label = getCategoryLabel(m.category_id, allCats)
+    if (!groups[label]) groups[label] = []
+    groups[label].push(jm)
+  }
+
+  // Sort: Other last, otherwise by root then sub
+  return Object.entries(groups)
+    .sort(([a], [b]) => {
+      if (a === 'Other') return 1
+      if (b === 'Other') return -1
+      return a.localeCompare(b)
+    })
+    .map(([groupName, items]) => ({ groupName, items }))
+}
+
+// Keep old name as alias for any callers that still use it
+function groupByRootCategory(rows, allCats) { return groupByCategory(rows, allCats) }
+
+function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
   const [adding, setAdding]         = React.useState(false)
@@ -820,36 +879,42 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove }) 
             </button>
           )}
 
-          {/* List */}
+          {/* List — grouped by root category */}
           <div style={{ overflowY:'auto', flex:1 }}>
             {searchFiltered.length === 0 ? (
               <div style={{ padding:'16px 12px', textAlign:'center', color:'#9CA3AF', fontSize:12 }}>No materials found</div>
-            ) : searchFiltered.map(jm => {
-              const m = jm.materials
-              return (
-                <div key={jm.id}
-                  onClick={() => { onAdd(jm); setShowPicker(false); setSearch('') }}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB' }}
-                  onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
-                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  {/* Swatch */}
-                  {m.storage_path
-                    ? <img src={pubUrl(m.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                    : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
-                  }
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:5 }}>
-                      {m.is_kit && <span title="Kit" style={{ fontSize:11, flexShrink:0 }}>🧰</span>}
-                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
-                    </div>
-                    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
-                      {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                  <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
+            ) : groupByRootCategory(searchFiltered, allCats).map(({ groupName, items }) => (
+              <div key={groupName}>
+                <div style={{ padding:'6px 12px 3px', fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', background:'#F9FAFB', borderBottom:'1px solid #F3F4F6', position:'sticky', top:0 }}>
+                  {groupName} ({items.length})
                 </div>
-              )
-            })}
+                {items.map(jm => {
+                  const m = jm.materials
+                  return (
+                    <div key={jm.id}
+                      onClick={() => { onAdd(jm); setShowPicker(false); setSearch('') }}
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB' }}
+                      onMouseEnter={e=>e.currentTarget.style.background='#F5F7FF'}
+                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      {m.storage_path
+                        ? <img src={pubUrl(m.storage_path)} style={{ width:32,height:32,borderRadius:7,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                        : <div style={{ width:32,height:32,borderRadius:7,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
+                      }
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:5 }}>
+                          {m.is_kit && <span title="Kit" style={{ fontSize:11, flexShrink:0 }}>🧰</span>}
+                          <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
+                        </div>
+                        <div style={{ fontSize:10, color:'#9CA3AF', marginTop:1 }}>
+                          {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <span style={{ fontSize:18, color:'#5B8AF0', flexShrink:0 }}>+</span>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </div>,
         document.body
@@ -866,32 +931,44 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove }) 
           Tap <strong>+ Add material</strong> to assign materials to this room.
         </div>
       )}
-      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-        {roomMats.map(rm => {
-          const m = rm.materials; if (!m) return null
-          return (
-            <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
-              {m.storage_path
-                ? <img src={pubUrl(m.storage_path)} style={{ width:40,height:40,borderRadius:9,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
-                : <div style={{ width:40,height:40,borderRadius:9,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
-              }
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
-                  {m.is_kit && <span title="Kit">🧰</span>}
-                  {m.name}
-                </div>
-                <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                  {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
-                </div>
+      {/* Assigned materials list — grouped by root category */}
+      {roomMats.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          {groupByRootCategory(roomMats, allCats).map(({ groupName, items }) => (
+            <div key={groupName}>
+              <div style={{ fontSize:11, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:6, paddingBottom:4, borderBottom:'1px solid #E8ECF0' }}>
+                {groupName} <span style={{ fontWeight:500 }}>({items.length})</span>
               </div>
-              <button onClick={() => onRemove(rm.id)}
-                style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
-                onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
-                onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {items.map(rm => {
+                  const m = rm.materials; if (!m) return null
+                  return (
+                    <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
+                      {m.storage_path
+                        ? <img src={pubUrl(m.storage_path)} style={{ width:40,height:40,borderRadius:9,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
+                        : <div style={{ width:40,height:40,borderRadius:9,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
+                      }
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
+                          {m.is_kit && <span title="Kit">🧰</span>}
+                          {m.name}
+                        </div>
+                        <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
+                          {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <button onClick={() => onRemove(rm.id)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
+                        onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                        onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1094,7 +1171,7 @@ function RoomFilesTab({ room, jobId }) {
   )
 }
 
-function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
+function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [] }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
@@ -1455,17 +1532,24 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
                     </div>
                   </div>
                   {matches.length > 0 ? (
-                matches.map(m=>(
-                  <div key={m.id} onMouseDown={()=>pickMaterial(m)}
-                    style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name || [m.supplier,m.panel_type,m.colour_code,m.finish].filter(Boolean).join(' ')}</div>
-                    <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>
-                      {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                ))
+                    groupByRootCategory(matches.map(m => ({ materials: m })), allCats).map(({ groupName, items }) => (
+                      <div key={groupName}>
+                        <div style={{ padding:'5px 14px 3px', fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', background:'#F9FAFB', borderBottom:'1px solid #F3F4F6' }}>
+                          {groupName}
+                        </div>
+                        {items.map(({ materials: m }) => (
+                          <div key={m.id} onMouseDown={()=>pickMaterial(m)}
+                            style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                            <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name || [m.supplier,m.panel_type,m.colour_code,m.finish].filter(Boolean).join(' ')}</div>
+                            <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>
+                              {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))
                   ) : search.trim().length > 0 ? (
                 <div>
                   <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',borderBottom:'1px solid #F9FAFB'}}>
@@ -1590,83 +1674,114 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull }) {
         )}
       </div>
 
-      {/* existing items */}
+      {/* existing items — grouped by category with image previews */}
       {loading ? <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:12}}>Loading…</div>
-      : orders.length > 0 && (
-        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
-          {orders.map(o=>{
-            const sc = STATUS_COLOR[o.status]||STATUS_COLOR['To order']
-            const spec = [o.panel_type, o.thickness?o.thickness+'mm':null, o.colour, o.finish].filter(Boolean).join(' · ')
-            const qty = parseFloat(o.qty)
-            const priceBreaks = o.price_breaks || []
-            const effPrice = getEffectivePrice(o.price, priceBreaks, qty)
-            const price = effPrice
-            const total = !isNaN(qty)&&price>0&&qty>0 ? (qty*price).toFixed(2) : null
-            const hasBreakActive = priceBreaks.length > 0 && effPrice !== (parseFloat(o.price)||0)
-            return (
-              <div key={o.id} style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',overflow:'hidden'}}>
-                {/* top row */}
-                <div style={{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 12px 6px'}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                      <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
-                      {o.kit_name && (
-                        <span style={{fontSize:9,fontWeight:700,padding:'1px 7px',borderRadius:6,background:'#FFF7ED',color:'#C2410C',border:'1px solid #FED7AA',whiteSpace:'nowrap'}}>
-                          🧰 {o.kit_name}
-                        </span>
-                      )}
-                    </div>
-                    {spec&&<div style={{fontSize:11,color:'#6B7280',marginTop:2}}>{spec}</div>}
-                    {o.supplier&&<div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>{o.supplier}</div>}
+      : orders.length > 0 && (() => {
+          // Build a lookup from material_id → full material (for image + category_id)
+          const matById = {}
+          ;(roomMats||[]).forEach(rm => { if (rm.materials) matById[rm.materials.id] = rm.materials })
+
+          // Wrap orders as { materials: { category_id, storage_path } } shape for groupByCategory
+          const wrapped = orders.map(o => ({
+            ...o,
+            materials: matById[o.material_id] || { category_id: null, storage_path: null },
+          }))
+
+          const grouped = groupByCategory(wrapped, allCats)
+
+          return (
+            <div style={{display:'flex',flexDirection:'column',gap:16,marginBottom:12}}>
+              {grouped.map(({ groupName, items }) => (
+                <div key={groupName}>
+                  <div style={{fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #E8ECF0'}}>
+                    {groupName} <span style={{fontWeight:500}}>({items.length})</span>
                   </div>
-                  <button onClick={()=>toggleStatus(o)}
-                    style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:8,border:`1px solid ${sc.bg}`,background:sc.bg,color:sc.color,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
-                    {o.status}
-                  </button>
-                  {/* Show PO number when ordered */}
-                  {o.po_number && (
-                    <span style={{fontSize:10,fontWeight:700,color:'#374151',background:'#F3F4F6',border:'1px solid #E8ECF0',borderRadius:6,padding:'2px 7px',fontFamily:'monospace',flexShrink:0}}>
-                      {o.po_number}
-                    </span>
-                  )}
-                  <button onClick={()=>removeItem(o.id)}
-                    style={{background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:16,lineHeight:1,flexShrink:0,padding:'0 2px'}}
-                    onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
-                    onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                  <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                    {items.map(o => {
+                      const mat = matById[o.material_id]
+                      const sc = STATUS_COLOR[o.status]||STATUS_COLOR['To order']
+                      const spec = [o.panel_type, o.thickness?o.thickness+'mm':null, o.colour, o.finish].filter(Boolean).join(' · ')
+                      const qty = parseFloat(o.qty)
+                      const priceBreaks = o.price_breaks || []
+                      const effPrice = getEffectivePrice(o.price, priceBreaks, qty)
+                      const price = effPrice
+                      const total = !isNaN(qty)&&price>0&&qty>0 ? (qty*price).toFixed(2) : null
+                      const hasBreakActive = priceBreaks.length > 0 && effPrice !== (parseFloat(o.price)||0)
+                      return (
+                        <div key={o.id} style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',overflow:'hidden'}}>
+                          {/* top row */}
+                          <div style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 12px 6px'}}>
+                            {/* Image thumbnail */}
+                            {mat?.storage_path
+                              ? <img src={pubUrl(mat.storage_path)} alt="" style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0'}} />
+                              : <div style={{width:40,height:40,borderRadius:8,background:'#F3F4F6',flexShrink:0,border:'1px solid #E8ECF0',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                </div>
+                            }
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                                <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
+                                {o.kit_name && (
+                                  <span style={{fontSize:9,fontWeight:700,padding:'1px 7px',borderRadius:6,background:'#FFF7ED',color:'#C2410C',border:'1px solid #FED7AA',whiteSpace:'nowrap'}}>
+                                    🧰 {o.kit_name}
+                                  </span>
+                                )}
+                              </div>
+                              {spec&&<div style={{fontSize:11,color:'#6B7280',marginTop:2}}>{spec}</div>}
+                              {o.supplier&&<div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>{o.supplier}</div>}
+                            </div>
+                            <button onClick={()=>toggleStatus(o)}
+                              style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:8,border:`1px solid ${sc.bg}`,background:sc.bg,color:sc.color,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                              {o.status}
+                            </button>
+                            {o.po_number && (
+                              <span style={{fontSize:10,fontWeight:700,color:'#374151',background:'#F3F4F6',border:'1px solid #E8ECF0',borderRadius:6,padding:'2px 7px',fontFamily:'monospace',flexShrink:0}}>
+                                {o.po_number}
+                              </span>
+                            )}
+                            <button onClick={()=>removeItem(o.id)}
+                              style={{background:'none',border:'none',cursor:'pointer',color:'#D1D5DB',fontSize:16,lineHeight:1,flexShrink:0,padding:'0 2px'}}
+                              onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
+                              onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
+                          </div>
+                          {/* stats row */}
+                          <div style={{display:'flex',gap:0,borderTop:'1px solid #F3F4F6'}}>
+                            {o.qty&&<div style={{flex:1,padding:'6px 12px',borderRight:'1px solid #F3F4F6'}}>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Qty</div>
+                              <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.qty} {o.unit}</div>
+                            </div>}
+                            {o.price&&<div style={{flex:1,padding:'6px 12px',borderRight:total?'1px solid #F3F4F6':'none'}}>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Unit price</div>
+                              <div style={{fontSize:12,fontWeight:700,color:'#374151',display:'flex',alignItems:'center',gap:4}}>
+                                ${price.toFixed(2)}
+                                {hasBreakActive && <span style={{fontSize:9,color:'#5B8AF0',background:'#EEF2FF',borderRadius:4,padding:'1px 5px',fontWeight:700}}>break</span>}
+                              </div>
+                              {hasBreakActive && <div style={{fontSize:9,color:'#9CA3AF',marginTop:1}}>base ${parseFloat(o.price).toFixed(2)}</div>}
+                            </div>}
+                            {total&&<div style={{flex:1,padding:'6px 12px'}}>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Total</div>
+                              <div style={{fontSize:12,fontWeight:700,color:'#1D9E75'}}>${total}</div>
+                            </div>}
+                            {o.dimensions&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Size</div>
+                              <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.dimensions}</div>
+                            </div>}
+                            {o.sku&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>SKU</div>
+                              <div style={{fontSize:12,fontWeight:600,color:'#374151'}}>{o.sku}</div>
+                            </div>}
+                          </div>
+                          {o.notes&&<div style={{padding:'4px 12px 8px',fontSize:11,color:'#9CA3AF',fontStyle:'italic'}}>{o.notes}</div>}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-                {/* stats row */}
-                <div style={{display:'flex',gap:0,borderTop:'1px solid #F3F4F6'}}>
-                  {o.qty&&<div style={{flex:1,padding:'6px 12px',borderRight:'1px solid #F3F4F6'}}>
-                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Qty</div>
-                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.qty} {o.unit}</div>
-                  </div>}
-                  {o.price&&<div style={{flex:1,padding:'6px 12px',borderRight:total?'1px solid #F3F4F6':'none'}}>
-                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Unit price</div>
-                    <div style={{fontSize:12,fontWeight:700,color:'#374151',display:'flex',alignItems:'center',gap:4}}>
-                      ${price.toFixed(2)}
-                      {hasBreakActive && <span style={{fontSize:9,color:'#5B8AF0',background:'#EEF2FF',borderRadius:4,padding:'1px 5px',fontWeight:700}}>break</span>}
-                    </div>
-                    {hasBreakActive && <div style={{fontSize:9,color:'#9CA3AF',marginTop:1}}>base ${parseFloat(o.price).toFixed(2)}</div>}
-                  </div>}
-                  {total&&<div style={{flex:1,padding:'6px 12px'}}>
-                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Total</div>
-                    <div style={{fontSize:12,fontWeight:700,color:'#1D9E75'}}>${total}</div>
-                  </div>}
-                  {o.dimensions&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
-                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>Size</div>
-                    <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.dimensions}</div>
-                  </div>}
-                  {o.sku&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
-                    <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>SKU</div>
-                    <div style={{fontSize:12,fontWeight:600,color:'#374151'}}>{o.sku}</div>
-                  </div>}
-                </div>
-                {o.notes&&<div style={{padding:'4px 12px 8px',fontSize:11,color:'#9CA3AF',fontStyle:'italic'}}>{o.notes}</div>}
-              </div>
-            )
-          })}
-        </div>
-      )}
+              ))}
+            </div>
+          )
+        })()
+      }
 
       {!loading && orders.length===0 && !selected && (
         <div style={{textAlign:'center',padding:'20px 0',color:'#9CA3AF',fontSize:13}}>
@@ -1804,7 +1919,7 @@ function AddAllQueueModal({ queue, unitOptions, onSaveItem, onAdvance, onSkip, o
   )
 }
 
-export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, onClose, onSave, onSyncJobTasks, inline=false }) {
+export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppliances, allCats = [], onClose, onSave, onSyncJobTasks, inline=false }) {
   const toast = useToast()
   const { profile } = useApp()
   const navigate = useNavigate()
@@ -2174,6 +2289,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
             <RoomMaterialsTab
               roomMats={roomMats} filteredMats={filteredMats} jobMats={jobMats}
               onAdd={jm=>addMat(jm.materials)} onRemove={removeMat}
+              allCats={allCats}
             />
           )}
 
@@ -2252,6 +2368,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
         {/* ── ORDERS ── */}
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats} roomMats={roomMats}
+              allCats={allCats}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
           )}
 
