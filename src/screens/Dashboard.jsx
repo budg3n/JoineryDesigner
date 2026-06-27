@@ -314,9 +314,14 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
 
           {/* Row 3: job image (if set), else customer logo, else just client name */}
           {job.image_path ? (
-            <div style={{ marginBottom:6, borderRadius:8, background:'#fff', border:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', padding:'6px 8px', minHeight:48 }}>
-              <img src={pubUrl(job.image_path)} alt=""
-                style={{ maxWidth:'100%', maxHeight:72, objectFit:'contain', display:'block', imageRendering:'auto' }} />
+            <div style={{ marginBottom:4 }}>
+              <div style={{ borderRadius:8, background:'#fff', border:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', padding:'6px 8px', minHeight:48, marginBottom:4 }}>
+                <img src={pubUrl(job.image_path)} alt=""
+                  style={{ maxWidth:'100%', maxHeight:72, objectFit:'contain', display:'block', imageRendering:'auto' }} />
+              </div>
+              <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {clientLabel}
+              </div>
             </div>
           ) : customer?.logo_path ? (
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:6, gap:4 }}>
