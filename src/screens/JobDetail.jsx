@@ -15,6 +15,7 @@ import { cachedQuery } from '../hooks/useCache'
 import { ClockInButton, BudgetBar, TimeHistory, fmtHours } from './ClockIn'
 import { NoteEditor } from './Notes'
 import RoomDetail from './RoomDetail'
+import ImageLibrary from '../components/ImageLibrary'
 import { ActiveProcessBanner } from './JobProcesses'
 import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -3768,7 +3769,11 @@ export default function JobDetail() {
   const [startupOpenKey, setStartupOpenKey] = useState(0)
   const [allNotes, setAllNotes] = useState([])
   const [allJobs, setAllJobs] = useState([])
+  const [allCustomers, setAllCustomers] = useState([])
   const [dirty, setDirty] = useState(false)
+  const [showJobImageLib, setShowJobImageLib] = useState(false)
+  const [customerSearch, setCustomerSearch] = useState(null)
+  const [customerDropOpen, setCustomerDropOpen] = useState(false)
   const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'overview')
   // Refresh the lightweight RFI list (used for room-row icons) whenever switching
   // to a tab that shows them, so status changes made in the RFI tab are reflected.
@@ -3870,6 +3875,16 @@ export default function JobDetail() {
       .then(({data})=>setTimeHistory(data||[]))
     // Unordered items count
     supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
+    supabase.from('customers').select('id,first_name,last_name,company,logo_path,brand_colour').order('last_name')
+      .then(({data, error}) => {
+        if (error) {
+          // logo_path/brand_colour may not exist yet — retry with safe columns
+          supabase.from('customers').select('id,first_name,last_name,company').order('last_name')
+            .then(({data}) => setAllCustomers(data||[]))
+        } else {
+          setAllCustomers(data||[])
+        }
+      })
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
@@ -4008,6 +4023,8 @@ export default function JobDetail() {
       name:             fullName,
       job_number:       num || null,
       client:           job.client        || null,
+      customer_id:      job.customer_id   || null,
+      image_path:       job.image_path    || null,
       type:             job.type          || 'Kitchen',
       status:           job.status        || 'In progress',
       notes:            job.notes         || null,
@@ -4297,15 +4314,33 @@ export default function JobDetail() {
           so the sticky background covers that gap instead of letting content show through. */}
       <div style={{ position:'sticky', top:-16, zIndex:40, background:'var(--bg-page, #F0F2F5)', marginTop:-16, marginLeft:-16, marginRight:-16, paddingTop:16, paddingLeft:16, paddingRight:16 }}>
         <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
-          <div>
+          <div style={{ flex:1, minWidth:0 }}>
             <h1 className="text-xl font-bold text-[#2A3042]">{job.name?.replace(/^.+?[\u2014\u2013-]{1,2}\s*/, '') || job.name}</h1>
             <div className="text-sm text-[#6B7280] mt-0.5">{[job.job_number, job.type, job.customers?.company || (job.customers ? `${job.customers.first_name||''} ${job.customers.last_name||''}`.trim() : null) || job.client].filter(Boolean).join(' \u00b7 ')}</div>
+          </div>
+          {/* Job image picker — click to set the image shown on the dashboard card */}
+          <div onClick={() => setShowJobImageLib(true)} title="Set job image (shown on dashboard card)"
+            style={{ width:56, height:56, borderRadius:10, border:`2px dashed ${job.image_path ? '#C4D4F8' : '#DDE3EC'}`, background:'#fff', cursor:'pointer', flexShrink:0, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center', padding: job.image_path ? 3 : 0 }}>
+            {job.image_path
+              ? <img src={pubUrl(job.image_path)} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', display:'block' }} />
+              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            }
           </div>
           <select value={job.status} onChange={e => { setJob(j => ({ ...j, status: e.target.value })); setDirty(true) }}
             className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${statusStyle[job.status]}`}>
             {jobStatuses.map(s => <option key={s.label}>{s.label}</option>)}
           </select>
         </div>
+        {showJobImageLib && (
+          <ImageLibrary
+            onSelect={img => {
+              setJob(j => ({ ...j, image_path: img.path }))
+              setDirty(true)
+              setShowJobImageLib(false)
+            }}
+            onClose={() => setShowJobImageLib(false)}
+          />
+        )}
         {overTasks.length > 0 && (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-3 text-sm text-red-700">
             ⚠ {overTasks.length} overdue task{overTasks.length > 1 ? 's' : ''} on this job
@@ -4342,7 +4377,7 @@ export default function JobDetail() {
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
-            {[['Job number','job_number','text'],['Job name','name','text'],['Client','client','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
+            {[['Job number','job_number','text'],['Job name','name','text'],['Budget hours','budget_hours','number'],['Start date','start_date','date'],['Due date','due_date','date']].map(([l,k,t]) => (
               <div key={k}><label className="label">{l}</label>
                 <input className="input text-sm" type={t==='number'?'number':'text'}
                   value={k==='name' ? (job.name?.replace(/^\d+\s*-\s*/,'') || '') : (job[k]||'')}
@@ -4350,6 +4385,71 @@ export default function JobDetail() {
                   placeholder={k==='job_number'?'e.g. 1234':k==='name'?'e.g. John Smith':''} />
               </div>
             ))}
+            {/* Client — searchable customer combobox */}
+            <div style={{ position:'relative', gridColumn:'span 1' }}>
+              <label className="label">Client</label>
+              <input className="input text-sm"
+                value={customerSearch !== null ? customerSearch : (job.client || '')}
+                placeholder={allCustomers.length ? `Search ${allCustomers.length} customers…` : 'Enter client name…'}
+                onChange={e => {
+                  setCustomerSearch(e.target.value)
+                  setJob(j => ({ ...j, client: e.target.value, customer_id: null }))
+                  setDirty(true)
+                  setCustomerDropOpen(true)
+                }}
+                onFocus={() => {
+                  setCustomerSearch('')
+                  setCustomerDropOpen(true)
+                }}
+                onBlur={() => {
+                  setTimeout(() => {
+                    setCustomerDropOpen(false)
+                    setCustomerSearch(null)
+                  }, 200)
+                }}
+              />
+              {customerDropOpen && allCustomers.length > 0 && (() => {
+                const q = (customerSearch || '').toLowerCase().trim()
+                const matches = q
+                  ? allCustomers.filter(c => [c.company, c.first_name, c.last_name].filter(Boolean).join(' ').toLowerCase().includes(q))
+                  : allCustomers
+                if (!matches.length) return null
+                return (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, marginTop:3, background:'#fff', border:'1px solid #E8ECF0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', zIndex:9999, maxHeight:220, overflowY:'auto' }}>
+                    {matches.slice(0, 30).map(c => {
+                      const label = c.company || `${c.first_name||''} ${c.last_name||''}`.trim()
+                      const sub = c.company && (c.first_name || c.last_name) ? `${c.first_name||''} ${c.last_name||''}`.trim() : null
+                      const isSelected = job.customer_id === c.id
+                      return (
+                        <div key={c.id}
+                          onMouseDown={e => {
+                            e.preventDefault()
+                            setJob(j => ({ ...j, client: label, customer_id: c.id }))
+                            setCustomerSearch(null)
+                            setCustomerDropOpen(false)
+                            setDirty(true)
+                          }}
+                          style={{ padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', display:'flex', alignItems:'center', gap:8, background: isSelected ? '#F0FDF4' : 'transparent' }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background='#F0F4FF' }}
+                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background='transparent' }}>
+                          <div style={{ width:28, height:28, borderRadius:6, background:c.brand_colour||'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color: c.brand_colour ? '#fff' : '#9CA3AF', flexShrink:0, overflow:'hidden', border:'1px solid rgba(0,0,0,0.06)' }}>
+                            {c.logo_path
+                              ? <img src={pubUrl(c.logo_path)} style={{ width:'100%', height:'100%', objectFit:'contain' }} alt="" />
+                              : (c.company||c.first_name||'?')[0].toUpperCase()
+                            }
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</div>
+                            {sub && <div style={{ fontSize:11, color:'#9CA3AF' }}>{sub}</div>}
+                          </div>
+                          {isSelected && <span style={{ fontSize:12, color:'#1D9E75', flexShrink:0, fontWeight:700 }}>✓</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
             <div><label className="label">Job type</label>
               <select className="input text-sm" value={job.type||'Kitchen'} onChange={e => { setJob(j => ({ ...j, type: e.target.value })); setDirty(true) }}>
                 {TYPES.map(t => <option key={t}>{t}</option>)}

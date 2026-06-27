@@ -264,7 +264,8 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
   const colors     = job.mat_colors ? JSON.parse(job.mat_colors) : []
-  const accent     = PALETTE[index % PALETTE.length]
+  const customer   = job.customers || allCustomers.find(cu => cu.id === job.customer_id)
+  const accent     = customer?.brand_colour || PALETTE[index % PALETTE.length]
   const badgeColor = statusColor || '#9CA3AF'
   const badge      = { bg: badgeColor + '22', color: badgeColor }
 
@@ -311,11 +312,28 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
             {job.name?.replace(/^.+?[—–-]{1,2}\s*/, '') || job.name}
           </div>
 
-          {/* Row 3: client — 1 line fixed */}
-          <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:4, minHeight:18,
-            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            {clientLabel}
-          </div>
+          {/* Row 3: job image (if set), else customer logo, else just client name */}
+          {job.image_path ? (
+            <div style={{ marginBottom:6, borderRadius:8, background:'#fff', border:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', padding:'6px 8px', minHeight:48 }}>
+              <img src={pubUrl(job.image_path)} alt=""
+                style={{ maxWidth:'100%', maxHeight:72, objectFit:'contain', display:'block', imageRendering:'auto' }} />
+            </div>
+          ) : customer?.logo_path ? (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:6, gap:4 }}>
+              <div style={{ background:'#fff', borderRadius:8, border:'1px solid #F3F4F6', padding:'6px 8px', width:'100%', display:'flex', alignItems:'center', justifyContent:'center', minHeight:44 }}>
+                <img src={pubUrl(customer.logo_path)} alt=""
+                  style={{ maxWidth:'100%', maxHeight:60, objectFit:'contain', display:'block' }} />
+              </div>
+              <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%', textAlign:'center' }}>
+                {clientLabel}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:4, minHeight:18,
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {clientLabel}
+            </div>
+          )}
 
           {/* Row 4: due date — always takes space even if empty */}
           <div style={{ fontSize:11, color:'#6B7280', marginBottom:10, minHeight:16 }}>
@@ -405,15 +423,24 @@ export default function Dashboard() {
     setLoading(true)
 
     // Minimal columns needed for tiles — avoids fetching heavy fields like notes/kitchen_specs
-    const cols = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,tasks,created_at,customers(id,first_name,last_name,company)'
+    const cols = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,tasks,image_path,created_at,customers(id,first_name,last_name,company,logo_path,brand_colour)'
+    const colsFallback = 'id,name,job_number,client,type,status,start_date,due_date,budget_hours,time_logged,mat_colors,tasks,image_path,created_at,customers(id,first_name,last_name,company)'
 
-    // Fire jobs + assignments in parallel instead of sequentially
-    const [{ data, error }, { data: assignData }] = await Promise.all([
+    // Fire jobs + assignments in parallel — try with logo/colour columns, fall back if they don't exist yet
+    const [jobResult, { data: assignData }] = await Promise.all([
       supabase.from('jobs').select(cols).order('created_at', { ascending: false }),
       (!can('seeAllJobs') && profile?.id)
         ? supabase.from('job_assignments').select('job_id').eq('user_id', profile.id)
         : Promise.resolve({ data: null }),
     ])
+
+    // If logo_path/brand_colour columns don't exist yet, retry without them
+    let { data, error } = jobResult
+    if (error && (error.message?.includes('logo_path') || error.message?.includes('brand_colour') || error.message?.includes('image_path'))) {
+      const fallback = await supabase.from('jobs').select(colsFallback).order('created_at', { ascending: false })
+      data = fallback.data
+      error = fallback.error
+    }
 
     if (error) { toast(error.message, 'error'); setLoading(false); return }
 
