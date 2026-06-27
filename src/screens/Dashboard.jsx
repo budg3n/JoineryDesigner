@@ -312,33 +312,23 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
             {job.name?.replace(/^.+?[—–-]{1,2}\s*/, '') || job.name}
           </div>
 
-          {/* Row 3: job image (if set), else customer logo, else just client name */}
-          {job.image_path ? (
-            <div style={{ marginBottom:4 }}>
-              <div style={{ borderRadius:8, background:'#fff', border:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', padding:'6px 8px', minHeight:48, marginBottom:4 }}>
+          {/* Row 3: fixed 56px image/logo area + client name — same height on every card */}
+          <div style={{ marginBottom:4 }}>
+            <div style={{ height:56, borderRadius:8, background:'#fff', border:'1px solid #F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px 8px', marginBottom:3, overflow:'hidden' }}>
+              {job.image_path ? (
                 <img src={pubUrl(job.image_path)} alt=""
-                  style={{ maxWidth:'100%', maxHeight:72, objectFit:'contain', display:'block', imageRendering:'auto' }} />
-              </div>
-              <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                {clientLabel}
-              </div>
-            </div>
-          ) : customer?.logo_path ? (
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', marginBottom:6, gap:4 }}>
-              <div style={{ background:'#fff', borderRadius:8, border:'1px solid #F3F4F6', padding:'6px 8px', width:'100%', display:'flex', alignItems:'center', justifyContent:'center', minHeight:44 }}>
+                  style={{ maxWidth:'100%', maxHeight:48, objectFit:'contain', display:'block' }} />
+              ) : customer?.logo_path ? (
                 <img src={pubUrl(customer.logo_path)} alt=""
-                  style={{ maxWidth:'100%', maxHeight:60, objectFit:'contain', display:'block' }} />
-              </div>
-              <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%', textAlign:'center' }}>
-                {clientLabel}
-              </div>
+                  style={{ maxWidth:'100%', maxHeight:48, objectFit:'contain', display:'block' }} />
+              ) : (
+                <span style={{ fontSize:11, color:'#DDE3EC', fontWeight:600, textAlign:'center', letterSpacing:'.02em' }}>No image</span>
+              )}
             </div>
-          ) : (
-            <div style={{ fontSize:12, color:'#9CA3AF', marginBottom:4, minHeight:18,
-              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {clientLabel}
             </div>
-          )}
+          </div>
 
           {/* Row 4: due date — always takes space even if empty */}
           <div style={{ fontSize:11, color:'#6B7280', marginBottom:10, minHeight:16 }}>
