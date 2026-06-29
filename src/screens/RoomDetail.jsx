@@ -133,6 +133,25 @@ const EMPTY_FORM = {
 }
 
 // Compute effective price based on qty and price_breaks
+// Small inline copy button — shows a ✓ tick for 1.5s after copying
+function CopyBtn({ text, label }) {
+  const [copied, setCopied] = React.useState(false)
+  if (!text) return null
+  function handleCopy(e) {
+    e.stopPropagation()
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <button onClick={handleCopy} title={`Copy ${label}`}
+      style={{ background: copied ? '#F0FDF4' : '#F3F4F6', border: `1px solid ${copied ? '#86EFAC' : '#E8ECF0'}`, borderRadius:5, padding:'1px 6px', fontSize:10, fontWeight:700, color: copied ? '#16A34A' : '#9CA3AF', cursor:'pointer', flexShrink:0, lineHeight:'16px', transition:'all .15s' }}>
+      {copied ? '✓ Copied' : `Copy ${label}`}
+    </button>
+  )
+}
+
 function getEffectivePrice(basePrice, priceBreaks, qty) {
   const price = parseFloat(basePrice) || 0
   const q = parseFloat(qty) || 0
@@ -774,6 +793,56 @@ function groupByCategory(jobMatRows, allCats) {
 // Keep old name as alias for any callers that still use it
 function groupByRootCategory(rows, allCats) { return groupByCategory(rows, allCats) }
 
+function printRoomMaterials(groups, roomName) {
+  const title = roomName ? `${roomName} — Materials` : 'Room Materials'
+  const rows = groups.map(({ groupName, items }) => `
+    <tr class="group-header"><td colspan="6">${groupName} (${items.length})</td></tr>
+    ${items.map(rm => {
+      const m = rm.materials || rm; if (!m) return ''
+      let sku = null
+      try { const cf = m.custom_fields ? (typeof m.custom_fields==='object'?m.custom_fields:JSON.parse(m.custom_fields)) : {}; sku = cf.sku||null } catch {}
+      const sub = m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.finish].filter(Boolean).join(' · ')
+      const imgUrl = m.storage_path ? pubUrl(m.storage_path) : null
+      return `<tr>
+        <td class="img-cell">${imgUrl ? `<img src="${imgUrl}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:6px;border:1px solid #E8ECF0;background:#fff;display:block;" crossorigin="anonymous"/>` : '<div style="width:48px;height:48px;border-radius:6px;background:#F3F4F6;border:1px solid #E8ECF0;"></div>'}</td>
+        <td class="name">${m.is_kit?'🧰 ':''}${m.name||''}</td>
+        <td>${sub}</td>
+        <td>${sku ? `SKU: ${sku}` : ''}</td>
+        <td>${m.colour_code||''}</td>
+        <td class="price">${m.price ? `$${parseFloat(m.price).toFixed(2)}` : ''}</td>
+      </tr>`
+    }).join('')}
+  `).join('')
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:12px; color:#1a1a2e; padding:24px 32px; }
+    h1 { font-size:20px; font-weight:700; margin-bottom:4px; color:#2A3042; }
+    .meta { font-size:12px; color:#6B7280; margin-bottom:20px; }
+    table { width:100%; border-collapse:collapse; }
+    th { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#6B7280; border-bottom:2px solid #E8ECF0; padding:6px 8px; text-align:left; }
+    td { padding:8px 8px; border-bottom:1px solid #F3F4F6; vertical-align:middle; }
+    td.img-cell { width:64px; padding:4px 8px; }
+    td.name { font-weight:600; color:#2A3042; width:28%; }
+    td.price { text-align:right; font-weight:600; color:#1D9E75; }
+    tr.group-header td { background:#F8FAFF; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#5B8AF0; padding:8px 8px 4px; border-bottom:1px solid #E0E7FF; }
+    @media print { body { padding:12px 16px; } }
+  </style></head>
+  <body>
+    <h1>${title}</h1>
+    <div class="meta">Printed ${new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'})} · ${groups.reduce((s,g)=>s+g.items.length,0)} materials</div>
+    <table>
+      <thead><tr><th></th><th>Name</th><th>Details</th><th>SKU</th><th>Colour</th><th style="text-align:right">Price</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </body></html>`
+  const w = window.open('', '_blank', 'width=900,height=700')
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 400)
+}
+
 function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
@@ -817,7 +886,9 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
   const searchFiltered = words.length
     ? catFiltered.filter(jm => {
         const m = jm.materials; if (!m) return false
-        const hay = [m.name, m.supplier, m.panel_type, m.colour_code, m.finish].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
+        const hay = [m.name, m.supplier, m.panel_type, m.colour_code, m.finish,
+          m.sku, (() => { try { const cf = m.custom_fields ? (typeof m.custom_fields === 'object' ? m.custom_fields : JSON.parse(m.custom_fields)) : {}; return cf.sku || null } catch { return null } })()
+        ].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
         return words.every(w => hay.includes(w))
       })
     : catFiltered
@@ -831,10 +902,22 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
         <div style={{ fontSize:13, fontWeight:700, color:'#2A3042' }}>
           {roomMats.length > 0 ? `${roomMats.length} material${roomMats.length!==1?'s':''} in this room` : 'No materials assigned yet'}
         </div>
-        <button onClick={openPicker} disabled={jobMats.length === 0}
-          style={{ padding:'6px 14px', borderRadius:8, border:'none', background: jobMats.length===0?'#E8ECF0':'#5B8AF0', color: jobMats.length===0?'#9CA3AF':'#fff', fontSize:12, fontWeight:700, cursor: jobMats.length===0?'default':'pointer', display:'flex', alignItems:'center', gap:5 }}>
-          <span style={{ fontSize:14 }}>+</span> Add material
-        </button>
+        <div style={{ display:'flex', gap:6 }}>
+          {roomMats.length > 0 && (
+            <button onClick={() => {
+              const groups = groupByCategory(roomMats, allCats)
+              printRoomMaterials(groups)
+            }}
+              style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:11, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Print
+            </button>
+          )}
+          <button onClick={openPicker} disabled={jobMats.length === 0}
+            style={{ padding:'6px 14px', borderRadius:8, border:'none', background: jobMats.length===0?'#E8ECF0':'#5B8AF0', color: jobMats.length===0?'#9CA3AF':'#fff', fontSize:12, fontWeight:700, cursor: jobMats.length===0?'default':'pointer', display:'flex', alignItems:'center', gap:5 }}>
+            <span style={{ fontSize:14 }}>+</span> Add material
+          </button>
+        </div>
       </div>
       <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:8 }}>
         {jobMats.length} on job · {filteredMats.length} available to add · {jobMats.filter(jm=>jm.materials?.is_kit).length} kits on job
@@ -981,8 +1064,9 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                 {groupName} <span style={{ fontWeight:500 }}>({items.length})</span>
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                {items.map(rm => {
+                  {items.map(rm => {
                   const m = rm.materials; if (!m) return null
+                  const sku = (() => { try { const cf = m.custom_fields ? (typeof m.custom_fields==='object'?m.custom_fields:JSON.parse(m.custom_fields)) : {}; return cf.sku||null } catch { return null } })()
                   return (
                     <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
                       {m.storage_path
@@ -996,6 +1080,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                         </div>
                         <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
                           {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null, m.colour_code, m.finish].filter(Boolean).join(' · ')}
+                          {sku && <span style={{ marginLeft:4, color:'#B0B8C4' }}>· SKU: {sku}</span>}
                         </div>
                       </div>
                       <button onClick={() => onRemove(rm.id)}
@@ -1837,6 +1922,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                                     🧰 {o.kit_name}
                                   </span>
                                 )}
+                                <CopyBtn text={o.item} label="desc" />
                               </div>
                               {spec&&<div style={{fontSize:11,color:'#6B7280',marginTop:2}}>{spec}</div>}
                               {o.supplier&&<div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>{o.supplier}</div>}
@@ -1878,8 +1964,11 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                               <div style={{fontSize:12,fontWeight:700,color:'#374151'}}>{o.dimensions}</div>
                             </div>}
                             {o.sku&&<div style={{flex:1,padding:'6px 12px',borderLeft:'1px solid #F3F4F6'}}>
-                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em'}}>SKU</div>
-                              <div style={{fontSize:12,fontWeight:600,color:'#374151'}}>{o.sku}</div>
+                              <div style={{fontSize:9,fontWeight:700,color:'#C4C9D4',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:2}}>SKU</div>
+                              <div style={{fontSize:12,fontWeight:600,color:'#374151',display:'flex',alignItems:'center',gap:5}}>
+                                {o.sku}
+                                <CopyBtn text={o.sku} label="SKU" />
+                              </div>
                             </div>}
                           </div>
                           {o.notes&&<div style={{padding:'4px 12px 8px',fontSize:11,color:'#9CA3AF',fontStyle:'italic'}}>{o.notes}</div>}

@@ -172,6 +172,8 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   const [newSupplierName, setNewSupplierName] = useState('')
   const [savingNewSupplier, setSavingNewSupplier] = useState(false)
   const saveTimer = useRef(null) // debounce price break saves
+  const matSuppliersRef = useRef(matSuppliers)
+  useEffect(() => { matSuppliersRef.current = matSuppliers }, [matSuppliers])
 
   // Load suppliers on mount so the supplier field in Details tab works immediately
   useEffect(() => {
@@ -421,7 +423,7 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
     }
 
     // Write any supplier links that were queued locally before the material existed yet
-    const unsavedLinks = matSuppliers.filter(ms => ms._unsaved)
+    const unsavedLinks = matSuppliersRef.current.filter(ms => ms._unsaved)
     if (unsavedLinks.length > 0 && data?.id) {
       for (const link of unsavedLinks) {
         await supabase.from('material_suppliers').insert({
@@ -654,6 +656,7 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                             <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'#9CA3AF' }}>$</span>
                             <input type="number" step="0.01" value={ms.price || ''}
                               onChange={e => updateSupplierLinkLocal(ms.id, { price: e.target.value })}
+                              onBlur={e => { if (material?.id && !String(ms.id).startsWith('_local_')) saveSupplierLink({...ms, price: e.target.value}) }}
                               placeholder="0.00"
                               style={{ width:'100%', padding:'6px 8px 6px 18px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                           </div>
@@ -661,12 +664,14 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                         <div>
                           <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Supplier SKU</label>
                           <input value={ms.sku || ''} onChange={e => updateSupplierLinkLocal(ms.id, { sku: e.target.value })}
+                            onBlur={e => { if (material?.id && !String(ms.id).startsWith('_local_')) saveSupplierLink({...ms, sku: e.target.value}) }}
                             placeholder="SKU"
                             style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                         </div>
                         <div>
                           <label style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', display:'block', marginBottom:3 }}>Lead time</label>
                           <input value={ms.lead_time || ''} onChange={e => updateSupplierLinkLocal(ms.id, { lead_time: e.target.value })}
+                            onBlur={e => { if (material?.id && !String(ms.id).startsWith('_local_')) saveSupplierLink({...ms, lead_time: e.target.value}) }}
                             placeholder="e.g. 5 days"
                             style={{ width:'100%', padding:'6px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:12, outline:'none', boxSizing:'border-box' }} />
                         </div>
@@ -685,6 +690,7 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                                 const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,qty:e.target.value} : x)
                                 updateSupplierLinkLocal(ms.id, { price_breaks: updated })
                               }}
+                              onBlur={() => { if (material?.id && !String(ms.id).startsWith('_local_')) { const cur = matSuppliers.find(x=>x.id===ms.id); if(cur) saveSupplierLink(cur) } }}
                               style={{ width:64, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
                             <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0 }}>units → $</span>
                             <input type="number" step="0.01" placeholder="0.00" value={b.price}
@@ -692,10 +698,12 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                                 const updated = (ms.price_breaks || []).map((x,j) => j===bi ? {...x,price:e.target.value} : x)
                                 updateSupplierLinkLocal(ms.id, { price_breaks: updated })
                               }}
+                              onBlur={() => { if (material?.id && !String(ms.id).startsWith('_local_')) { const cur = matSuppliers.find(x=>x.id===ms.id); if(cur) saveSupplierLink(cur) } }}
                               style={{ flex:1, padding:'5px 8px', border:'1px solid #DDE3EC', borderRadius:7, fontSize:11, outline:'none' }} />
                             <button onClick={() => {
                                 const updated = (ms.price_breaks || []).filter((_,j) => j!==bi)
                                 updateSupplierLinkLocal(ms.id, { price_breaks: updated })
+                                if (material?.id && !String(ms.id).startsWith('_local_')) { const cur = matSuppliers.find(x=>x.id===ms.id); if(cur) saveSupplierLink({...cur, price_breaks: updated}) }
                               }}
                               style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:14, flexShrink:0 }}>×</button>
                           </div>
@@ -705,16 +713,11 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                           + Add qty break
                         </button>
                       </div>
-
-                      {/* Explicit save button — no auto-save so nothing gets lost */}
-                      <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid rgba(0,0,0,0.06)', display:'flex', justifyContent:'flex-end' }}>
-                        <button onClick={() => saveSupplierLink(ms)} disabled={supplierSaving === ms.id}
-                          style={{ fontSize:12, fontWeight:700, padding:'7px 18px', borderRadius:9, border:'none', background: supplierSaving===ms.id ? '#E8ECF0' : '#1D9E75', color: supplierSaving===ms.id ? '#9CA3AF' : '#fff', cursor: supplierSaving===ms.id ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:6 }}>
-                          {supplierSaving === ms.id
-                            ? <><span className="spinner" style={{ width:12, height:12 }} />Saving…</>
-                            : '✓ Save supplier info'}
-                        </button>
-                      </div>
+                      {!material?.id && (
+                        <div style={{ marginTop:8, fontSize:11, color:'#5B8AF0', fontStyle:'italic' }}>
+                          Pricing will be saved when you click "+ Create material"
+                        </div>
+                      )}
                     </div>
                   )
                 })}

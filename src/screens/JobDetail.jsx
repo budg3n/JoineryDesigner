@@ -27,6 +27,62 @@ import StatusBadge from '../components/StatusBadge'
 import { enrichMaterialNames } from '../lib/materialName'
 
 // ── Category grouping helpers ─────────────────────────────────────
+function safeCustomField(cf, key) {
+  if (!cf) return null
+  try { const o = typeof cf === 'object' ? cf : JSON.parse(cf); return o[key] || null } catch { return null }
+}
+
+function printMaterials(job, groups, roomName) {
+  const title = roomName ? `${job?.name || 'Job'} — ${roomName} Materials` : `${job?.name || 'Job'} — Materials`
+  const rows = groups.map(({ groupName, items }) => `
+    <tr class="group-header"><td colspan="6">${groupName} (${items.length})</td></tr>
+    ${items.map(item => {
+      const m = item.materials || item
+      if (!m) return ''
+      const sku = safeCustomField(m.custom_fields, 'sku') || m.sku || ''
+      const sub = m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null, m.finish].filter(Boolean).join(' · ')
+      const imgUrl = m.storage_path ? pubUrl(m.storage_path) : null
+      return `<tr>
+        <td class="img-cell">${imgUrl ? `<img src="${imgUrl}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:6px;border:1px solid #E8ECF0;background:#fff;display:block;" crossorigin="anonymous"/>` : '<div style="width:48px;height:48px;border-radius:6px;background:#F3F4F6;border:1px solid #E8ECF0;"></div>'}</td>
+        <td class="name">${m.is_kit ? '🧰 ' : ''}${m.name || ''}</td>
+        <td>${sub}</td>
+        <td>${sku ? `SKU: ${sku}` : ''}</td>
+        <td>${m.colour_code || ''}</td>
+        <td class="price">${m.price ? `$${parseFloat(m.price).toFixed(2)}` : ''}</td>
+      </tr>`
+    }).join('')}
+  `).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:12px; color:#1a1a2e; padding:24px 32px; }
+    h1 { font-size:20px; font-weight:700; margin-bottom:4px; color:#2A3042; }
+    .meta { font-size:12px; color:#6B7280; margin-bottom:20px; }
+    table { width:100%; border-collapse:collapse; }
+    th { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#6B7280; border-bottom:2px solid #E8ECF0; padding:6px 8px; text-align:left; }
+    td { padding:8px 8px; border-bottom:1px solid #F3F4F6; vertical-align:middle; }
+    td.img-cell { width:64px; padding:4px 8px; }
+    td.name { font-weight:600; color:#2A3042; width:28%; }
+    td.price { text-align:right; font-weight:600; color:#1D9E75; }
+    tr.group-header td { background:#F8FAFF; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#5B8AF0; padding:8px 8px 4px; border-bottom:1px solid #E0E7FF; }
+    @media print { body { padding:12px 16px; } }
+  </style></head>
+  <body>
+    <h1>${title}</h1>
+    <div class="meta">Printed ${new Date().toLocaleDateString('en-NZ', {day:'numeric',month:'long',year:'numeric'})} · ${groups.reduce((s,g)=>s+g.items.length,0)} materials</div>
+    <table>
+      <thead><tr><th></th><th>Name</th><th>Details</th><th>SKU</th><th>Colour</th><th style="text-align:right">Price</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </body></html>`
+
+  const w = window.open('', '_blank', 'width=900,height=700')
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 400)
+}
 function getCategoryLabel(categoryId, allCats) {
   if (!categoryId || !allCats?.length) return 'Other'
   const cat = allCats.find(c => c.id === categoryId)
@@ -4637,7 +4693,16 @@ export default function JobDetail() {
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>
         <div style={{ background:"#fff", borderRadius:12, border:"1px solid #E8ECF0", padding:18, marginBottom:14 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em", marginBottom:12 }}>Materials</div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:".05em" }}>Materials</div>
+            {jobMats.length > 0 && (
+              <button onClick={() => printMaterials(job, groupByCategory(jobMats, allCats))}
+                style={{ fontSize:11, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Print / Download
+              </button>
+            )}
+          </div>
           {jobMats.length > 0 && (
             <div style={{ marginBottom:14, display:'flex', flexDirection:'column', gap:14 }}>
               {groupByCategory(jobMats, allCats).map(({ groupName, items }) => (
@@ -4648,6 +4713,7 @@ export default function JobDetail() {
                   <div className="flex flex-wrap gap-2">
                     {items.map(jm => {
                       const m = jm.materials; if (!m) return null
+                      const sku = safeCustomField(m.custom_fields, 'sku')
                       return (
                         <div key={jm.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10 }}>
                           {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:28, height:28, borderRadius:6, objectFit:'cover', flexShrink:0 }} alt="" loading="lazy" /> : <div style={{ width:28, height:28, borderRadius:6, background:m.color||'#D1D5DB', flexShrink:0 }} />}
@@ -4656,7 +4722,10 @@ export default function JobDetail() {
                               {m.is_kit && <span title="Kit" style={{ fontSize:11 }}>🧰</span>}
                               {m.name}
                             </div>
-                            <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}</div>
+                            <div style={{ fontSize:11, color:'#9CA3AF' }}>
+                              {m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')}
+                              {sku && <span style={{ marginLeft:4, color:'#B0B8C4' }}>· SKU: {sku}</span>}
+                            </div>
                           </div>
                           <button onClick={() => removeMat(jm.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:16, lineHeight:1, marginLeft:4 }}
                             onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'} onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -4679,7 +4748,9 @@ export default function JobDetail() {
               : allMats.filter(m => getCategoryLabel(m.category_id, allCats).startsWith(matPickerCat.split(' ›')[0]))
             const searchFiltered = words.length
               ? catFiltered.filter(m => {
-                  const hay = [m.name, m.supplier, m.colour_code, m.panel_type].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
+                  const hay = [m.name, m.supplier, m.colour_code, m.panel_type,
+                    m.sku, safeCustomField(m.custom_fields, 'sku')
+                  ].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
                   return words.every(w => hay.includes(w))
                 })
               : catFiltered
