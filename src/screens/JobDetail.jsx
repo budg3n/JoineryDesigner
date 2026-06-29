@@ -3739,6 +3739,8 @@ export default function JobDetail() {
   const [editingTaskId, setEditingTaskId] = useState(null)
   const [matPickerOpen, setMatPickerOpen] = useState(false)
   const [matSearch, setMatSearch] = useState('')
+  const [matPickerSelected, setMatPickerSelected] = useState(new Set()) // pending multi-select
+  const [matPickerCat, setMatPickerCat] = useState('All') // active category filter
   const [lbIdx, setLbIdx]         = useState(null)
   const [uploading, setUploading]   = useState(false)
   const [fileTypes, setFileTypes]   = useState([])
@@ -4667,50 +4669,159 @@ export default function JobDetail() {
             </div>
           )}
           <button onClick={openMatPicker} className="btn-blue btn-sm">+ Add from library</button>
-          {matPickerOpen && <div style={{ marginTop:10 }}>
-            <div style={{ fontSize:10, color:'#9CA3AF', marginBottom:4 }}>
-              {allMats.length} materials loaded · {allMats.filter(m=>m.is_kit).length} kits
-            </div>
-            <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)} placeholder="Search materials…"
-              style={{ width:'100%', padding:'8px 12px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', marginBottom:6 }} />
-            {matSearch.trim() === '' ? <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>Start typing…</div> : (() => {
-              const q = matSearch.trim().toLowerCase()
-              const words = q.split(/\s+/)
-              const results = availMats.filter(m => {
-                const haystack = [m.name, m.supplier, m.colour_code, m.panel_type]
-                  .filter(v => v != null && v !== '')
-                  .map(v => String(v).toLowerCase())
-                  .join(' ')
-                return words.every(w => haystack.includes(w))
-              })
-              if (results.length === 0) return <div style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', padding:'12px 0' }}>No matches</div>
-              return (
-                <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid #E8ECF0', borderRadius:10, overflow:'hidden' }}>
-                  {groupByCategory(results, allCats).map(({ groupName, items }) => (
-                    <div key={groupName}>
-                      <div style={{ padding:'5px 12px 3px', fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', background:'#F9FAFB', borderBottom:'1px solid #F3F4F6', position:'sticky', top:0 }}>
-                        {groupName}
-                      </div>
-                      {items.map(m => (
-                        <div key={m.id} onClick={() => { addMat(m.id); setMatSearch(''); setMatPickerOpen(false) }}
-                          style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid #F9FAFB', background:'#fff' }}
-                          onMouseEnter={e=>e.currentTarget.style.background='#F9FAFB'} onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
-                          {m.storage_path ? <img src={pubUrl(m.storage_path)} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0 }} alt="" /> : <div style={{ width:36,height:36,borderRadius:8,background:m.color||'#F3F4F6',flexShrink:0 }} />}
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:13, fontWeight:600, color:'#2A3042', display:'flex', alignItems:'center', gap:5 }}>
-                              {m.is_kit && <span title="Kit">🧰</span>}
-                              {m.name}
-                            </div>
-                            <div style={{ fontSize:11, color:'#9CA3AF' }}>{m.is_kit ? 'Kit' : [m.supplier,m.panel_type].filter(Boolean).join(' · ')}</div>
+
+          {/* Material picker modal */}
+          {matPickerOpen && (() => {
+            const q = matSearch.trim().toLowerCase()
+            const words = q ? q.split(/\s+/) : []
+            const catFiltered = matPickerCat === 'All'
+              ? allMats
+              : allMats.filter(m => getCategoryLabel(m.category_id, allCats).startsWith(matPickerCat.split(' ›')[0]))
+            const searchFiltered = words.length
+              ? catFiltered.filter(m => {
+                  const hay = [m.name, m.supplier, m.colour_code, m.panel_type].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
+                  return words.every(w => hay.includes(w))
+                })
+              : catFiltered
+
+            // Build category tree for sidebar — root categories only
+            const rootCats = ['All', ...Array.from(new Set(allMats.map(m => {
+              if (!m.category_id) return null
+              const chain = []; let cur = allCats.find(c=>c.id===m.category_id)
+              while(cur){ chain.unshift(cur); cur=cur.parent_id?allCats.find(c=>c.id===cur.parent_id):null }
+              return chain[0]?.name || null
+            }).filter(Boolean))).sort()]
+
+            const groups = groupByCategory(searchFiltered, allCats)
+
+            async function confirmAdd() {
+              const ids = [...matPickerSelected]
+              for (const mid of ids) await addMat(mid, true)
+              setMatPickerSelected(new Set())
+              setMatPickerOpen(false)
+              setMatSearch('')
+              setMatPickerCat('All')
+              toast(`Added ${ids.length} material${ids.length!==1?'s':''} ✓`)
+            }
+
+            return (
+              <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+                onClick={e => { if(e.target===e.currentTarget){ setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All') } }}>
+                <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:920, height:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.2)', overflow:'hidden' }}>
+
+                  {/* Header */}
+                  <div style={{ padding:'16px 20px', borderBottom:'1px solid #E8ECF0', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:15, fontWeight:700, color:'#2A3042' }}>Add materials to job</div>
+                      <div style={{ fontSize:12, color:'#9CA3AF', marginTop:2 }}>{allMats.length} materials · {matPickerSelected.size > 0 ? `${matPickerSelected.size} selected` : 'Click to select multiple'}</div>
+                    </div>
+                    <input autoFocus value={matSearch} onChange={e=>setMatSearch(e.target.value)}
+                      placeholder="Search materials…"
+                      style={{ padding:'8px 14px', border:'1px solid #DDE3EC', borderRadius:9, fontSize:13, outline:'none', width:220 }} />
+                    <button onClick={confirmAdd} disabled={matPickerSelected.size===0}
+                      style={{ padding:'9px 20px', borderRadius:9, border:'none', background: matPickerSelected.size>0?'#1D9E75':'#E8ECF0', color: matPickerSelected.size>0?'#fff':'#9CA3AF', fontSize:13, fontWeight:700, cursor: matPickerSelected.size>0?'pointer':'default', whiteSpace:'nowrap', flexShrink:0 }}>
+                      {matPickerSelected.size>0 ? `Add ${matPickerSelected.size} material${matPickerSelected.size!==1?'s':''}` : 'Select materials'}
+                    </button>
+                    <button onClick={() => { setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All') }}
+                      style={{ padding:'8px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:18, cursor:'pointer', lineHeight:1, flexShrink:0 }}>×</button>
+                  </div>
+
+                  <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+                    {/* Category sidebar */}
+                    <div style={{ width:180, borderRight:'1px solid #E8ECF0', overflowY:'auto', flexShrink:0, padding:'8px 0' }}>
+                      {rootCats.map(cat => {
+                        const count = cat==='All' ? allMats.length : allMats.filter(m=>getCategoryLabel(m.category_id,allCats).startsWith(cat)).length
+                        return (
+                          <button key={cat} onClick={() => setMatPickerCat(cat)}
+                            style={{ width:'100%', textAlign:'left', padding:'9px 16px', border:'none', cursor:'pointer', fontSize:13, fontWeight: matPickerCat===cat?700:400,
+                              background: matPickerCat===cat?'#EEF2FF':'transparent', color: matPickerCat===cat?'#3730A3':'#374151',
+                              borderRight: matPickerCat===cat?'3px solid #5B8AF0':'3px solid transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cat}</span>
+                            <span style={{ fontSize:11, color:'#9CA3AF', flexShrink:0, marginLeft:4 }}>{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Material grid */}
+                    <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+                      {groups.length === 0 ? (
+                        <div style={{ textAlign:'center', color:'#9CA3AF', padding:'40px 0', fontSize:13 }}>
+                          {q ? 'No materials match your search' : 'No materials in this category'}
+                        </div>
+                      ) : groups.map(({ groupName, items }) => (
+                        <div key={groupName} style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:'#6B7280', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:8, paddingBottom:4, borderBottom:'1px solid #E8ECF0' }}>
+                            {groupName} <span style={{ fontWeight:500 }}>({items.length})</span>
+                          </div>
+                          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:8 }}>
+                            {items.map(m => {
+                              const alreadyAdded = usedMatIds.includes(m.id)
+                              const selected = matPickerSelected.has(m.id)
+                              return (
+                                <div key={m.id}
+                                  onClick={() => {
+                                    if (alreadyAdded) return
+                                    setMatPickerSelected(prev => {
+                                      const next = new Set(prev)
+                                      next.has(m.id) ? next.delete(m.id) : next.add(m.id)
+                                      return next
+                                    })
+                                  }}
+                                  style={{ borderRadius:10, border: selected?'2px solid #1D9E75': alreadyAdded?'2px solid #E8ECF0':'2px solid #E8ECF0',
+                                    background: alreadyAdded?'#F9FAFB': selected?'#F0FDF4':'#fff',
+                                    cursor: alreadyAdded?'default':'pointer', overflow:'hidden', opacity: alreadyAdded?0.5:1, transition:'all .1s',
+                                    boxShadow: selected?'0 0 0 3px rgba(29,158,117,0.15)':'none' }}>
+                                  {/* Image */}
+                                  <div style={{ height:90, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden' }}>
+                                    {m.storage_path
+                                      ? <img src={pubUrl(m.storage_path)} alt="" style={{ width:'100%', height:'100%', objectFit:'contain', background:'#fff' }} />
+                                      : <div style={{ width:'100%', height:'100%', background: m.color||'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                        </div>
+                                    }
+                                    {/* Status overlay */}
+                                    {(selected || alreadyAdded) && (
+                                      <div style={{ position:'absolute', top:6, right:6, width:22, height:22, borderRadius:'50%',
+                                        background: alreadyAdded?'#9CA3AF':'#1D9E75', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Info */}
+                                  <div style={{ padding:'8px 10px' }}>
+                                    <div style={{ fontSize:12, fontWeight:600, color: alreadyAdded?'#9CA3AF':'#2A3042', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:4 }}>
+                                      {m.is_kit && <span style={{ fontSize:10, flexShrink:0 }}>🧰</span>}
+                                      {m.name}
+                                    </div>
+                                    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                      {alreadyAdded ? 'Already added' : m.is_kit ? 'Kit' : [m.supplier, m.panel_type, m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ') || 'No details'}
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
                       ))}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Footer */}
+                  {matPickerSelected.size > 0 && (
+                    <div style={{ padding:'12px 20px', borderTop:'1px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'space-between', background:'#F8FAFF', flexShrink:0 }}>
+                      <button onClick={() => setMatPickerSelected(new Set())}
+                        style={{ fontSize:12, color:'#9CA3AF', background:'none', border:'none', cursor:'pointer' }}>Clear selection</button>
+                      <button onClick={confirmAdd}
+                        style={{ padding:'10px 24px', borderRadius:9, border:'none', background:'#1D9E75', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+                        Add {matPickerSelected.size} material{matPickerSelected.size!==1?'s':''} to job →
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )
-            })()}
-          </div>}
+              </div>
+            )
+          })()}
         </div>
 
       </div>}

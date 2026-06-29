@@ -179,7 +179,12 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
   }, [])
 
   useEffect(() => {
-    if (!material?.id || modalTab !== 'suppliers') return
+    if (modalTab !== 'suppliers') return
+    if (!material?.id) {
+      // New material not yet saved — show empty supplier list, no DB fetch needed
+      setSuppliersLoading(false)
+      return
+    }
     if (matSuppliers.length > 0) return // already loaded
     setSuppliersLoading(true)
 
@@ -425,6 +430,23 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
           is_preferred: link.is_preferred,
         })
       }
+      // Save price and price_breaks from the preferred supplier to the material record
+      const preferred = unsavedLinks.find(l => l.is_preferred)
+      if (preferred && data?.id) {
+        const matUpdate = {}
+        if (preferred.price) matUpdate.price = preferred.price
+        const breaks = Array.isArray(preferred.price_breaks) ? preferred.price_breaks.filter(b => b.qty !== '' || b.price !== '') : []
+        if (breaks.length > 0 || preferred.price) {
+          const { data: cur } = await supabase.from('materials').select('custom_fields').eq('id', data.id).single()
+          let cf = {}
+          try { cf = cur?.custom_fields ? (typeof cur.custom_fields === 'object' ? cur.custom_fields : JSON.parse(cur.custom_fields)) : {} } catch {}
+          cf.price_breaks = breaks
+          matUpdate.custom_fields = JSON.stringify(cf)
+        }
+        if (Object.keys(matUpdate).length) {
+          await supabase.from('materials').update(matUpdate).eq('id', data.id)
+        }
+      }
     }
 
     setSaving(false)
@@ -529,21 +551,19 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:24, lineHeight:1, flexShrink:0 }}>×</button>
         </div>
 
-        {/* Tabs — Suppliers tab only meaningful once the material exists */}
-        {isEditing && (
-          <div style={{ display:'flex', gap:2, padding:'8px 16px 0', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
-            {[['details','Details'],['suppliers',`Suppliers${matSuppliers.length?` (${matSuppliers.length})`:''}`]].map(([key,label]) => (
-              <button key={key} onClick={() => setModalTab(key)}
-                style={{ padding:'8px 14px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer',
-                  color: modalTab===key ? '#5B8AF0' : '#9CA3AF',
-                  borderBottom: modalTab===key ? '2px solid #5B8AF0' : '2px solid transparent' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Tabs */}
+        <div style={{ display:'flex', gap:2, padding:'8px 16px 0', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
+          {[['details','Details'],['suppliers',`Suppliers${matSuppliers.length?` (${matSuppliers.length})`:''}`]].map(([key,label]) => (
+            <button key={key} onClick={() => setModalTab(key)}
+              style={{ padding:'8px 14px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer',
+                color: modalTab===key ? '#5B8AF0' : '#9CA3AF',
+                borderBottom: modalTab===key ? '2px solid #5B8AF0' : '2px solid transparent' }}>
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {modalTab === 'suppliers' && isEditing ? (
+        {modalTab === 'suppliers' ? (
           <div style={{ flex:1, overflowY:'auto', padding:20 }}>
             <div style={{ marginBottom:14 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Add a supplier</label>
@@ -595,6 +615,11 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
               <div className="spinner" style={{ margin:'20px auto' }} />
             ) : matSuppliers.length === 0 ? (
               <div style={{ textAlign:'center', padding:'24px 0', color:'#9CA3AF', fontSize:13, background:'#F9FAFB', borderRadius:10 }}>
+                {!material?.id && (
+                  <div style={{ marginBottom:8, fontSize:12, color:'#5B8AF0', fontWeight:600 }}>
+                    💡 You can add supplier info now — it will be saved when you click "Save changes"
+                  </div>
+                )}
                 No suppliers linked to this product yet
               </div>
             ) : (
@@ -844,7 +869,7 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
                   {form.price ? `$${parseFloat(form.price).toFixed(2)}` : 'No price set'}
                 </div>
                 <div style={{ fontSize:11, color:'#9CA3AF', marginTop:2 }}>
-                  {isEditing ? 'Tap to manage supplier pricing & qty breaks' : 'Set pricing in the Suppliers tab after saving'}
+                  {isEditing ? 'Tap to manage supplier pricing & qty breaks' : 'Tap to add supplier pricing now'}
                 </div>
               </div>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2" style={{ flexShrink:0 }}>
