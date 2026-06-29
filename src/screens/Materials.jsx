@@ -555,7 +555,11 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
 
         {/* Tabs */}
         <div style={{ display:'flex', gap:2, padding:'8px 16px 0', borderBottom:'1px solid #F3F4F6', flexShrink:0 }}>
-          {[['details','Details'],['suppliers',`Suppliers${matSuppliers.length?` (${matSuppliers.length})`:''}`]].map(([key,label]) => (
+          {[
+            ['details','Details'],
+            ['info','Product Info'],
+            ['suppliers',`Suppliers${matSuppliers.length?` (${matSuppliers.length})`:''}`]
+          ].map(([key,label]) => (
             <button key={key} onClick={() => setModalTab(key)}
               style={{ padding:'8px 14px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer',
                 color: modalTab===key ? '#5B8AF0' : '#9CA3AF',
@@ -565,7 +569,56 @@ function AddMaterialModal({ targetCat, cols, allCats, material, onClose, onCreat
           ))}
         </div>
 
-        {modalTab === 'suppliers' ? (
+        {modalTab === 'info' ? (
+          <div style={{ flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:16 }}>
+            <div style={{ fontSize:12, color:'#9CA3AF', background:'#F8FAFF', border:'1px solid #E0E7FF', borderRadius:10, padding:'10px 14px' }}>
+              Add a description and notes for this product. These are saved with the product and visible anywhere it appears.
+            </div>
+
+            {/* Description */}
+            <div>
+              <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>Description</label>
+              <textarea
+                value={cf.description || ''}
+                onChange={e => setCf(p => ({ ...p, description: e.target.value }))}
+                placeholder="Describe this product — what it is, what it's used for, key features…"
+                rows={5}
+                style={{ width:'100%', padding:'10px 12px', border:'1px solid #DDE3EC', borderRadius:10, fontSize:13, outline:'none', resize:'vertical', lineHeight:1.6, fontFamily:'inherit', boxSizing:'border-box', color:'#2A3042' }}
+              />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>Notes</label>
+              <textarea
+                value={form.notes || ''}
+                onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Internal notes — installation tips, ordering info, things to watch out for…"
+                rows={4}
+                style={{ width:'100%', padding:'10px 12px', border:'1px solid #DDE3EC', borderRadius:10, fontSize:13, outline:'none', resize:'vertical', lineHeight:1.6, fontFamily:'inherit', boxSizing:'border-box', color:'#2A3042' }}
+              />
+            </div>
+
+            {/* Preview of current content */}
+            {(cf.description || form.notes) && (
+              <div style={{ background:'#F9FAFB', border:'1px solid #E8ECF0', borderRadius:10, padding:14 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Preview</div>
+                {cf.description && (
+                  <div style={{ marginBottom: form.notes ? 10 : 0 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#6B7280', marginBottom:3 }}>Description</div>
+                    <div style={{ fontSize:13, color:'#374151', lineHeight:1.6, whiteSpace:'pre-wrap' }}>{cf.description}</div>
+                  </div>
+                )}
+                {form.notes && (
+                  <div>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#6B7280', marginBottom:3 }}>Notes</div>
+                    <div style={{ fontSize:13, color:'#374151', lineHeight:1.6, whiteSpace:'pre-wrap', fontStyle:'italic' }}>{form.notes}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : modalTab === 'suppliers' ? (
           <div style={{ flex:1, overflowY:'auto', padding:20 }}>
             <div style={{ marginBottom:14 }}>
               <label style={{ fontSize:11, fontWeight:700, color:'#6B7280', display:'block', marginBottom:4 }}>Add a supplier</label>

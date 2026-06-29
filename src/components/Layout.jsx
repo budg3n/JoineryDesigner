@@ -59,15 +59,11 @@ export default function Layout() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  // Desktop sidebar collapse/pin state — persisted across sessions.
-  // "pinned" = always expanded. When unpinned, the sidebar collapses to icon-only
-  // and temporarily expands on hover (auto-hide behaviour), collapsing again on mouse-leave.
-  const [sidebarPinned, setSidebarPinned] = useState(() => {
+  // Desktop sidebar — click the tab on the edge to expand/collapse. Persisted.
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     try { return localStorage.getItem('sidebar_pinned') !== 'false' } catch { return true }
   })
-  const [sidebarHovering, setSidebarHovering] = useState(false)
-  const sidebarExpanded = sidebarPinned || sidebarHovering
-  useEffect(() => { try { localStorage.setItem('sidebar_pinned', String(sidebarPinned)) } catch {} }, [sidebarPinned])
+  useEffect(() => { try { localStorage.setItem('sidebar_pinned', String(sidebarExpanded)) } catch {} }, [sidebarExpanded])
   const [jobActions, setJobActions]   = useState(null)
   const jobActionsRef = useRef(null)
   const [showProcesses, setShowProcesses] = useState(false)
@@ -160,19 +156,6 @@ export default function Layout() {
           </div>
         ))}
       </nav>
-
-      {/* pin toggle — desktop only, hidden on the mobile slide-out panel */}
-      <button onClick={() => setSidebarPinned(p => !p)}
-        className="sidebar-pin-btn"
-        title={sidebarPinned ? 'Unpin sidebar (auto-hide on mouse-out)' : 'Pin sidebar open'}
-        style={{ display:'flex', alignItems:'center', gap:8, justifyContent: collapsed ? 'center' : 'flex-start', padding: collapsed ? '8px 0' : '8px 16px', margin:'0 8px 4px', borderRadius:8, background:'none', border:'none', cursor:'pointer', color: sidebarPinned ? '#5B8AF0' : 'rgba(255,255,255,0.4)', flexShrink:0 }}
-        onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.08)'}
-        onMouseLeave={e=>e.currentTarget.style.background='none'}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill={sidebarPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
-          <path d="M12 17v5"/><path d="M9 10.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V7a1 1 0 011-1 2 2 0 000-4H8a2 2 0 000 4 1 1 0 011 1z"/>
-        </svg>
-        {!collapsed && <span style={{ fontSize:12, fontWeight:600, whiteSpace:'nowrap' }}>{sidebarPinned ? 'Pinned' : 'Pin sidebar'}</span>}
-      </button>
 
       {/* user footer */}
       <div style={{ padding: collapsed ? '12px 8px' : '12px 16px', borderTop:'1px solid rgba(255,255,255,0.08)', flexShrink:0 }}>
@@ -280,19 +263,45 @@ export default function Layout() {
           </div>
         </aside>
       ) : (
-        /* All other roles — full sidebar, collapsible with pin/auto-hide */
+        /* All other roles — full sidebar, collapsible with click tab */
+        <div style={{ position:'sticky', top:0, height:'100vh', flexShrink:0, zIndex:10, width: sidebarExpanded ? 220 : 64, transition:'width .2s ease' }}>
         <aside
-          onMouseEnter={() => !sidebarPinned && setSidebarHovering(true)}
-          onMouseLeave={() => setSidebarHovering(false)}
           style={{
-            width: sidebarExpanded ? 220 : 64, flexShrink:0,
+            width:'100%', height:'100%',
             background:'var(--bg-sidebar, #111318)', display:'flex', flexDirection:'column',
-            position:'sticky', top:0, height:'100vh', overflowY:'auto', overflowX:'hidden',
-            transition:'width .15s ease',
+            overflowY:'auto', overflowX:'hidden',
           }}
           className="desktop-sidebar">
           <SidebarContent collapsed={!sidebarExpanded} />
         </aside>
+          {/* Click tab — prominent pill shape on the right edge */}
+          <button
+            onClick={() => setSidebarExpanded(s => !s)}
+            title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            style={{
+              position:'absolute', right:-16, top:'50%', transform:'translateY(-50%)',
+              width:16, height:56, padding:0,
+              background:'#3B4262',
+              border:'1px solid rgba(255,255,255,0.15)',
+              borderLeft:'none',
+              borderRadius:'0 10px 10px 0',
+              cursor:'pointer',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              color:'rgba(255,255,255,0.9)',
+              zIndex:20,
+              boxShadow:'3px 0 8px rgba(0,0,0,0.3)',
+              transition:'background .15s, box-shadow .15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background='#5B8AF0'; e.currentTarget.style.boxShadow='3px 0 12px rgba(91,138,240,0.4)' }}
+            onMouseLeave={e => { e.currentTarget.style.background='#3B4262'; e.currentTarget.style.boxShadow='3px 0 8px rgba(0,0,0,0.3)' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              {sidebarExpanded
+                ? <polyline points="15 18 9 12 15 6"/>
+                : <polyline points="9 18 15 12 9 6"/>
+              }
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* ── MOBILE OVERLAY — for all roles ── */}
