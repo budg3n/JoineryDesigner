@@ -180,25 +180,36 @@ function getPriceBreaks(material) {
 function POModal({ jobNumber, existingPO, onConfirm, onCancel }) {
   const prefix = 'MWF'
   const suffix = jobNumber ? `/${jobNumber}` : ''
-  const [po, setPo] = useState(existingPO || `${prefix}${suffix}`)
+  // Extract just the middle part from an existing PO like MWF12345/1234
+  const existingMiddle = existingPO
+    ? existingPO.replace(/^MWF/i, '').replace(/\/.*$/, '')
+    : ''
+  const [middle, setMiddle] = useState(existingMiddle)
   const inputRef = useRef()
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50) }, [])
-  const isValid = po.trim().startsWith(prefix) && po.trim().length > prefix.length
+  const isValid = middle.trim().length > 0
+  const fullPO = `${prefix}${middle.trim()}${suffix}`
   return (
     <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target===e.currentTarget && onCancel()}>
       <div style={{ background:'#fff', borderRadius:16, padding:24, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ fontSize:15, fontWeight:800, color:'#2A3042', marginBottom:4 }}>Purchase Order Number</div>
-        <div style={{ fontSize:12, color:'#6B7280', marginBottom:16 }}>Required to mark as ordered.</div>
-        <input ref={inputRef} value={po} onChange={e => setPo(e.target.value)}
-          onKeyDown={e => { if (e.key==='Enter' && isValid) onConfirm(po.trim()) }}
-          placeholder={`${prefix}XXXXX${suffix}`}
-          style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${isValid?'#DDE3EC':'#FCA5A5'}`, borderRadius:10, fontSize:15, fontWeight:600, outline:'none', boxSizing:'border-box', fontFamily:'monospace' }} />
-        {!isValid && po.length > 0 && <div style={{ fontSize:11, color:'#E24B4A', marginTop:4 }}>Must start with "{prefix}"</div>}
-        <div style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Format: <span style={{ fontFamily:'monospace', color:'#5B8AF0' }}>{prefix}<span style={{ color:'#374151' }}>12345</span>{suffix}</span></div>
+        <div style={{ fontSize:12, color:'#6B7280', marginBottom:16 }}>Enter the order number — the prefix and job number are added automatically.</div>
+        {/* Composed input — prefix · editable middle · suffix */}
+        <div style={{ display:'flex', alignItems:'center', border:`1.5px solid ${isValid?'#DDE3EC':'#FCA5A5'}`, borderRadius:10, overflow:'hidden', fontSize:15, fontWeight:600, fontFamily:'monospace', background:'#fff' }}>
+          <span style={{ padding:'10px 8px 10px 12px', color:'#9CA3AF', background:'#F9FAFB', borderRight:'1px solid #E8ECF0', whiteSpace:'nowrap', flexShrink:0 }}>{prefix}</span>
+          <input ref={inputRef} value={middle} onChange={e => setMiddle(e.target.value)}
+            onKeyDown={e => { if (e.key==='Enter' && isValid) onConfirm(fullPO) }}
+            placeholder="12345"
+            style={{ flex:1, padding:'10px 8px', border:'none', outline:'none', fontSize:15, fontWeight:600, fontFamily:'monospace', minWidth:0 }} />
+          {suffix && <span style={{ padding:'10px 12px 10px 8px', color:'#9CA3AF', background:'#F9FAFB', borderLeft:'1px solid #E8ECF0', whiteSpace:'nowrap', flexShrink:0 }}>{suffix}</span>}
+        </div>
+        <div style={{ fontSize:11, color:'#9CA3AF', marginTop:6 }}>
+          Full PO: <span style={{ fontFamily:'monospace', color:'#5B8AF0', fontWeight:600 }}>{fullPO || `${prefix}…${suffix}`}</span>
+        </div>
         <div style={{ display:'flex', gap:8, marginTop:16 }}>
           <button onClick={onCancel} style={{ flex:1, padding:'9px', borderRadius:9, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:13, fontWeight:600, cursor:'pointer' }}>Cancel</button>
-          <button onClick={() => onConfirm(po.trim())} disabled={!isValid}
+          <button onClick={() => onConfirm(fullPO)} disabled={!isValid}
             style={{ flex:2, padding:'9px', borderRadius:9, border:'none', fontSize:13, fontWeight:700, cursor:isValid?'pointer':'default', background:isValid?'#1D9E75':'#E8ECF0', color:isValid?'#fff':'#9CA3AF' }}>
             Mark as Ordered
           </button>
@@ -1319,6 +1330,8 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
   }, [roomMats])
   const [search,  setSearch]  = useState('')
   const [showDrop,setShowDrop]= useState(false)
+  const [showOrderPicker, setShowOrderPicker] = useState(false)
+  const [orderPickerCat, setOrderPickerCat] = useState('All')
   const [selected, setSelected] = useState(null)   // picked material
   const [catFields, setCatFields] = useState([])   // visible fields for this category
   const [catVisibility, setCatVisibility] = useState(null) // Set of visible keys
@@ -1680,95 +1693,127 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
 
       {/* search + add */}
       <div style={{background:'#F8FAFF',borderRadius:12,border:'1px solid #C4D4F8',padding:14,marginBottom:12}}>
-        {/* Search box */}
-        <div style={{position:'relative',marginBottom: selected ? 12 : 0}} ref={searchWrapRef}>
-          <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}
-            width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input ref={searchRef} value={search}
-            onChange={e=>{setSearch(e.target.value);setShowDrop(true)}}
-            onFocus={()=>setShowDrop(true)}
-            onBlur={()=>setTimeout(()=>setShowDrop(false),300)}
-            placeholder="Search materials in this room…"
-            style={{width:'100%',padding:'9px 32px 9px 32px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',boxSizing:'border-box',background:'#fff'}}/>
-          {search && (
-            <button onClick={clearSelection} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:16}}>×</button>
-          )}
-          {/* Dropdown — fixed position to escape overflow:hidden parent */}
-          {showDrop && (() => {
-            const rect = searchWrapRef.current?.getBoundingClientRect()
-            return (
-              <div style={{
-                position:'fixed',
-                top: rect ? rect.bottom + 4 : 0,
-                left: rect ? rect.left : 0,
-                width: rect ? rect.width : 300,
-                background:'#fff',
-                border:'1px solid #E8ECF0',
-                borderRadius:10,
-                boxShadow:'0 8px 24px rgba(0,0,0,0.12)',
-                zIndex:9999,
-                maxHeight:360,
-                overflowY:'auto'
-              }}>
-              {allMats.length === 0 ? (
-                <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',textAlign:'center'}}>No materials assigned to this room yet — add some from the Materials tab first</div>
-              ) : (
-                <>
-                  {/* Add all — only meaningful when no search filter applied */}
-                  <div onMouseDown={startAddAllQueue}
-                    style={{padding:'10px 14px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,borderBottom:'1px solid #F3F4F6',background:'#F8FAFF'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
-                    onMouseLeave={e=>e.currentTarget.style.background='#F8FAFF'}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700,color:'#5B8AF0'}}>Add all {allMats.length} room material{allMats.length!==1?'s':''}</div>
-                      <div style={{fontSize:11,color:'#9CA3AF'}}>Set quantity for each, one by one</div>
-                    </div>
-                  </div>
-                  {matches.length > 0 ? (
-                    groupByRootCategory(matches.map(m => ({ materials: m })), allCats).map(({ groupName, items }) => (
-                      <div key={groupName}>
-                        <div style={{ padding:'5px 14px 3px', fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'.06em', background:'#F9FAFB', borderBottom:'1px solid #F3F4F6' }}>
-                          {groupName}
-                        </div>
-                        {items.map(({ materials: m }) => (
-                          <div key={m.id} onMouseDown={()=>pickMaterial(m)}
-                            style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F9FAFB'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='#F0F4FF'}
-                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                            <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{m.name || [m.supplier,m.panel_type,m.colour_code,m.finish].filter(Boolean).join(' ')}</div>
-                            <div style={{fontSize:11,color:'#9CA3AF',marginTop:1}}>
-                              {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null,m.colour_code,m.finish].filter(Boolean).join(' · ')}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))
-                  ) : search.trim().length > 0 ? (
-                <div>
-                  <div style={{padding:'12px 14px',fontSize:12,color:'#9CA3AF',borderBottom:'1px solid #F9FAFB'}}>
-                    No materials found for "{search}"
-                  </div>
-                  <div onMouseDown={()=>{ setSelected({id:null,name:search.trim(),custom_fields:{}});setShowDrop(false);setCatFields([]);setCatVisibility(null) }}
-                    style={{padding:'10px 14px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,background:'#F8FAFF'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='#EEF2FF'}
-                    onMouseLeave={e=>e.currentTarget.style.background='#F8FAFF'}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B8AF0" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:600,color:'#5B8AF0'}}>Add "{search}" as custom item</div>
-                      <div style={{fontSize:11,color:'#9CA3AF'}}>Enter qty and notes below</div>
-                    </div>
-                  </div>
-                </div>
-                  ) : null}
-                </>
-              )}
+        {/* Material picker — opens full modal */}
+        <div style={{marginBottom: selected ? 12 : 0}}>
+          {!selected ? (
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={() => setShowOrderPicker(true)}
+                style={{flex:1,padding:'10px 14px',borderRadius:9,border:'1px solid #5B8AF0',background:'#EEF2FF',color:'#3730A3',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:8,justifyContent:'center'}}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Browse &amp; select material
+              </button>
+              <button onClick={() => { setSelected({id:null,name:'',custom_fields:{}}); setCatFields([]); setCatVisibility(null) }}
+                style={{padding:'10px 14px',borderRadius:9,border:'1px solid #DDE3EC',background:'#fff',color:'#6B7280',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+                + Custom item
+              </button>
             </div>
-            )
-          })()}
+          ) : (
+            <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'#fff',borderRadius:9,border:'1px solid #E8ECF0'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#2A3042',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selected.name || 'Custom item'}</div>
+                {selected.id && <div style={{fontSize:11,color:'#9CA3AF'}}>from library</div>}
+              </div>
+              <button onClick={clearSelection} style={{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+          )}
         </div>
+
+        {/* Order picker modal */}
+        {showOrderPicker && ReactDOM.createPortal(
+          <div style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+            onClick={e=>{if(e.target===e.currentTarget)setShowOrderPicker(false)}}>
+            <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:860,height:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 64px rgba(0,0,0,0.2)',overflow:'hidden'}}>
+              {/* Header */}
+              <div style={{padding:'14px 18px',borderBottom:'1px solid #E8ECF0',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:'#2A3042'}}>Select material to order</div>
+                  <div style={{fontSize:12,color:'#9CA3AF',marginTop:2}}>Showing materials assigned to this room · {allMats.length} available</div>
+                </div>
+                <input autoFocus value={search} onChange={e=>setSearch(e.target.value)}
+                  placeholder="Search…"
+                  style={{padding:'7px 12px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',width:200}} />
+                <button onClick={()=>{setShowOrderPicker(false);setSearch('')}}
+                  style={{padding:'7px 10px',borderRadius:8,border:'1px solid #E8ECF0',background:'#fff',color:'#6B7280',fontSize:18,cursor:'pointer',lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+
+              <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+                {/* Category sidebar */}
+                {(() => {
+                  const jmLbls = new Map(allMats.map(m=>[m.id,getCategoryLabel(m.category_id,allCats)]))
+                  const roots=['All',...Array.from(new Set([...jmLbls.values()].map(l=>l.split(' › ')[0]).filter(Boolean))).sort()]
+                  const q=search.trim().toLowerCase()
+                  const words=q?q.split(/\s+/):[]
+                  const catF=orderPickerCat==='All'?allMats:allMats.filter(m=>(jmLbls.get(m.id)||'').startsWith(orderPickerCat))
+                  const filtered=words.length?catF.filter(m=>{
+                    const cf=m.custom_fields?(typeof m.custom_fields==='object'?m.custom_fields:(() => { try { return JSON.parse(m.custom_fields) } catch { return {} } })()):{}
+                    const hay=[m.name,m.supplier,m.panel_type,m.colour_code,m.finish,cf.sku].filter(Boolean).map(v=>String(v).toLowerCase()).join(' ')
+                    return words.every(w=>hay.includes(w))
+                  }):catF
+                  const groups=groupByCategory(filtered.map(m=>({materials:m})),allCats)
+                  return (<>
+                    <div style={{width:160,borderRight:'1px solid #E8ECF0',overflowY:'auto',flexShrink:0,padding:'6px 0'}}>
+                      {roots.map(cat=>{
+                        const count=cat==='All'?allMats.length:allMats.filter(m=>(jmLbls.get(m.id)||'').startsWith(cat)).length
+                        return(
+                          <button key={cat} onClick={()=>setOrderPickerCat(cat)}
+                            style={{width:'100%',textAlign:'left',padding:'8px 14px',border:'none',cursor:'pointer',fontSize:12,fontWeight:orderPickerCat===cat?700:400,
+                              background:orderPickerCat===cat?'#EEF2FF':'transparent',color:orderPickerCat===cat?'#3730A3':'#374151',
+                              borderRight:orderPickerCat===cat?'3px solid #5B8AF0':'3px solid transparent',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                            <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cat}</span>
+                            <span style={{fontSize:10,color:'#9CA3AF',flexShrink:0,marginLeft:4}}>{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {/* Grid */}
+                    <div style={{flex:1,overflowY:'auto',padding:14}}>
+                      {groups.length===0?(
+                        <div style={{textAlign:'center',color:'#9CA3AF',padding:'40px 0',fontSize:13}}>{q?'No materials match':'No materials in this category'}</div>
+                      ):groups.map(({groupName,items})=>(
+                        <div key={groupName} style={{marginBottom:18}}>
+                          <div style={{fontSize:11,fontWeight:800,color:'#6B7280',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:8,paddingBottom:4,borderBottom:'1px solid #E8ECF0'}}>
+                            {groupName} <span style={{fontWeight:500}}>({items.length})</span>
+                          </div>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}}>
+                            {items.map(({materials:m})=>{
+                              if(!m)return null
+                              const cf2=m.custom_fields?(typeof m.custom_fields==='object'?m.custom_fields:(() => { try { return JSON.parse(m.custom_fields) } catch { return {} } })()):{}
+                              const sku=cf2.sku||m.sku||null
+                              return(
+                                <div key={m.id}
+                                  onClick={()=>{pickMaterial(m);setShowOrderPicker(false);setSearch('')}}
+                                  style={{borderRadius:10,border:'2px solid #E8ECF0',background:'#fff',cursor:'pointer',overflow:'hidden',transition:'all .1s'}}
+                                  onMouseEnter={e=>{e.currentTarget.style.border='2px solid #5B8AF0';e.currentTarget.style.boxShadow='0 0 0 3px rgba(91,138,240,0.15)'}}
+                                  onMouseLeave={e=>{e.currentTarget.style.border='2px solid #E8ECF0';e.currentTarget.style.boxShadow='none'}}>
+                                  <div style={{height:80,background:'#F3F4F6',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                                    {m.storage_path
+                                      ?<img src={pubUrl(m.storage_path)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',background:'#fff'}}/>
+                                      :<div style={{width:'100%',height:'100%',background:m.color||'#E8ECF0',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C4C9D4" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                      </div>
+                                    }
+                                  </div>
+                                  <div style={{padding:'7px 8px'}}>
+                                    <div style={{fontSize:11,fontWeight:600,color:'#2A3042',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</div>
+                                    <div style={{fontSize:10,color:'#9CA3AF',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                      {[m.supplier,m.panel_type,m.thickness?m.thickness+'mm':null].filter(Boolean).join(' · ')||'—'}
+                                    </div>
+                                    {sku&&<div style={{fontSize:10,color:'#B0B8C4',marginTop:1}}>SKU: {sku}</div>}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>)
+                })()}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
         {/* Selected material details — read only, category-aware */}
         {selected && (
