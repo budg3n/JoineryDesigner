@@ -1157,7 +1157,7 @@ function MaterialFieldsModal({ catId, catName, onClose, onChanged }) {
                     <div style={{ fontSize:13, fontWeight:600, color:'#2A3042' }}>{f.label}</div>
                     <div style={{ fontSize:11, color:'#9CA3AF', marginTop:1 }}>
                       {FIELD_TYPES.find(t=>t.value===f.field_type)?.label}{f.required?' · Required':''}
-                      {f.options && ` · ${JSON.parse(f.options).join(', ')}`}
+                      {f.options && ` · ${(() => { try { const o = JSON.parse(f.options); return Array.isArray(o) ? o.join(', ') : String(f.options) } catch { return String(f.options) } })()}`}
                     </div>
                   </div>
                   <button onClick={()=>toggleReq(f)} style={{ fontSize:11, padding:'2px 8px', borderRadius:6, border:`1px solid ${f.required?'#86EFAC':'#E8ECF0'}`, background:f.required?'#F0FDF4':'#F9FAFB', color:f.required?'#166534':'#9CA3AF', cursor:'pointer' }}>
