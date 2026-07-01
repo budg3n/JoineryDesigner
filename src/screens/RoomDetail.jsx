@@ -134,6 +134,112 @@ const EMPTY_FORM = {
 
 // Compute effective price based on qty and price_breaks
 // Small inline copy button — shows a ✓ tick for 1.5s after copying
+// Lightweight material detail modal — shared between room materials and orders
+function MaterialDetailModal({ material: m, onClose }) {
+  const [tab, setTab] = React.useState('details')
+  const [suppliers, setSuppliers] = React.useState([])
+  const [loadingSuppliers, setLoadingSuppliers] = React.useState(false)
+  React.useEffect(() => {
+    if (tab !== 'suppliers' || !m?.id || suppliers.length) return
+    setLoadingSuppliers(true)
+    supabase.from('material_suppliers').select('id,price,sku,lead_time,is_preferred,suppliers(name)').eq('material_id', m.id).order('is_preferred', {ascending:false})
+      .then(({ data }) => { setSuppliers(data||[]); setLoadingSuppliers(false) })
+  }, [tab, m?.id])
+  if (!m) return null
+  let cf = {}
+  try { cf = m.custom_fields ? (typeof m.custom_fields==='object' ? m.custom_fields : JSON.parse(m.custom_fields)) : {} } catch {}
+  const sku = cf.sku || m.sku || null
+  const description = cf.description || null
+  const specs = [
+    {label:'Supplier', value:m.supplier}, {label:'Panel type', value:m.panel_type},
+    {label:'Thickness', value:m.thickness?m.thickness+'mm':null}, {label:'Colour', value:m.colour_code},
+    {label:'Finish', value:m.finish}, {label:'SKU', value:sku},
+    {label:'Price', value:m.price?`$${parseFloat(m.price).toFixed(2)}`:null},
+  ].filter(s=>s.value)
+  return ReactDOM.createPortal(
+    <div style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:540,maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 64px rgba(0,0,0,0.25)',overflow:'hidden'}}>
+        <div style={{padding:'16px 20px',borderBottom:'1px solid #F3F4F6',display:'flex',gap:12,alignItems:'flex-start',flexShrink:0}}>
+          {m.storage_path && <img src={pubUrl(m.storage_path)} alt="" style={{width:56,height:56,borderRadius:10,objectFit:'contain',background:'#F9FAFB',border:'1px solid #E8ECF0',flexShrink:0}}/>}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:16,fontWeight:700,color:'#2A3042'}}>{m.name}</div>
+            {m.supplier&&<div style={{fontSize:12,color:'#6B7280',marginTop:2}}>{m.supplier}</div>}
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:22,lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{display:'flex',gap:2,padding:'8px 20px 0',borderBottom:'1px solid #F3F4F6',flexShrink:0}}>
+          {[['details','Details'],['info','Product Info'],['suppliers','Suppliers']].map(([key,label])=>(
+            <button key={key} onClick={()=>setTab(key)}
+              style={{padding:'7px 14px',fontSize:13,fontWeight:600,border:'none',background:'none',cursor:'pointer',
+                color:tab===key?'#5B8AF0':'#9CA3AF', borderBottom:tab===key?'2px solid #5B8AF0':'2px solid transparent'}}>{label}</button>
+          ))}
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:20}}>
+          {tab==='details' && (
+            <div>
+              {specs.length>0?(
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  {specs.map(s=>(
+                    <div key={s.label} style={{background:'#F9FAFB',borderRadius:10,padding:'10px 14px',border:'1px solid #E8ECF0'}}>
+                      <div style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:3}}>{s.label}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:'#2A3042'}}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              ):<div style={{textAlign:'center',color:'#9CA3AF',padding:'24px 0',fontSize:13}}>No details recorded</div>}
+              {m.notes&&<div style={{marginTop:14,padding:'12px 14px',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10}}>
+                <div style={{fontSize:10,fontWeight:700,color:'#92400E',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}}>Notes</div>
+                <div style={{fontSize:13,color:'#78350F',lineHeight:1.6}}>{m.notes}</div>
+              </div>}
+            </div>
+          )}
+          {tab==='info'&&(
+            <div style={{display:'flex',flexDirection:'column',gap:16}}>
+              {description?<div>
+                <div style={{fontSize:11,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}}>Description</div>
+                <div style={{fontSize:13,color:'#374151',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{description}</div>
+              </div>:<div style={{textAlign:'center',color:'#9CA3AF',padding:'24px 0',fontSize:13}}>No description added</div>}
+              {m.notes&&<div>
+                <div style={{fontSize:11,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}}>Notes</div>
+                <div style={{fontSize:13,color:'#374151',lineHeight:1.7,fontStyle:'italic',whiteSpace:'pre-wrap'}}>{m.notes}</div>
+              </div>}
+            </div>
+          )}
+          {tab==='suppliers'&&(
+            loadingSuppliers?<div style={{textAlign:'center',padding:'24px 0'}}><div className="spinner"/></div>
+            :suppliers.length===0?<div style={{textAlign:'center',color:'#9CA3AF',padding:'24px 0',fontSize:13}}>No suppliers linked</div>
+            :suppliers.map(s=>{
+              const breaks=Array.isArray(cf.price_breaks)?cf.price_breaks:[]
+              return(
+                <div key={s.id} style={{background:'#F9FAFB',borderRadius:12,border:'1px solid #E8ECF0',padding:14,marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                    {s.is_preferred&&<span style={{fontSize:10,color:'#1D9E75'}}>★</span>}
+                    <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{s.suppliers?.name}</div>
+                    {s.is_preferred&&<span style={{fontSize:10,background:'#F0FDF4',color:'#16A34A',border:'1px solid #BBF7D0',borderRadius:5,padding:'1px 6px',fontWeight:700}}>Preferred</span>}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                    {s.price&&<div style={{fontSize:12}}><span style={{color:'#9CA3AF'}}>Price: </span><strong>${parseFloat(s.price).toFixed(2)}</strong></div>}
+                    {s.sku&&<div style={{fontSize:12}}><span style={{color:'#9CA3AF'}}>SKU: </span><strong>{s.sku}</strong></div>}
+                    {s.lead_time&&<div style={{fontSize:12}}><span style={{color:'#9CA3AF'}}>Lead: </span><strong>{s.lead_time}</strong></div>}
+                  </div>
+                  {breaks.length>0&&s.is_preferred&&(
+                    <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid #E8ECF0'}}>
+                      <div style={{fontSize:10,fontWeight:700,color:'#9CA3AF',textTransform:'uppercase',marginBottom:4}}>Qty breaks</div>
+                      {breaks.map((b,i)=><div key={i} style={{fontSize:12,color:'#374151'}}>≥{b.qty} units → ${parseFloat(b.price||0).toFixed(2)}</div>)}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function CopyBtn({ text, label }) {
   const [copied, setCopied] = React.useState(false)
   if (!text) return null
@@ -149,6 +255,30 @@ function CopyBtn({ text, label }) {
       style={{ background: copied ? '#F0FDF4' : '#F3F4F6', border: `1px solid ${copied ? '#86EFAC' : '#E8ECF0'}`, borderRadius:5, padding:'1px 6px', fontSize:10, fontWeight:700, color: copied ? '#16A34A' : '#9CA3AF', cursor:'pointer', flexShrink:0, lineHeight:'16px', transition:'all .15s' }}>
       {copied ? '✓ Copied' : `Copy ${label}`}
     </button>
+  )
+}
+
+// Hover tooltip for material cards
+function MatTooltip({ m, anchorRect }) {
+  if (!m || !anchorRect) return null
+  let cf = {}
+  try { cf = m.custom_fields ? (typeof m.custom_fields === 'object' ? m.custom_fields : JSON.parse(m.custom_fields)) : {} } catch {}
+  const sku = cf.sku || m.sku || null
+  const description = cf.description || null
+  const notes = m.notes || null
+  const specs = [m.supplier, m.panel_type, m.thickness ? m.thickness+'mm' : null, m.colour_code, m.finish].filter(Boolean).join(' · ')
+  const top = anchorRect.bottom + 8
+  const left = Math.min(anchorRect.left, window.innerWidth - 280)
+  return ReactDOM.createPortal(
+    <div style={{ position:'fixed', top, left, width:260, zIndex:999999, background:'#1E2130', color:'#fff', borderRadius:12, padding:14, boxShadow:'0 8px 32px rgba(0,0,0,0.35)', pointerEvents:'none', fontSize:12, lineHeight:1.5 }}>
+      <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>{m.name}</div>
+      {specs && <div style={{ color:'rgba(255,255,255,0.6)', marginBottom:4 }}>{specs}</div>}
+      {sku && <div style={{ color:'#5B8AF0', marginBottom:4, fontWeight:600 }}>SKU: {sku}</div>}
+      {description && <div style={{ color:'rgba(255,255,255,0.85)', borderTop:'1px solid rgba(255,255,255,0.1)', paddingTop:6, marginTop:6 }}>{description}</div>}
+      {notes && <div style={{ color:'rgba(255,255,255,0.55)', fontStyle:'italic', marginTop:4 }}>{notes}</div>}
+      {!description && !notes && !sku && <div style={{ color:'rgba(255,255,255,0.35)', fontStyle:'italic' }}>No additional info</div>}
+    </div>,
+    document.body
   )
 }
 
@@ -854,12 +984,14 @@ function printRoomMaterials(groups, roomName) {
   setTimeout(() => w.print(), 400)
 }
 
-function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats }) {
+function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats, onViewMaterial }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
   const [pickerSelected, setPickerSelected] = React.useState(new Set())
   const [pickerCat, setPickerCat]   = React.useState('All')
   const [adding, setAdding]         = React.useState(false)
+  const [hoveredMat, setHoveredMat] = React.useState(null)
+  const [tooltipRect, setTooltipRect] = React.useState(null)
 
   // IDs already assigned to this room
   const roomMatIds = new Set(roomMats.map(rm => rm.material_id || rm.materials?.id).filter(Boolean))
@@ -1003,6 +1135,8 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                                 return next
                               })
                             }}
+                            onMouseEnter={e => { setHoveredMat(m); setTooltipRect(e.currentTarget.getBoundingClientRect()) }}
+                            onMouseLeave={() => { setHoveredMat(null); setTooltipRect(null) }}
                             style={{ borderRadius:10, border: selected?'2px solid #1D9E75': alreadyInRoom?'2px solid #E8ECF0':'2px solid #E8ECF0',
                               background: alreadyInRoom?'#F9FAFB': selected?'#F0FDF4':'#fff',
                               cursor: alreadyInRoom?'default':'pointer', overflow:'hidden', opacity: alreadyInRoom?0.5:1,
@@ -1050,6 +1184,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                 </button>
               </div>
             )}
+            <MatTooltip m={hoveredMat} anchorRect={tooltipRect} />
           </div>
         </div>,
         document.body
@@ -1079,7 +1214,12 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                   const m = rm.materials; if (!m) return null
                   const sku = (() => { try { const cf = m.custom_fields ? (typeof m.custom_fields==='object'?m.custom_fields:JSON.parse(m.custom_fields)) : {}; return cf.sku||null } catch { return null } })()
                   return (
-                    <div key={rm.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0' }}>
+                    <div key={rm.id}
+                      onClick={e => { e.stopPropagation(); onViewMaterial?.(m) }}
+                      title="Click to view product info"
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid #E8ECF0', cursor:'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.background='#F8FAFF'; e.currentTarget.style.borderColor='#C4D4F8' }}
+                      onMouseLeave={e => { e.currentTarget.style.background='#fff'; e.currentTarget.style.borderColor='#E8ECF0' }}>
                       {m.storage_path
                         ? <img src={pubUrl(m.storage_path)} style={{ width:40,height:40,borderRadius:9,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0' }} alt="" />
                         : <div style={{ width:40,height:40,borderRadius:9,background:m.color||'#E8ECF0',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)' }} />
@@ -1094,7 +1234,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                           {sku && <span style={{ marginLeft:4, color:'#B0B8C4' }}>· SKU: {sku}</span>}
                         </div>
                       </div>
-                      <button onClick={() => onRemove(rm.id)}
+                      <button onClick={e => { e.stopPropagation(); onRemove(rm.id) }}
                         style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
                         onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
                         onMouseLeave={e=>e.currentTarget.style.color='#D1D5DB'}>×</button>
@@ -1308,7 +1448,7 @@ function RoomFilesTab({ room, jobId }) {
   )
 }
 
-function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [] }) {
+function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [], onViewMaterial }) {
   const toast = useToast()
   const [orders,  setOrders]  = useState([])
   const [loading, setLoading] = useState(true)
@@ -1332,6 +1472,8 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
   const [showDrop,setShowDrop]= useState(false)
   const [showOrderPicker, setShowOrderPicker] = useState(false)
   const [orderPickerCat, setOrderPickerCat] = useState('All')
+  const [hoveredMat, setHoveredMat] = useState(null)
+  const [tooltipRect, setTooltipRect] = useState(null)
   const [selected, setSelected] = useState(null)   // picked material
   const [catFields, setCatFields] = useState([])   // visible fields for this category
   const [catVisibility, setCatVisibility] = useState(null) // Set of visible keys
@@ -1782,9 +1924,9 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                               return(
                                 <div key={m.id}
                                   onClick={()=>{pickMaterial(m);setShowOrderPicker(false);setSearch('')}}
-                                  style={{borderRadius:10,border:'2px solid #E8ECF0',background:'#fff',cursor:'pointer',overflow:'hidden',transition:'all .1s'}}
-                                  onMouseEnter={e=>{e.currentTarget.style.border='2px solid #5B8AF0';e.currentTarget.style.boxShadow='0 0 0 3px rgba(91,138,240,0.15)'}}
-                                  onMouseLeave={e=>{e.currentTarget.style.border='2px solid #E8ECF0';e.currentTarget.style.boxShadow='none'}}>
+                                  onMouseEnter={e=>{setHoveredMat(m);setTooltipRect(e.currentTarget.getBoundingClientRect());e.currentTarget.style.border='2px solid #5B8AF0';e.currentTarget.style.boxShadow='0 0 0 3px rgba(91,138,240,0.15)'}}
+                                  onMouseLeave={e=>{setHoveredMat(null);setTooltipRect(null);e.currentTarget.style.border='2px solid #E8ECF0';e.currentTarget.style.boxShadow='none'}}
+                                  style={{borderRadius:10,border:'2px solid #E8ECF0',background:'#fff',cursor:'pointer',overflow:'hidden',transition:'all .1s'}}>
                                   <div style={{height:80,background:'#F3F4F6',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
                                     {m.storage_path
                                       ?<img src={pubUrl(m.storage_path)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',background:'#fff'}}/>
@@ -1814,6 +1956,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
           </div>,
           document.body
         )}
+        <MatTooltip m={hoveredMat} anchorRect={tooltipRect} />
 
         {/* Selected material details — read only, category-aware */}
         {selected && (
@@ -1952,13 +2095,17 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                         <div key={o.id} style={{background:'#fff',borderRadius:10,border:'1px solid #E8ECF0',overflow:'hidden'}}>
                           {/* top row */}
                           <div style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 12px 6px'}}>
-                            {/* Image thumbnail */}
-                            {mat?.storage_path
-                              ? <img src={pubUrl(mat.storage_path)} alt="" style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,border:'1px solid #E8ECF0'}} />
-                              : <div style={{width:40,height:40,borderRadius:8,background:'#F3F4F6',flexShrink:0,border:'1px solid #E8ECF0',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                                </div>
-                            }
+                            {/* Image thumbnail — clickable to view product info */}
+                            <div onClick={e => { if (!mat) return; e.stopPropagation(); onViewMaterial?.(mat) }}
+                              title={mat ? 'Click to view product info' : ''}
+                              style={{ cursor: mat ? 'pointer' : 'default', flexShrink:0 }}>
+                              {mat?.storage_path
+                                ? <img src={pubUrl(mat.storage_path)} alt="" style={{width:40,height:40,borderRadius:8,objectFit:'cover',border:'1px solid #E8ECF0',display:'block'}} />
+                                : <div style={{width:40,height:40,borderRadius:8,background:'#F3F4F6',border:'1px solid #E8ECF0',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                  </div>
+                              }
+                            </div>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                                 <div style={{fontSize:13,fontWeight:700,color:'#2A3042'}}>{o.item}</div>
@@ -2170,6 +2317,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
   const navigate = useNavigate()
   const [room, setRoom]       = useState(initialRoom)
   const [roomMats, setRoomMats] = useState([])
+  const [viewMaterial, setViewMaterial] = useState(null)
   const [roomApps, setRoomApps] = useState([])
   const [dirty, setDirty]     = useState(false)
   const [saving, setSaving]   = useState(false)
@@ -2534,7 +2682,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
             <RoomMaterialsTab
               roomMats={roomMats} filteredMats={filteredMats} jobMats={jobMats}
               onAdd={jm=>addMat(jm.materials)} onRemove={removeMat}
-              allCats={allCats}
+              allCats={allCats} onViewMaterial={setViewMaterial}
             />
           )}
 
@@ -2613,7 +2761,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
         {/* ── ORDERS ── */}
           {tab==='orders' && (
             <RoomOrdersTab room={room} jobId={jobId} jobMats={jobMats} roomMats={roomMats}
-              allCats={allCats}
+              allCats={allCats} onViewMaterial={setViewMaterial}
               onOpenFull={()=>{ onClose(); setTimeout(()=>navigate(`/job/${jobId}/orders?room=${room.id}`),150) }} />
           )}
 
@@ -2639,6 +2787,9 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
 
         </div>
       </div>
+      {viewMaterial && (
+        <MaterialDetailModal material={viewMaterial} onClose={() => setViewMaterial(null)} />
+      )}
     </div>
   )
 }
