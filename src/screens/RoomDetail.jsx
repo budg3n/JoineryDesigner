@@ -984,7 +984,7 @@ function printRoomMaterials(groups, roomName) {
   setTimeout(() => w.print(), 400)
 }
 
-function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats, onViewMaterial }) {
+function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, allCats, onViewMaterial, jobId, roomId }) {
   const [showPicker, setShowPicker] = React.useState(false)
   const [search, setSearch]         = React.useState('')
   const [pickerSelected, setPickerSelected] = React.useState(new Set())
@@ -992,6 +992,24 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
   const [adding, setAdding]         = React.useState(false)
   const [hoveredMat, setHoveredMat] = React.useState(null)
   const [tooltipRect, setTooltipRect] = React.useState(null)
+  const [orderMap, setOrderMap] = React.useState({})
+
+  React.useEffect(() => {
+    if (!jobId || !roomId) return
+    supabase.from('order_items')
+      .select('material_id, qty, unit, status')
+      .eq('job_id', jobId).eq('room_id', roomId)
+      .then(({ data }) => {
+        const map = {}
+        ;(data||[]).forEach(o => {
+          if (!o.material_id) return
+          if (!map[o.material_id]) map[o.material_id] = { qty: 0, allOrdered: true }
+          map[o.material_id].qty += parseFloat(o.qty || 0)
+          if (o.status !== 'Ordered') map[o.material_id].allOrdered = false
+        })
+        setOrderMap(map)
+      })
+  }, [jobId, roomId])
 
   // IDs already assigned to this room
   const roomMatIds = new Set(roomMats.map(rm => rm.material_id || rm.materials?.id).filter(Boolean))
@@ -1213,6 +1231,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                   {items.map(rm => {
                   const m = rm.materials; if (!m) return null
                   const sku = (() => { try { const cf = m.custom_fields ? (typeof m.custom_fields==='object'?m.custom_fields:JSON.parse(m.custom_fields)) : {}; return cf.sku||null } catch { return null } })()
+                  const order = orderMap[m.id]
                   return (
                     <div key={rm.id}
                       onClick={e => { e.stopPropagation(); onViewMaterial?.(m) }}
@@ -1234,6 +1253,22 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                           {sku && <span style={{ marginLeft:4, color:'#B0B8C4' }}>· SKU: {sku}</span>}
                         </div>
                       </div>
+                      {order && (
+                        <div title={order.allOrdered ? 'Ordered' : 'Added to order — not yet ordered'}
+                          style={{ display:'flex', alignItems:'center', gap:3, padding:'3px 8px', borderRadius:20, flexShrink:0,
+                            background: order.allOrdered ? '#F0FDF4' : '#FFF7ED',
+                            border: `1px solid ${order.allOrdered ? '#BBF7D0' : '#FED7AA'}` }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                            stroke={order.allOrdered ? '#16A34A' : '#EA580C'} strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                          {order.qty > 0 && (
+                            <span style={{ fontSize:11, fontWeight:700, color: order.allOrdered ? '#16A34A' : '#EA580C' }}>
+                              {Number.isInteger(order.qty) ? order.qty : order.qty.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <button onClick={e => { e.stopPropagation(); onRemove(rm.id) }}
                         style={{ background:'none', border:'none', cursor:'pointer', color:'#D1D5DB', fontSize:18, lineHeight:1, flexShrink:0 }}
                         onMouseEnter={e=>e.currentTarget.style.color='#E24B4A'}
@@ -2683,6 +2718,7 @@ export default function RoomDetail({ room: initialRoom, jobId, jobMats, allAppli
               roomMats={roomMats} filteredMats={filteredMats} jobMats={jobMats}
               onAdd={jm=>addMat(jm.materials)} onRemove={removeMat}
               allCats={allCats} onViewMaterial={setViewMaterial}
+              jobId={jobId} roomId={room.id}
             />
           )}
 
