@@ -1029,6 +1029,8 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
     setPickerSelected(new Set())
     setShowPicker(false)
     setSearch('')
+    setHoveredMat(null)
+    setTooltipRect(null)
   }
 
   // Build root cats from jobMats — precompute label for each jm once
@@ -1087,7 +1089,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
       {/* Full modal picker */}
       {showPicker && ReactDOM.createPortal(
         <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
-          onClick={e => { if(e.target===e.currentTarget){ setShowPicker(false); setPickerSelected(new Set()) } }}>
+          onClick={e => { if(e.target===e.currentTarget){ setShowPicker(false); setPickerSelected(new Set()); setHoveredMat(null); setTooltipRect(null) } }}>
           <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:860, height:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.2)', overflow:'hidden' }}>
 
             {/* Header */}
@@ -1105,7 +1107,7 @@ function RoomMaterialsTab({ roomMats, filteredMats, jobMats, onAdd, onRemove, al
                 style={{ padding:'8px 18px', borderRadius:9, border:'none', background: pickerSelected.size>0?'#1D9E75':'#E8ECF0', color: pickerSelected.size>0?'#fff':'#9CA3AF', fontSize:13, fontWeight:700, cursor: pickerSelected.size>0?'pointer':'default', whiteSpace:'nowrap', flexShrink:0 }}>
                 {adding ? 'Adding…' : pickerSelected.size>0 ? `Add ${pickerSelected.size}` : 'Select materials'}
               </button>
-              <button onClick={() => { setShowPicker(false); setPickerSelected(new Set()) }}
+              <button onClick={() => { setShowPicker(false); setPickerSelected(new Set()); setHoveredMat(null); setTooltipRect(null) }}
                 style={{ padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:18, cursor:'pointer', lineHeight:1, flexShrink:0 }}>×</button>
             </div>
 
@@ -1898,7 +1900,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
         {/* Order picker modal */}
         {showOrderPicker && ReactDOM.createPortal(
           <div style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
-            onClick={e=>{if(e.target===e.currentTarget)setShowOrderPicker(false)}}>
+            onClick={e=>{if(e.target===e.currentTarget){setShowOrderPicker(false);setHoveredMat(null);setTooltipRect(null)}}}>
             <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:860,height:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 64px rgba(0,0,0,0.2)',overflow:'hidden'}}>
               {/* Header */}
               <div style={{padding:'14px 18px',borderBottom:'1px solid #E8ECF0',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
@@ -1909,7 +1911,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                 <input autoFocus value={search} onChange={e=>setSearch(e.target.value)}
                   placeholder="Search…"
                   style={{padding:'7px 12px',border:'1px solid #DDE3EC',borderRadius:9,fontSize:13,outline:'none',width:200}} />
-                <button onClick={()=>{setShowOrderPicker(false);setSearch('')}}
+                <button onClick={()=>{setShowOrderPicker(false);setSearch('');setHoveredMat(null);setTooltipRect(null)}}
                   style={{padding:'7px 10px',borderRadius:8,border:'1px solid #E8ECF0',background:'#fff',color:'#6B7280',fontSize:18,cursor:'pointer',lineHeight:1,flexShrink:0}}>×</button>
               </div>
 
@@ -1958,7 +1960,7 @@ function RoomOrdersTab({ room, jobId, jobMats, roomMats, onOpenFull, allCats = [
                               const sku=cf2.sku||m.sku||null
                               return(
                                 <div key={m.id}
-                                  onClick={()=>{pickMaterial(m);setShowOrderPicker(false);setSearch('')}}
+                                  onClick={()=>{pickMaterial(m);setShowOrderPicker(false);setSearch('');setHoveredMat(null);setTooltipRect(null)}}
                                   onMouseEnter={e=>{setHoveredMat(m);setTooltipRect(e.currentTarget.getBoundingClientRect());e.currentTarget.style.border='2px solid #5B8AF0';e.currentTarget.style.boxShadow='0 0 0 3px rgba(91,138,240,0.15)'}}
                                   onMouseLeave={e=>{setHoveredMat(null);setTooltipRect(null);e.currentTarget.style.border='2px solid #E8ECF0';e.currentTarget.style.boxShadow='none'}}
                                   style={{borderRadius:10,border:'2px solid #E8ECF0',background:'#fff',cursor:'pointer',overflow:'hidden',transition:'all .1s'}}>

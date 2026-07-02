@@ -4982,12 +4982,13 @@ export default function JobDetail() {
               setMatPickerOpen(false)
               setMatSearch('')
               setMatPickerCat('All')
+              setHoveredMat(null); setTooltipRect(null)
               toast(`Added ${ids.length} material${ids.length!==1?'s':''} ✓`)
             }
 
             return (
               <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-                onClick={e => { if(e.target===e.currentTarget){ setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All') } }}>
+                onClick={e => { if(e.target===e.currentTarget){ setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All'); setHoveredMat(null); setTooltipRect(null) } }}>
                 <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:920, height:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.2)', overflow:'hidden' }}>
 
                   {/* Header */}
@@ -5003,7 +5004,7 @@ export default function JobDetail() {
                       style={{ padding:'9px 20px', borderRadius:9, border:'none', background: matPickerSelected.size>0?'#1D9E75':'#E8ECF0', color: matPickerSelected.size>0?'#fff':'#9CA3AF', fontSize:13, fontWeight:700, cursor: matPickerSelected.size>0?'pointer':'default', whiteSpace:'nowrap', flexShrink:0 }}>
                       {matPickerSelected.size>0 ? `Add ${matPickerSelected.size} material${matPickerSelected.size!==1?'s':''}` : 'Select materials'}
                     </button>
-                    <button onClick={() => { setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All') }}
+                    <button onClick={() => { setMatPickerOpen(false); setMatPickerSelected(new Set()); setMatSearch(''); setMatPickerCat('All'); setHoveredMat(null); setTooltipRect(null) }}
                       style={{ padding:'8px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', color:'#6B7280', fontSize:18, cursor:'pointer', lineHeight:1, flexShrink:0 }}>×</button>
                   </div>
 
