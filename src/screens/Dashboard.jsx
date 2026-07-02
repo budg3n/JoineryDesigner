@@ -259,7 +259,7 @@ function JobTimeStatus({ job, activeEntries, procEntries = [], procStatuses = []
   )
 }
 
-function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [], variationCount = 0 }) {
+const JobCard = React.memo(function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], procStatuses = [], unorderedCount = 0, allCustomers = [], statusColor, rooms = [], variationCount = 0 }) {
   const navigate  = useNavigate()
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef(null)
@@ -378,7 +378,7 @@ function JobCard({ job, index, onClick, activeEntries = [], procEntries = [], pr
       )}
     </div>
   )
-}
+})
 
 export default function Dashboard() {
   const navigate = useNavigate()

@@ -9,6 +9,11 @@ import { useToast } from '../components/Toast'
 import BackButton from '../components/BackButton'
 import { useLocation } from 'react-router-dom'
 
+// Module-level category cache — shared with JobDetail
+let _catsCache = null
+let _catsCacheTime = 0
+const CACHE_TTL = 120000
+
 // ── safe JSON parse ──────────────────────────────────────────────
 function safeJSON(val) {
   if (!val) return {}
@@ -3178,8 +3183,11 @@ export default function Materials() {
   }, [location.key])
 
   useEffect(() => {
+    if (_catsCache && Date.now()-_catsCacheTime < CACHE_TTL) {
+      setAllCats(_catsCache); setLoading(false); return
+    }
     supabase.from('material_categories').select('*').order('name')
-      .then(({ data }) => { setAllCats(data || []); setLoading(false) })
+      .then(({ data }) => { _catsCache=data||[]; _catsCacheTime=Date.now(); setAllCats(data || []); setLoading(false) })
   }, [])
 
   function pushCat(cat)  { setStack(s => [...s, cat.id]); setShowAllInCat(false) }

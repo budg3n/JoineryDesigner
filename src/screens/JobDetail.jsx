@@ -357,10 +357,14 @@ function RoomIconBtn({ emoji, onPick }) {
 const TODAY = new Date(); TODAY.setHours(0,0,0,0)
 // Job statuses loaded dynamically from settings — see useJobStatuses hook
 
-// Module-level cache — persists across navigations within the session
-// so re-opening a job doesn't re-fetch the materials library
+// Module-level caches — persist across navigations within the session
 let _materialsCache = null
 let _materialsCacheTime = 0
+let _catsCache = null
+let _catsCacheTime = 0
+let _customersCache = null
+let _customersCacheTime = 0
+const CACHE_TTL = 120000 // 2 minutes
 const TYPES    = ['Kitchen','Joinery','Laundry','Wardrobe','Other']
 
 function dFromNow(dateStr, timeStr) {
@@ -4054,9 +4058,12 @@ export default function JobDetail() {
       supabase.from('jobs').select('*,customers(id,first_name,last_name,company)').eq('id', id).single(),
       supabase.from('attachments').select('id,name,size,type,storage_path,created_at,file_type_id').eq('job_id', id).order('created_at'),
       supabase.from('job_materials').select('*,materials(*)').eq('job_id', id),
-      supabase.from('material_categories').select('id,name,parent_id').order('name'),
+      // Use module-level cache for categories — rarely change
+      (_catsCache && Date.now()-_catsCacheTime < CACHE_TTL)
+        ? Promise.resolve({ data: _catsCache })
+        : supabase.from('material_categories').select('id,name,parent_id').order('name').then(r => { if(!r.error){ _catsCache=r.data; _catsCacheTime=Date.now() } return r }),
       supabase.from('job_appliances').select('*,appliances(*)').eq('job_id', id).order('created_at'),
-      Promise.resolve({ data: [] }), // appliances loaded lazily on tab open
+      Promise.resolve({ data: [] }),
       supabase.from('notes').select('id,title,is_public,created_by,updated_at,content,is_startup').eq('job_id', id).order('updated_at',{ascending:false}),
       supabase.from('file_types').select('*').order('name'),
       supabase.from('approval_requests').select('*,profiles!approval_requests_requested_by_fkey(full_name,email),reviewer:profiles!approval_requests_reviewed_by_fkey(full_name,email)').eq('job_id', id),
@@ -4116,16 +4123,20 @@ export default function JobDetail() {
       .then(({data})=>setTimeHistory(data||[]))
     // Unordered items count
     supabase.from('order_items').select('id',{count:'exact',head:true}).eq('job_id',id).eq('status','To order').then(({count})=>setUnorderedCount(count||0))
-    supabase.from('customers').select('id,first_name,last_name,company,logo_path,brand_colour').order('last_name')
-      .then(({data, error}) => {
-        if (error) {
-          // logo_path/brand_colour may not exist yet — retry with safe columns
-          supabase.from('customers').select('id,first_name,last_name,company').order('last_name')
-            .then(({data}) => setAllCustomers(data||[]))
-        } else {
-          setAllCustomers(data||[])
-        }
-      })
+    // Customers — use module-level cache
+    if (_customersCache && Date.now()-_customersCacheTime < CACHE_TTL) {
+      setAllCustomers(_customersCache)
+    } else {
+      supabase.from('customers').select('id,first_name,last_name,company,logo_path,brand_colour').order('last_name')
+        .then(({data, error}) => {
+          if (error) {
+            supabase.from('customers').select('id,first_name,last_name,company').order('last_name')
+              .then(({data}) => { _customersCache=data||[]; _customersCacheTime=Date.now(); setAllCustomers(data||[]) })
+          } else {
+            _customersCache=data||[]; _customersCacheTime=Date.now(); setAllCustomers(data||[])
+          }
+        })
+    }
     setDirty(false)
     // Load all jobs + notes for the startup note editor dropdowns
     supabase.from('jobs').select('id,name').order('created_at',{ascending:false}).then(({data}) => setAllJobs(data||[]))
