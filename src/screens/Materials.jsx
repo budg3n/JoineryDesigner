@@ -2445,7 +2445,11 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
   }
 
   function handleMaterialCreated(newMaterial) {
-    setMaterials(prev => [...prev, newMaterial])
+    // Re-fetch the full material so pricing/supplier data written after insert is included
+    supabase.from('materials').select('*').eq('id', newMaterial.id).single()
+      .then(({ data }) => {
+        setMaterials(prev => [...prev, data || newMaterial])
+      })
     setShowAddModal(false)
   }
 
@@ -2963,7 +2967,11 @@ function MaterialListView({ topCat, subCat, fields, allCats, onBack, onCatUpdate
           allCats={allCats}
           onClose={() => setDetailMaterial(null)}
           onUpdated={updated => {
-            setMaterials(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m))
+            // Re-fetch full material so pricing/supplier changes are reflected immediately
+            supabase.from('materials').select('*').eq('id', updated.id).single()
+              .then(({ data }) => {
+                setMaterials(prev => prev.map(m => m.id === updated.id ? (data || { ...m, ...updated }) : m))
+              })
             setDetailMaterial(null)
           }}
           onDeleted={id => {
@@ -3132,7 +3140,9 @@ function PricebooksModal({ onClose, supplierFilter }) {
 
 export default function Materials() {
   const location = useLocation()
-  const [stack, setStack]               = useState([])
+  const [stack, setStack]               = useState(() => {
+    try { const s = sessionStorage.getItem('mat_nav_stack'); return s ? JSON.parse(s) : [] } catch { return [] }
+  })
   const [allCats, setAllCats]           = useState([])
   const [loading, setLoading]           = useState(true)
   const [showAllInCat, setShowAllInCat] = useState(false)
@@ -3143,14 +3153,22 @@ export default function Materials() {
   const searchTimer = useRef()
   const toast = useToast()
 
-  // Reset to top level whenever user navigates to /materials (sidebar click)
-  // BUT if we arrived with a state.stack (e.g. from MaterialSettings), use that
+  // Persist stack to sessionStorage whenever it changes
+  useEffect(() => {
+    try { sessionStorage.setItem('mat_nav_stack', JSON.stringify(stack)) } catch {}
+  }, [stack])
+
+  // Reset to top level only when user explicitly navigates to /materials (location.key changes
+  // but NOT on refresh — detect refresh by checking if state has a key vs is undefined)
   useEffect(() => {
     if (location.state?.stack?.length) {
       setStack(location.state.stack)
-    } else {
+    } else if (location.state === null || location.state?.reset) {
+      // Explicit navigation (sidebar click) — reset to root
       setStack([])
+      try { sessionStorage.removeItem('mat_nav_stack') } catch {}
     }
+    // If no state at all (e.g. refresh), keep existing stack — already initialised from sessionStorage
     setShowAllInCat(false)
     setGlobalSearch('')
     setGlobalResults([])
