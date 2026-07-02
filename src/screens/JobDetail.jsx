@@ -1774,7 +1774,7 @@ function RightPanel({ jobId, toast, rooms, onAddRoom, onOpenRoom, onRoomsChange,
 const ROOM_TYPES_LIST = ['Kitchen','Laundry',"Butler's Pantry",'Ensuite','Bathroom','Bedroom','Living','Office','Garage','Other']
 
 // ── Inline Rooms Panel — rooms expand in place ───────────────────
-function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, allCats = [], onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [], variations = {} }) {
+function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, allCats = [], onRoomsChange, onSyncJobTasks, autoOpenRoomId, rfis = [], roomStatuses = [], variations = {}, onExpandedChange }) {
   const [adding, setAdding] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [newType, setNewType] = React.useState('Kitchen')
@@ -1782,6 +1782,7 @@ function InlineRoomsPanel({ rooms, jobId, toast, jobMats, allAppliances, allCats
   const [sortMode, setSortMode] = React.useState(() => { try { return localStorage.getItem('room_sort_mode') || 'alpha' } catch { return 'alpha' } })
 
   React.useEffect(() => { try { localStorage.setItem('room_sort_mode', sortMode) } catch {} }, [sortMode])
+  React.useEffect(() => { onExpandedChange?.(expandedId) }, [expandedId])
 
   // All computed from rooms prop directly — no memos, always fresh
   const priorityOrderedRooms = [...rooms].sort((a, b) => (a.priority || 999) - (b.priority || 999))
@@ -4005,6 +4006,16 @@ export default function JobDetail() {
   const [customerSearch, setCustomerSearch] = useState(null)
   const [customerDropOpen, setCustomerDropOpen] = useState(false)
   const [jobTab, setJobTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'overview')
+
+  // Keep URL in sync with active tab so refresh restores position
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const current = params.get('tab') || 'overview'
+    if (current !== jobTab) {
+      params.set('tab', jobTab)
+      navigate(`?${params.toString()}`, { replace: true })
+    }
+  }, [jobTab])
   // Refresh the lightweight RFI list (used for room-row icons) whenever switching
   // to a tab that shows them, so status changes made in the RFI tab are reflected.
   React.useEffect(() => {
@@ -4860,7 +4871,14 @@ export default function JobDetail() {
         jobMats={jobMats} allAppliances={allAppliances} allCats={allCats}
         onRoomsChange={setRooms} onSyncJobTasks={syncJobTasksFromRoom}
         autoOpenRoomId={autoOpenRoomId} rfis={jobLevelRfis}
-        roomStatuses={roomStatuses} variations={jobLevelVariations} />}
+        roomStatuses={roomStatuses} variations={jobLevelVariations}
+        onExpandedChange={roomId => {
+          const params = new URLSearchParams(location.search)
+          if (roomId) params.set('room', roomId)
+          else params.delete('room')
+          navigate(`?${params.toString()}`, { replace: true })
+        }}
+      />}
 
       {/* MATERIALS */}
       {jobTab === 'materials' && <div>

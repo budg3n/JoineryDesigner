@@ -3140,7 +3140,8 @@ function PricebooksModal({ onClose, supplierFilter }) {
 
 export default function Materials() {
   const location = useLocation()
-  const [stack, setStack]               = useState(() => {
+  const prevPathRef = useRef(location.pathname)
+  const [stack, setStack] = useState(() => {
     try { const s = sessionStorage.getItem('mat_nav_stack'); return s ? JSON.parse(s) : [] } catch { return [] }
   })
   const [allCats, setAllCats]           = useState([])
@@ -3158,17 +3159,19 @@ export default function Materials() {
     try { sessionStorage.setItem('mat_nav_stack', JSON.stringify(stack)) } catch {}
   }, [stack])
 
-  // Reset to top level only when user explicitly navigates to /materials (location.key changes
-  // but NOT on refresh — detect refresh by checking if state has a key vs is undefined)
+  // Only reset to root when the user navigates TO /materials from a different page
+  // (not on refresh — refresh keeps the same pathname so prevPathRef won't differ)
   useEffect(() => {
+    const prevPath = prevPathRef.current
+    prevPathRef.current = location.pathname
     if (location.state?.stack?.length) {
       setStack(location.state.stack)
-    } else if (location.state === null || location.state?.reset) {
-      // Explicit navigation (sidebar click) — reset to root
+    } else if (prevPath !== location.pathname) {
+      // Genuine navigation to /materials from another page — reset to root
       setStack([])
       try { sessionStorage.removeItem('mat_nav_stack') } catch {}
     }
-    // If no state at all (e.g. refresh), keep existing stack — already initialised from sessionStorage
+    // Refresh: prevPath === location.pathname, so we skip the reset and keep sessionStorage stack
     setShowAllInCat(false)
     setGlobalSearch('')
     setGlobalResults([])
